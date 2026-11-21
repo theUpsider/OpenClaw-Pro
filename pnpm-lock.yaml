@@ -1484,6 +1484,16 @@ importers:
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
+  extensions/example:
+    dependencies:
+      typebox:
+        specifier: 1.3.35
+        version: 1.3.35
+    devDependencies:
+      '@openclaw/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
   extensions/kie:
     devDependencies:
       '@openclaw/plugin-sdk':
