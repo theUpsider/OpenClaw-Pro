@@ -62,7 +62,12 @@ function resolveSession(
   return session ? { key, status: "resolved", session } : { key, status: "unavailable" };
 }
 
-/** One open card owns one bounded lookup; the sidebar is not a session directory. */
+/**
+ * One open card owns one bounded lookup; the sidebar is not a session directory.
+ * The execution route keeps its `excludeDock` default (the board deliberately hides
+ * dock conversations); the interaction fallback reads its own dock-inclusive window
+ * through `createWorkboardDockSessions` instead of relaxing this query.
+ */
 export function createWorkboardSessionResolver(host: ControlUiHost, notify: () => void) {
   let key = "";
   let active = false;
@@ -135,6 +140,85 @@ export function createWorkboardSessionResolver(host: ControlUiHost, notify: () =
             notify();
           }
         });
+      }
+    },
+    dispose() {
+      disposed = true;
+      subscription?.dispose();
+      subscription = undefined;
+    },
+  };
+}
+
+/**
+ * Rows one board view reads for the interaction fallback: the most recently updated
+ * sessions, dock conversations included. A dock turn that just edited a card is the
+ * newest row of the roster, so this window covers it; a conversation that fell out of
+ * the window degrades to nothing rather than to a wrong live state.
+ */
+export const WORKBOARD_INTERACTION_WINDOW = 25;
+
+export type WorkboardDockSessionsSnapshot = {
+  readonly sessions: readonly GatewaySessionRow[];
+};
+
+const EMPTY_DOCK_SNAPSHOT: WorkboardDockSessionsSnapshot = { sessions: [] };
+
+/**
+ * The additive, dock-inclusive window behind `WorkboardProps.interactionSessions`. It
+ * is a separate route on purpose: merging dock rows into `props.sessions` would move
+ * the attention/"Needs you" filter and every other roster consumer. One subscription
+ * per board view serving N cards, plus nothing per card.
+ */
+export function createWorkboardDockSessions(host: ControlUiHost, notify: () => void) {
+  let enabled = false;
+  let disposed = false;
+  let subscription: ControlUiSessionListSubscription | undefined;
+  let snapshot: WorkboardDockSessionsSnapshot = EMPTY_DOCK_SNAPSHOT;
+
+  return {
+    get snapshot() {
+      return snapshot;
+    },
+    sync(next: boolean) {
+      if (disposed || enabled === next) {
+        return;
+      }
+      enabled = next;
+      subscription?.dispose();
+      subscription = undefined;
+      if (!enabled) {
+        snapshot = EMPTY_DOCK_SNAPSHOT;
+        return;
+      }
+      try {
+        subscription = host.sessions.observe(
+          {
+            archived: "all",
+            limit: WORKBOARD_INTERACTION_WINDOW,
+            configuredAgentsOnly: false,
+            includeGlobal: false,
+            includeUnknown: false,
+            excludeDock: false,
+            includeDerivedTitles: false,
+            includeLastMessage: false,
+          },
+          ({ result, error }) => {
+            // A failed read is informational: a card keeps its execution behaviour and
+            // loses its fallback name. It is never a page error (invariant).
+            snapshot = result && !error ? { sessions: result.sessions } : EMPTY_DOCK_SNAPSHOT;
+            notify();
+          },
+        );
+      } catch {
+        snapshot = EMPTY_DOCK_SNAPSHOT;
+        notify();
+      }
+    },
+    refresh() {
+      const current = subscription;
+      if (current) {
+        void current.refresh().catch(() => undefined);
       }
     },
     dispose() {

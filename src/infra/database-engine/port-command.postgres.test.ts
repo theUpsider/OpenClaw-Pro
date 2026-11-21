@@ -90,7 +90,7 @@ describe.skipIf(!connection)("workboard port PostgreSQL refusal boundaries", () 
       using db = openNodeSqliteDatabase(sourcePath);
       db.exec(metadata.sqlite);
       db.exec(
-        "INSERT INTO workboard_schema_migrations VALUES ('schema-3', 1); INSERT INTO workboard_boards (id, name, created_at, updated_at) VALUES ('board', 'private-payload', 1, 1)",
+        `INSERT INTO workboard_schema_migrations VALUES ('schema-${metadata.version}', 1); INSERT INTO workboard_boards (id, name, created_at, updated_at) VALUES ('board', 'private-payload', 1, 1)`,
       );
     }
     const original = await hash(sourcePath);

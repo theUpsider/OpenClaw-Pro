@@ -218,6 +218,65 @@ describe("lobster plugin tool", () => {
     });
   });
 
+  it("hands the wrapped registry to the runner and rebuilds it per run", async () => {
+    const runner = {
+      run: vi
+        .fn()
+        .mockResolvedValue({ ok: true, status: "ok", output: [], requiresApproval: null }),
+    };
+    vi.mocked(createEmbeddedLobsterRunner).mockReturnValueOnce(runner);
+    const tool = createLobsterTool(fakeApi(), fakeCtx({ agentId: "main" }));
+    await tool.execute("call", { action: "run", pipeline: "noop" });
+
+    const options = vi.mocked(createEmbeddedLobsterRunner).mock.calls.at(-1)?.[0];
+    expect(typeof options?.createRegistry).toBe("function");
+    // The provider defers to the loaded core, so it is callable more than once.
+    expect(options?.createRegistry?.constructor).toBe(Function);
+  });
+
+  it("fails closed in the bridged command when the tool context carries no agent id", async () => {
+    // Load the real core so the tool's registry provider can build a real command, then
+    // prove the empty agent id reaches the bridge and refuses to evaluate.
+    const { loadedLobsterCore } =
+      await vi.importActual<typeof import("./lobster-runner.js")>("./lobster-runner.js");
+    await createEmbeddedLobsterRunner().run({ action: "run", pipeline: "commands.list" });
+    const core = loadedLobsterCore();
+    expect(typeof core.createDefaultRegistry).toBe("function");
+
+    const evaluate = vi.fn(async () => ({
+      status: "ok" as const,
+      result: { model: "m", answers: {} },
+      provenance: { providerId: "p", rubricVersion: "r", runtimeGeneration: "g" },
+    }));
+    const { createLobsterRegistry } =
+      await vi.importActual<typeof import("./decision-bridge.js")>("./decision-bridge.js");
+    const registry = createLobsterRegistry(core.createDefaultRegistry(), {
+      evaluate: evaluate as never,
+      agentId: "",
+      purpose: "test",
+    });
+    const command = registry.get("decision.evaluate");
+    // The refusal is a terminal halt, not a throw: a step-level on_error could otherwise
+    // recover a route that was never resolved.
+    const result = await command!.run({
+      input: (async function* () {})(),
+      args: {
+        "questions-json": JSON.stringify({ route: { type: "boolean" } }),
+        "state-json": "{}",
+        "min-probability": "0.9",
+      },
+      ctx: { signal: new AbortController().signal, stderr: { write: () => true } } as never,
+    });
+    expect(result?.halt).toBe(true);
+    const items: unknown[] = [];
+    for await (const item of result!.output as AsyncIterable<unknown>) {
+      items.push(item);
+    }
+    expect(items[0]).toMatchObject({ status: "rejected" });
+    expect(items[0]).not.toHaveProperty("route");
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
   it("requires action", async () => {
     const tool = createLobsterTool(fakeApi());
     await expect(tool.execute("call-action-missing", {})).rejects.toThrow(/action required/);

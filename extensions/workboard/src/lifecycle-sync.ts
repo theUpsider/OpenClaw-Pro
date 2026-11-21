@@ -9,6 +9,7 @@ import {
   isWorkboardWorktreeCleanupCandidate,
   type WorkboardWorktreeCleanupRuntime,
 } from "./dispatcher-workspace.js";
+import { reconcileDanglingWorkboardSession } from "./lifecycle-dangling.js";
 import {
   workboardCardMatchesLifecycleLink,
   workboardCardSessionLookupKey,
@@ -52,11 +53,19 @@ type WorkboardLifecycleSession = {
   status?: "running" | "done" | "failed" | "killed" | "timeout";
   hasActiveRun?: boolean;
   abortedLastRun?: boolean;
+  /** Set by the session row when a Gateway restart tombstoned the session. */
+  restartRecoveryStatus?: "tombstoned";
 };
 
 type WorkboardLifecycleSessionSnapshot = {
   sessions: WorkboardLifecycleSession[];
   complete: boolean;
+  /**
+   * True only when a keyed read actually consulted the Gateway. An empty list is a
+   * confirmed absence only then; while the Gateway is unavailable the same empty list
+   * means unknown, and absence conclusions must never be drawn from it.
+   */
+  authoritative?: boolean;
 };
 
 function sessionProvesPreparedAcceptance(session: WorkboardLifecycleSession): boolean {
@@ -299,6 +308,7 @@ async function syncWorkboardLifecycleSessions(params: {
   now?: number;
   recoverPreparedBefore?: number;
   onMatched?: WorkboardLifecycleMatchHandler;
+  readSession?: (sessionKey: string) => Promise<WorkboardLifecycleSessionSnapshot>;
 }): Promise<number> {
   const now = params.now ?? Date.now();
   const sessionsByKey = new Map<string, WorkboardLifecycleSession>();
@@ -364,7 +374,29 @@ async function syncWorkboardLifecycleSessions(params: {
       }
       continue;
     }
+    if (
+      (!session || card.metadata?.automation?.danglingSession) &&
+      (await reconcileDanglingWorkboardSession({ ...params, card, session, now }))
+    ) {
+      count += 1;
+      await params.onMatched?.({ cards: [card], sessionKey: linkedSessionKey });
+    }
     if (!session) {
+      continue;
+    }
+    if (session.restartRecoveryStatus === "tombstoned") {
+      // Detection and a recorded reason only: replacing or resetting the session
+      // stays an operator decision outside this sweep.
+      if (
+        await params.store.blockRestartTombstonedSession(card.id, {
+          expectedSessionKey: linkedSessionKey,
+          sessionKey: session.key,
+          now,
+        })
+      ) {
+        count += 1;
+        await params.onMatched?.({ cards: [card], sessionKey: session.key });
+      }
       continue;
     }
     const observation = lifecycleFromSession(session, now);
@@ -411,6 +443,9 @@ function normalizeSession(value: unknown): WorkboardLifecycleSession | undefined
     ...(status ? { status } : {}),
     ...(typeof value.hasActiveRun === "boolean" ? { hasActiveRun: value.hasActiveRun } : {}),
     ...(value.abortedLastRun === true ? { abortedLastRun: true } : {}),
+    ...(value.restartRecoveryStatus === "tombstoned"
+      ? { restartRecoveryStatus: "tombstoned" as const }
+      : {}),
   };
 }
 
@@ -431,8 +466,10 @@ export async function readWorkboardLifecycleSessions(
       throw new Error("sessions.describe returned an invalid lifecycle snapshot");
     }
     const session = normalizeSession(payload.session);
-    // An exact read establishes no facts about the rest of the catalog.
-    return { sessions: session ? [session] : [], complete: false };
+    // An exact read establishes no facts about the rest of the catalog, but it does
+    // establish this identity: the Gateway was consulted, so an empty list is a
+    // confirmed absence rather than an unknown one.
+    return { sessions: session ? [session] : [], complete: false, authoritative: true };
   }
   let includeUnknown = false;
   if (options.includeUnknown) {
@@ -612,6 +649,7 @@ export function createWorkboardLifecycleService(params: {
                   now: params.now?.() ?? Date.now(),
                   recoverPreparedBefore,
                   onMatched,
+                  readSession: (sessionKey) => readSessions({ includeUnknown: false, sessionKey }),
                 });
                 cards = await params.store.list();
               } catch (error) {

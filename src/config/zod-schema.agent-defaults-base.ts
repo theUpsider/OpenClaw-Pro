@@ -79,6 +79,16 @@ export const AgentDefaultsBaseSchema = z.strictObject({
       /** Global opt-in for automatic Decision experiments; model selection is separate. */
       decisionAssistance: z.boolean().optional(),
       localModelLean: z.boolean().optional(),
+      /** Global opt-in for the adversarial goal-completion verifier (default: false). */
+      goalCompletionVerification: z.boolean().optional(),
+      /** Verifier model ref; defaults to the owning agent's primary model. */
+      goalVerificationModel: z.string().trim().max(512).optional(),
+      /** Minimum delay between two verifier runs for one goal. */
+      goalVerificationCooldownMs: z.number().int().nonnegative().optional(),
+      /** Automatic goal-continuation turns allowed before automation stops. */
+      goalVerificationMaxContinuationTurns: z.number().int().positive().optional(),
+      /** Verifier attempts allowed per goal, including errors and timeouts. */
+      goalVerificationMaxAttempts: z.number().int().positive().optional(),
     })
     .optional(),
   userTimezone: z.string().optional(),
@@ -263,6 +273,11 @@ export const AgentDefaultsBaseSchema = z.strictObject({
       runTimeoutSeconds: z.number().int().min(0).optional(),
       announceTimeoutMs: z.number().int().positive().optional(),
       requireAgentId: z.boolean().optional(),
+      messageTool: z
+        .strictObject({
+          enabled: z.boolean().optional(),
+        })
+        .optional(),
     })
     .optional(),
 });

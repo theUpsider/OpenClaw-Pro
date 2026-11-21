@@ -314,6 +314,9 @@ describe("status scans", () => {
               degradedSecretOwners: [],
               degradedPlugins: [],
               startupMigrationWarning: "Retained legacy state; run openclaw doctor --fix.",
+              startupRecoveryWarning: "Startup session recovery is incomplete.",
+              startupRecoveryTombstoneWarning:
+                "Restart recovery will not resume 1 main session(s).",
               installationReplacementWarning: "Installation replaced; draining before handoff.",
               childRuntime: {
                 execPath: "/opt/homebrew/Cellar/node@24/24.20.0/bin/node",
@@ -360,6 +363,13 @@ describe("status scans", () => {
       );
       expect(result.runtimeDegradation?.installationReplacementWarning).toBe(
         "Installation replaced; draining before handoff.",
+      );
+      // Recovery diagnostics are Gateway-process state; the CLI must carry them over.
+      expect(result.runtimeDegradation?.startupRecoveryWarning).toBe(
+        "Startup session recovery is incomplete.",
+      );
+      expect(result.runtimeDegradation?.startupRecoveryTombstoneWarning).toBe(
+        "Restart recovery will not resume 1 main session(s).",
       );
       expect(result.runtimeDegradation?.childRuntime).toEqual({
         execPath: "/opt/homebrew/Cellar/node@24/24.20.0/bin/node",

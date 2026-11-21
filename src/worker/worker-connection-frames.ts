@@ -39,6 +39,7 @@ import {
   type WorkerInferenceTerminalFrame,
   WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES,
   validateWorkerInferenceEventFrame,
+  validateWorkerInferenceStartRequestFrame,
   validateWorkerInferenceTerminalFrame,
 } from "../../packages/gateway-protocol/src/schema/worker-inference.js";
 import { isWorkerTranscriptFrameWithinBudget } from "../../packages/gateway-protocol/src/worker-transcript-budget.js";
@@ -229,6 +230,9 @@ export class WorkerConnectionFrameDispatcher {
     ) {
       return Promise.reject(new Error("worker transcript exceeds the protocol payload limit"));
     }
+    if (kind === "inference-start" && !validateWorkerInferenceStartRequestFrame(frame)) {
+      return Promise.reject(new Error("worker inference exceeds the protocol payload limit"));
+    }
     const ready = this.options.isReady();
     const readySocket = ready ? this.options.socket() : undefined;
     if (!ready || !readySocket || readySocket.readyState !== WebSocket.OPEN) {
@@ -299,6 +303,16 @@ export class WorkerConnectionFrameDispatcher {
           ? frame.payload
           : undefined,
       )
+    ) {
+      return false;
+    }
+    if (
+      pending.value.kind !== "gateway-tool" &&
+      pending.value.kind !== "gateway-tool-cancel" &&
+      Buffer.byteLength(JSON.stringify(frame), "utf8") >
+        (pending.value.kind === "computer"
+          ? WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES
+          : WORKER_PROTOCOL_MAX_PAYLOAD_BYTES)
     ) {
       return false;
     }

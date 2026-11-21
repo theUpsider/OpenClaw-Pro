@@ -2,10 +2,13 @@ import { randomUUID } from "node:crypto";
 import {
   isValidWorkboardBoardId,
   WORKBOARD_ATTEMPT_STATUSES,
+  WORKBOARD_DECISION_OPTION_LIMITS,
   WORKBOARD_DIAGNOSTIC_KINDS,
   WORKBOARD_DIAGNOSTIC_SEVERITIES,
+  WORKBOARD_DISPATCH_MODES,
   WORKBOARD_EXECUTION_MODES,
   WORKBOARD_EXECUTION_STATUSES,
+  WORKBOARD_INTERACTION_SURFACES,
   WORKBOARD_LINK_TYPES,
   WORKBOARD_NOTIFICATION_KINDS,
   WORKBOARD_PRIORITIES,
@@ -17,10 +20,13 @@ import {
   type WorkboardAutomation,
   type WorkboardClaim,
   type WorkboardComment,
+  type WorkboardDecisionOption,
   type WorkboardDiagnostic,
   type WorkboardDiagnosticAction,
   type WorkboardDiagnosticKind,
+  type WorkboardDispatchMode,
   type WorkboardExecution,
+  type WorkboardInteraction,
   type WorkboardLink,
   type WorkboardLinkType,
   type WorkboardLaunchState,
@@ -49,6 +55,7 @@ import {
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { definedFields } from "../record-fields.js";
 import {
+  DEFAULT_WORKBOARD_OWNER_SLOT_LIMIT,
   MAX_ATTACHMENT_BYTES,
   MAX_CARD_ARTIFACTS,
   MAX_CARD_ATTACHMENTS,
@@ -61,6 +68,8 @@ import {
   MAX_CARD_PROOF,
   MAX_CARD_WORKER_LOGS,
   MAX_RUN_ID_LENGTH,
+  MAX_WORKBOARD_OWNER_SLOT_LIMIT,
+  WORKBOARD_SUMMARY_MAX_LENGTH,
 } from "./store-constants.js";
 import type {
   WorkboardAttachmentInput,
@@ -68,6 +77,7 @@ import type {
   WorkboardProofInput,
   WorkboardWorkerLogInput,
 } from "./store-inputs.js";
+import { normalizeWorkboardAsk, normalizeWorkboardAskKind } from "./workboard-operator-ask.js";
 import { isAbsoluteWorkspacePath } from "./workspace-path.js";
 
 export function normalizeBoardId(value: unknown, fallback?: string): string | undefined {
@@ -184,6 +194,62 @@ export function capText(value: string | undefined, max: number): string | undefi
   return value.length <= max ? value : `${truncateUtf16Safe(value, Math.max(0, max - 1))}…`;
 }
 
+/** Recognisable tail naming the real number of characters dropped by a summary cap. */
+function summaryTruncationMarker(omitted: number): string {
+  return ` … [truncated: ${omitted} characters omitted]`;
+}
+
+/**
+ * Caps a card summary (completion, spec, or decompose prose) at the stored
+ * ceiling instead of refusing the whole write. A summary is review prose, not
+ * authority: an over-long one must never discard the proof, artifacts, or status
+ * move that travel with it. The cap is visible, never silent - the tail is
+ * replaced with a marker naming the real number of dropped characters - and the
+ * returned warning is recorded on the card so `workboard show` and the Control
+ * UI can surface it. Callers still fail closed on real authority fields; only
+ * the prose is capped.
+ */
+export function capWorkboardSummary(
+  value: unknown,
+  fieldLabel: string,
+  now: number,
+  maxLength: number = WORKBOARD_SUMMARY_MAX_LENGTH,
+): { summary: string | undefined; workerLog?: WorkboardWorkerLog } {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized || normalized.length <= maxLength) {
+    return { summary: normalized || undefined };
+  }
+  // The marker width grows with the digits of the omitted count, which depends on
+  // the kept prefix, so settle the two in a couple of passes before trimming.
+  let omitted = normalized.length;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const kept = truncateUtf16Safe(
+      normalized,
+      maxLength - summaryTruncationMarker(omitted).length,
+    ).length;
+    const next = normalized.length - kept;
+    if (next === omitted) {
+      break;
+    }
+    omitted = next;
+  }
+  const marker = summaryTruncationMarker(omitted);
+  const prefix = truncateUtf16Safe(normalized, maxLength - marker.length);
+  const message = `${fieldLabel} was ${normalized.length} characters and was capped to ${maxLength}; ${normalized.length - prefix.length} characters omitted.`;
+  return {
+    summary: `${prefix}${marker}`,
+    workerLog: workerLogEntry({ level: "warning", message }, message, now),
+  };
+}
+
+/** Append one worker-log entry inside the shared worker-log cap, if there is one. */
+export function appendWorkerLogEntry(
+  workerLogs: WorkboardMetadata["workerLogs"],
+  entry: WorkboardWorkerLog | undefined,
+): WorkboardMetadata["workerLogs"] {
+  return entry ? [...(workerLogs ?? []), entry].slice(-MAX_CARD_WORKER_LOGS) : workerLogs;
+}
+
 export function normalizeStatus(value: unknown, fallback: WorkboardStatus): WorkboardStatus {
   return normalizeEnumValue(value, WORKBOARD_STATUSES, fallback, "status");
 }
@@ -225,6 +291,42 @@ function normalizePositiveInteger(value: unknown, fieldName: string): number | u
     throw new Error(`${fieldName} must be a number.`);
   }
   return Math.max(1, Math.trunc(value));
+}
+
+function normalizeOptionalBoolean(value: unknown, fieldName: string): boolean | undefined {
+  if (value == null || value === "") {
+    return undefined;
+  }
+  if (typeof value !== "boolean") {
+    throw new Error(`${fieldName} must be a boolean.`);
+  }
+  return value;
+}
+
+/**
+ * Placement owner of a card. Only the two declared modes count; a typo or an
+ * unknown mode is refused instead of silently falling back to native, because a
+ * card the operator marked external must never be started by the local dispatcher.
+ */
+function normalizeDispatchMode(value: unknown): WorkboardDispatchMode | undefined {
+  if (value == null || value === "") {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`dispatch mode must be one of: ${WORKBOARD_DISPATCH_MODES.join(", ")}.`);
+  }
+  return normalizeEnumValue(value, WORKBOARD_DISPATCH_MODES, undefined, "dispatch mode");
+}
+
+/** Keep a stored owner ceiling inside the range the slot gates actually enforce. */
+function clampWorkboardOwnerSlotLimit(value: number | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return Math.min(
+    MAX_WORKBOARD_OWNER_SLOT_LIMIT,
+    Math.max(DEFAULT_WORKBOARD_OWNER_SLOT_LIMIT, value),
+  );
 }
 
 export function normalizeWorkspace(
@@ -276,14 +378,139 @@ export function normalizeWorkspace(
   });
 }
 
+/**
+ * Reference data only, never authority: the session a card-bound turn came from.
+ * Malformed input is dropped whole (missing or empty session key, non-finite
+ * timestamps, unknown surface) so a bad write cannot leave a half-record behind.
+ * Over-long strings are clamped like the neighbouring capped fields; `updatedAt`
+ * never predates `startedAt`.
+ */
+export function normalizeInteraction(value: unknown): WorkboardInteraction | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const sessionKey = capText(normalizeOptionalString(value.sessionKey), 240);
+  const startedAt = normalizeTimestamp(value.startedAt, 0);
+  const updatedAt = normalizeTimestamp(value.updatedAt, 0);
+  const agentId = capText(normalizeOptionalString(value.agentId), 120);
+  const surface = WORKBOARD_INTERACTION_SURFACES.includes(
+    value.surface as (typeof WORKBOARD_INTERACTION_SURFACES)[number],
+  )
+    ? (value.surface as WorkboardInteraction["surface"])
+    : undefined;
+  if (!sessionKey || !startedAt || !updatedAt) {
+    return undefined;
+  }
+  return definedFields({
+    sessionKey,
+    agentId,
+    startedAt,
+    updatedAt: Math.max(startedAt, updatedAt),
+    surface,
+  });
+}
+
+function normalizeRestartTombstone(value: unknown): WorkboardAutomation["restartTombstone"] {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const sessionKey = normalizeOptionalString(value.sessionKey);
+  const detectedAt = normalizeTimestamp(value.detectedAt, 0);
+  return sessionKey && detectedAt ? { sessionKey, detectedAt } : undefined;
+}
+
+function normalizeDanglingSession(value: unknown): WorkboardAutomation["danglingSession"] {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const sessionKey = normalizeOptionalString(value.sessionKey);
+  const runId = normalizeRunId(value.runId);
+  const detectedAt = normalizeTimestamp(value.detectedAt, 0);
+  const misses = normalizeTimestamp(value.misses, 0);
+  return sessionKey && detectedAt && misses
+    ? { sessionKey, ...(runId ? { runId } : {}), detectedAt, misses }
+    : undefined;
+}
+
+/**
+ * Choices for a decision card's picker, bounded by WORKBOARD_DECISION_OPTION_LIMITS.
+ * By default invalid input is dropped, never thrown: an entry whose label is missing,
+ * not a string, empty, longer than labelMax, or repeats an earlier label is dropped; a
+ * description that is not a string or longer than descriptionMax is dropped from its
+ * entry; a non-boolean `recommended` is ignored and only the first `true` is kept. A
+ * value that is not an array, or a list left with fewer than min or more than max
+ * entries, is undefined, as is `[]` (which clears stored options). `strict` throws at
+ * the first dropped entry or field instead, so agent tools report it.
+ */
+export function normalizeDecisionOptions(
+  value: unknown,
+  options: { strict?: boolean } = {},
+): WorkboardDecisionOption[] | undefined {
+  const { min, max, labelMax, descriptionMax } = WORKBOARD_DECISION_OPTION_LIMITS;
+  const drop = (reason: string) => {
+    if (options.strict) {
+      throw new Error(`decisionOptions ${reason}`);
+    }
+  };
+  if (!Array.isArray(value)) {
+    drop("must be an array.");
+    return undefined;
+  }
+  const choices: WorkboardDecisionOption[] = [];
+  let recommended = false;
+  for (const entry of value) {
+    const record = isRecord(entry) ? entry : {};
+    const label = typeof record.label === "string" ? record.label.trim() : "";
+    if (!label || label.length > labelMax) {
+      drop(`labels must be 1 to ${labelMax} characters.`);
+      continue;
+    }
+    if (choices.some((choice) => choice.label === label)) {
+      drop(`labels must be unique (repeated "${label}").`);
+      continue;
+    }
+    const choice: WorkboardDecisionOption = { label };
+    if (record.description !== undefined) {
+      const description =
+        typeof record.description === "string" ? record.description.trim() : undefined;
+      if (description === undefined || description.length > descriptionMax) {
+        drop(`descriptions must be strings of at most ${descriptionMax} characters.`);
+      } else if (description) {
+        choice.description = description;
+      }
+    }
+    if (record.recommended !== undefined && typeof record.recommended !== "boolean") {
+      drop("recommended must be a boolean.");
+    } else if (record.recommended === true && !recommended) {
+      choice.recommended = true;
+      recommended = true;
+    }
+    choices.push(choice);
+  }
+  if (choices.length === 0) {
+    return undefined;
+  }
+  if (choices.length < min || choices.length > max) {
+    drop(`needs ${min} to ${max} options (got ${choices.length}).`);
+    return undefined;
+  }
+  return choices;
+}
+
 export function normalizeAutomation(
   value: unknown,
   fallback: WorkboardAutomation = {},
   options: { launch?: WorkboardLaunchState } = {},
 ): WorkboardAutomation | undefined {
   const record = isRecord(value) ? value : {};
-  const timestamp = (key: "scheduledAt" | "dispatchCount" | "lastDispatchAt") =>
-    Object.hasOwn(record, key) ? normalizeTimestamp(record[key], 0) : fallback[key];
+  const timestamp = (
+    key:
+      | "scheduledAt"
+      | "dispatchCount"
+      | "lastDispatchAt"
+      | "autoCompletedAt"
+      | "acceptanceSeenAt",
+  ) => (Object.hasOwn(record, key) ? normalizeTimestamp(record[key], 0) : fallback[key]);
   const strings = (key: "skills" | "createdCardIds", name: string, limit = 80) =>
     Object.hasOwn(record, key) ? normalizeStringList(record[key], name, limit) : fallback[key];
   const next = {
@@ -315,12 +542,56 @@ export function normalizeAutomation(
     maxRetries: Object.hasOwn(record, "maxRetries")
       ? normalizePositiveInteger(record.maxRetries, "max retries")
       : fallback.maxRetries,
+    parallelizable: Object.hasOwn(record, "parallelizable")
+      ? normalizeOptionalBoolean(record.parallelizable, "parallelizable")
+      : fallback.parallelizable,
+    // Clamp on write so the stored ceiling matches the limit the gates enforce;
+    // otherwise the UI would advertise a value the dispatcher never honours.
+    maxConcurrentPerOwner: Object.hasOwn(record, "maxConcurrentPerOwner")
+      ? clampWorkboardOwnerSlotLimit(
+          normalizePositiveInteger(record.maxConcurrentPerOwner, "max concurrent per owner"),
+        )
+      : fallback.maxConcurrentPerOwner,
+    // Absent means `native`; only the two declared modes count, so a typo cannot
+    // silently turn a card into external work the dispatcher never starts.
+    dispatchMode: Object.hasOwn(record, "dispatchMode")
+      ? normalizeDispatchMode(record.dispatchMode)
+      : fallback.dispatchMode,
     scheduledAt: timestamp("scheduledAt") || undefined,
-    summary: normalizeBoundedString(record.summary, fallback.summary, 2000, "summary"),
+    summary: normalizeBoundedString(
+      record.summary,
+      fallback.summary,
+      WORKBOARD_SUMMARY_MAX_LENGTH,
+      "summary",
+    ),
     createdCardIds: strings("createdCardIds", "created card ids", 120),
     dispatchCount: timestamp("dispatchCount") || undefined,
     lastDispatchAt: timestamp("lastDispatchAt") || undefined,
     launch: options.launch ? normalizeLaunchState(options.launch) : fallback.launch,
+    awaitingAcceptance: Object.hasOwn(record, "awaitingAcceptance")
+      ? normalizeOptionalBoolean(record.awaitingAcceptance, "awaiting acceptance") || undefined
+      : fallback.awaitingAcceptance,
+    autoCompletedAt: timestamp("autoCompletedAt") || undefined,
+    autoCompletedBy: Object.hasOwn(record, "autoCompletedBy")
+      ? normalizeBoundedString(record.autoCompletedBy, undefined, 120, "auto completed by")
+      : fallback.autoCompletedBy,
+    acceptanceSeenAt: timestamp("acceptanceSeenAt") || undefined,
+    restartTombstone: Object.hasOwn(record, "restartTombstone")
+      ? normalizeRestartTombstone(record.restartTombstone)
+      : fallback.restartTombstone,
+    danglingSession: Object.hasOwn(record, "danglingSession")
+      ? normalizeDanglingSession(record.danglingSession)
+      : fallback.danglingSession,
+    decisionOptions: Object.hasOwn(record, "decisionOptions")
+      ? normalizeDecisionOptions(record.decisionOptions)
+      : fallback.decisionOptions,
+    // The one guard every write path shares (create, update, specify, raw metadata,
+    // and the Control UI's patch route all land here): bad ask text or an unknown
+    // blocker kind is refused with the rule named, never silently dropped or cut.
+    ask: Object.hasOwn(record, "ask") ? normalizeWorkboardAsk(record.ask) : fallback.ask,
+    askKind: Object.hasOwn(record, "askKind")
+      ? normalizeWorkboardAskKind(record.askKind)
+      : fallback.askKind,
   };
   // Legacy imports can retain empty workspace or authority objects.
   for (const [key, entry] of Object.entries(next)) {
@@ -913,6 +1184,10 @@ export function normalizeMetadata(
           }
         : undefined
       : fallback.stale,
+    // Host-resolved provenance, never minted from a caller-supplied patch: like
+    // `workspaceAccess`, it survives only as the owner already recorded it, and
+    // `updateCard` is the single writer that sets it.
+    interaction: fallback.interaction,
     lifecycleStatusSourceUpdatedAt: hasLifecycleStatusSourceUpdatedAt
       ? normalizeTimestamp(record.lifecycleStatusSourceUpdatedAt, 0)
       : fallback.lifecycleStatusSourceUpdatedAt,

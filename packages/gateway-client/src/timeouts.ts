@@ -15,6 +15,8 @@ function isTestRuntimeEnv(env: NodeJS.ProcessEnv): boolean {
 export const MAX_SAFE_TIMEOUT_DELAY_MS = 2_147_483_647;
 /** Default server-side window for gateway preauth handshakes. */
 export const DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS = 30_000;
+/** Connection lifetime after hello before reconnect backoff restarts at its initial delay. */
+export const STABLE_CONNECTION_BACKOFF_RESET_MS = 60_000;
 
 /** Starts the browser-safe deadline that covers Gateway connect preparation and hello. */
 export function startGatewayConnectTimeout(onTimeout: () => void): ReturnType<typeof setTimeout> {

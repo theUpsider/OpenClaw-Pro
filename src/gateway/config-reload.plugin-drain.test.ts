@@ -19,6 +19,11 @@ import { createPluginRecord } from "../plugins/status.test-helpers.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { createTestRegistry } from "../test-utils/channel-plugins.js";
 import {
+  LIFECYCLE_DRAIN_RETRY_BACKOFF_MAX_MS,
+  LIFECYCLE_DRAIN_RETRY_BACKOFF_MS,
+  PluginLifecycleRetryBackoffError,
+} from "./config-reload-plugin-drain.js";
+import {
   closeTestConfigReloaders,
   createReloaderHarness,
   flushReload,
@@ -122,6 +127,7 @@ describe("plugin drain recovery", () => {
                 new Set(["codex"]),
                 [instance],
                 new PluginHostCleanupTimeoutError("plugin codex admitted work"),
+                60_000,
               ),
             },
           );
@@ -501,5 +507,165 @@ describe("plugin observations", () => {
     } finally {
       await harness.reloader.stop();
     }
+  });
+});
+
+describe("lifecycle drain retry backoff", () => {
+  const config: OpenClawConfig = {};
+  const drainFailure = () =>
+    new PluginRuntimeApplicationError("plugin service stop timed out", {
+      operationId: "failed",
+      generation: getPluginRuntimeGeneration(),
+      pluginIds: ["notes"],
+      phase: "drain",
+      committed: false,
+    });
+
+  async function createFailingHarness() {
+    const harness = createReloaderHarness(async () => makeSnapshot({ config, hash: "same" }), {
+      initialConfig: config,
+      onHotReload: async () => {
+        throw drainFailure();
+      },
+    });
+    await harness.reloader.ready;
+    const reload = (pluginIds = ["notes"], waitForDrain?: boolean) =>
+      harness.reloader
+        .applyPluginLifecycleChange({ config, pluginIds, reason: "reload", waitForDrain })
+        .catch((error: unknown) => error);
+    return { harness, reload };
+  }
+
+  it("collapses concurrent identical retries of a failed drain into one generation run", async () => {
+    const { harness, reload } = await createFailingHarness();
+
+    const results = await withPluginLifecycleLease({}, () =>
+      Promise.all(Array.from({ length: 4 }, () => reload())),
+    );
+
+    expect(harness.onHotReload).toHaveBeenCalledOnce();
+    const [first, ...refused] = results;
+    expect(first).toMatchObject({ details: { phase: "drain", committed: false } });
+    const operationIds = new Set<unknown>();
+    for (const result of refused) {
+      assert(result instanceof PluginRuntimeApplicationError);
+      expect(result.details).toMatchObject({
+        pluginIds: ["notes"],
+        phase: "prepare",
+        committed: false,
+      });
+      assert(result.cause instanceof PluginLifecycleRetryBackoffError);
+      expect(result.cause.cause).toBe(first);
+      expect(result.cause.retryAfterMs).toBeLessThanOrEqual(LIFECYCLE_DRAIN_RETRY_BACKOFF_MS);
+      operationIds.add(result.details.operationId);
+    }
+    // Each refused caller receives its own operation receipt.
+    expect(operationIds.size).toBe(refused.length);
+  });
+
+  it("reruns an identical replacement only after its backoff, with --wait, or for other plugins", async () => {
+    const { harness, reload } = await createFailingHarness();
+    await withPluginLifecycleLease({}, async () => {
+      await reload();
+      await reload();
+      expect(harness.onHotReload).toHaveBeenCalledTimes(1);
+      await reload(["other"]);
+      expect(harness.onHotReload).toHaveBeenCalledTimes(2);
+      await reload(["notes"], true);
+      expect(harness.onHotReload).toHaveBeenCalledTimes(3);
+
+      // The failed --wait run repeats the request, so its wait doubled despite the unrelated failure.
+      await vi.advanceTimersByTimeAsync(LIFECYCLE_DRAIN_RETRY_BACKOFF_MS);
+      await reload();
+      expect(harness.onHotReload).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(LIFECYCLE_DRAIN_RETRY_BACKOFF_MS);
+      await reload();
+      expect(harness.onHotReload).toHaveBeenCalledTimes(4);
+    });
+  });
+
+  /** Outcome and persisted bytes are switchable; a success keeps the generation, like A2. */
+  async function createSwitchableHarness() {
+    const state = { outcome: "fail" as "fail" | "apply", hash: "same" };
+    const harness = createReloaderHarness(async () => makeSnapshot({ config, hash: state.hash }), {
+      initialConfig: config,
+      onHotReload: async () => {
+        if (state.outcome === "fail") {
+          throw drainFailure();
+        }
+        return {
+          status: "applied",
+          runtime: {
+            operationId: "kept",
+            generation: getPluginRuntimeGeneration(),
+            pluginIds: ["notes"],
+          },
+        };
+      },
+    });
+    await harness.reloader.ready;
+    const reload = (reason: "reload" | "enable" = "reload") =>
+      harness.reloader
+        .applyPluginLifecycleChange({ config, pluginIds: ["notes"], reason })
+        .catch((error: unknown) => error);
+    return { harness, reload, state };
+  }
+
+  it("keys the backoff to the request: another reason or other persisted bytes run at once", async () => {
+    const { harness, reload, state } = await createSwitchableHarness();
+    await withPluginLifecycleLease({}, async () => {
+      await reload();
+      expect(await reload()).toMatchObject({
+        cause: expect.any(PluginLifecycleRetryBackoffError),
+      });
+      expect(harness.onHotReload).toHaveBeenCalledTimes(1);
+
+      await reload("enable");
+      expect(harness.onHotReload).toHaveBeenCalledTimes(2);
+
+      // Changed inputs never see the stale entry; it stays bounded and leaves with the generation.
+      state.hash = "edited";
+      await reload();
+      expect(harness.onHotReload).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  it("resets the backoff when the same request later succeeds without a new generation", async () => {
+    const { harness, reload, state } = await createSwitchableHarness();
+    await withPluginLifecycleLease({}, async () => {
+      await reload();
+      await vi.advanceTimersByTimeAsync(LIFECYCLE_DRAIN_RETRY_BACKOFF_MS);
+      state.outcome = "apply";
+      const generation = getPluginRuntimeGeneration();
+      await expect(reload()).resolves.toMatchObject({ generation });
+      expect(harness.onHotReload).toHaveBeenCalledTimes(2);
+
+      // A later failure is a first failure again: it waits the base window, not double.
+      state.outcome = "fail";
+      await reload();
+      expect(harness.onHotReload).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(LIFECYCLE_DRAIN_RETRY_BACKOFF_MS);
+      await reload();
+      expect(harness.onHotReload).toHaveBeenCalledTimes(4);
+    });
+  });
+
+  it("always admits the identical retry again once each capped window passes", async () => {
+    const { harness, reload } = await createSwitchableHarness();
+    await withPluginLifecycleLease({}, async () => {
+      await reload();
+      for (let failures = 1; failures <= 7; failures++) {
+        const waitMs = Math.min(
+          LIFECYCLE_DRAIN_RETRY_BACKOFF_MS * 2 ** (failures - 1),
+          LIFECYCLE_DRAIN_RETRY_BACKOFF_MAX_MS,
+        );
+        await vi.advanceTimersByTimeAsync(waitMs - 1);
+        await reload();
+        expect(harness.onHotReload).toHaveBeenCalledTimes(failures);
+        await vi.advanceTimersByTimeAsync(1);
+        await reload();
+        expect(harness.onHotReload).toHaveBeenCalledTimes(failures + 1);
+      }
+    });
   });
 });

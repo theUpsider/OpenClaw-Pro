@@ -29,6 +29,7 @@ import {
   resolvePathFromInput,
   resolveSandboxPathMapping,
 } from "./path-policy.js";
+import { refuseCoveredPaths, type ResolvedPathScopePolicy } from "./path-scope-policy.js";
 import type { AgentTool } from "./runtime/index.js";
 import { assertSandboxPath, markHostRootEscape } from "./sandbox-paths.js";
 import { resolveSandboxFileMutationQueueKey } from "./sandbox/file-mutation-identity.js";
@@ -64,6 +65,8 @@ function normalizeUpdateComparison(content: string): string {
 
 type ApplyPatchOptions = ApplyPatchFileOptions & {
   patchInputPaths?: ReadonlyMap<string, string>;
+  /** Per-model path visibility rules; a covered target is refused like a missing file. */
+  pathScopePolicy?: ResolvedPathScopePolicy;
 };
 
 const applyPatchSchema = Type.Object({
@@ -93,6 +96,8 @@ export function createApplyPatchTool(
     root?: string;
     sandbox?: SandboxApplyPatchConfig;
     workspaceOnly?: boolean;
+    /** Per-model path visibility rules; a covered target is refused like a missing file. */
+    pathScopePolicy?: ResolvedPathScopePolicy;
     containmentSource?: ApplyPatchContainmentSource;
     abortSignal?: AbortSignal;
     memoryWriteProvenance?: MemoryWriteProvenanceObserver;
@@ -129,6 +134,7 @@ export function createApplyPatchTool(
           root,
           sandbox,
           workspaceOnly,
+          pathScopePolicy: options.pathScopePolicy,
           memoryWriteProvenance: options.memoryWriteProvenance,
           signal: executionSignal,
         });
@@ -742,6 +748,19 @@ async function resolvePatchPath(
       filePath,
       cwd: options.cwd,
     });
+    // The rules name host paths, so a sandboxed patch is admitted on the host location the container
+    // path resolves to — checking the container spelling would miss every rule. A remote bridge
+    // reports no host path at all, so its mount table is the fallback projection. Every hunk target,
+    // including a move destination, passes through here, so a refused batch writes nothing.
+    const mapped = resolveSandboxPathMapping(
+      options.sandbox.bridge.pathMappings ?? [],
+      resolved.containerPath,
+    );
+    refuseCoveredPaths(
+      options.pathScopePolicy,
+      [resolved.hostPath ?? mapped?.hostPath ?? resolved.containerPath],
+      options.cwd,
+    );
     if (options.workspaceOnly !== false) {
       const legacyBridge = options.sandbox.bridge.pathMappings === undefined;
       const workspaceMapping = resolveSandboxPathMapping(
@@ -782,6 +801,8 @@ async function resolvePatchPath(
   }
 
   const workspaceOnly = options.workspaceOnly !== false;
+  // No sandbox: the tool resolves against the host directly, so the raw path is the host path.
+  refuseCoveredPaths(options.pathScopePolicy, [filePath], options.cwd);
   const resolved = workspaceOnly
     ? (
         await assertSandboxPath({

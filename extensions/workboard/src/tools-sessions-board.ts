@@ -5,6 +5,7 @@ import { Type } from "typebox";
 import type { WorkboardSessionsBoardService } from "./sessions-board.js";
 import type { WorkboardStore } from "./store.js";
 import { strictObject } from "./tools-card-mutations.js";
+import { resolveBoundBoardId, type VoiceBoardBinding } from "./voice-board-binding.js";
 
 const boardIdField = Type.Optional(
   Type.String({
@@ -57,6 +58,7 @@ export function createWorkboardSessionsBoardTools(params: {
   store: WorkboardStore;
   caller: { assertCurrent: () => void };
   sessionsBoard?: Pick<WorkboardSessionsBoardService, "read" | "update" | "move">;
+  voiceBoard?: VoiceBoardBinding;
 }): AnyAgentTool[] {
   const service = () => {
     if (!params.sessionsBoard) {
@@ -71,6 +73,10 @@ export function createWorkboardSessionsBoardTools(params: {
     const boards = (await params.store.listBoards()).boards.filter(
       (board) => board.kind === "sessions",
     );
+    const bound = resolveBoundBoardId(params.voiceBoard, "sessions", boards);
+    if (bound) {
+      return bound;
+    }
     const board = boards[0];
     if (boards.length === 1 && board) {
       return board.id;
@@ -90,8 +96,9 @@ export function createWorkboardSessionsBoardTools(params: {
       parameters: strictObject({ boardId: boardIdField }),
       execute: async (_toolCallId, rawParams) => {
         const record = asNonArrayRecord(rawParams);
+        const result = await service().read(await resolveBoardId(record), undefined, params.caller);
         return jsonResult(
-          await service().read(await resolveBoardId(record), undefined, params.caller),
+          params.voiceBoard ? { ...result, voiceBoard: params.voiceBoard } : result,
         );
       },
     },

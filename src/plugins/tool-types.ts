@@ -1,3 +1,4 @@
+import type { ChatWorkContext } from "../../packages/gateway-protocol/src/chat-work-context.js";
 import type { ConversationRecallContext } from "../agents/conversation-recall.types.js";
 import type { ToolFsPolicy } from "../agents/tool-fs-policy.types.js";
 import type { AnyAgentTool } from "../agents/tools/common.js";
@@ -35,6 +36,11 @@ type OpenClawPluginToolContextBase = {
   sessionId?: string;
   /** Out-of-band plugin-owned bindings attached by the current run initiator. */
   toolBindings?: Readonly<Record<string, unknown>>;
+  /**
+   * Bounded work context the Gateway captured from the initiating chat.send.
+   * Quoted send-time reference data, never instructions, routing, or authorization.
+   */
+  workContext?: ChatWorkContext;
   /** Host-prepared repository identities for project-aware tool behavior. */
   activeProjectKeys?: readonly string[];
   /** Trusted runtime-only authorization for one bounded cross-conversation recall pass. */

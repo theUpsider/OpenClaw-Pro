@@ -1446,6 +1446,41 @@ describe("image tool implicit imageModel config", () => {
     },
   );
 
+  it.each([false, true])(
+    "reads agent workspace files beside a session workspace only when unconfined (workspaceOnly: %s)",
+    async (workspaceOnly) => {
+      await withTempWorkspacePng(async ({ workspaceDir: sessionWorkspaceDir }) => {
+        const fetch = stubMinimaxOkFetch();
+        const agentWorkspaceDir = path.join(path.dirname(sessionWorkspaceDir), "workspace-ops");
+        const reportImagePath = path.join(agentWorkspaceDir, "reports", "screenshot.png");
+        await fs.mkdir(path.dirname(reportImagePath), { recursive: true });
+        await fs.writeFile(reportImagePath, Buffer.from(ONE_PIXEL_PNG_B64, "base64"));
+        await withTempAgentDir(async (agentDir) => {
+          const base = createMinimaxImageConfig();
+          const tool = createRequiredImageTool({
+            config: {
+              ...base,
+              agents: { ...base.agents, entries: { ops: { workspace: agentWorkspaceDir } } },
+            },
+            agentId: "ops",
+            agentDir,
+            workspaceDir: sessionWorkspaceDir,
+            fsPolicy: { workspaceOnly },
+          });
+          if (workspaceOnly) {
+            await expect(
+              tool.execute("confined", { prompt: "Describe.", path: reportImagePath }),
+            ).rejects.toThrow(/not under an allowed directory/i);
+            expect(fetch).not.toHaveBeenCalled();
+          } else {
+            await expectImageToolExecOk(tool, reportImagePath);
+            expect(fetch).toHaveBeenCalledTimes(1);
+          }
+        });
+      });
+    },
+  );
+
   it.each([false])(
     "allows current iMessage account attachments (wildcard root: %s)",
     async (wildcard) => {

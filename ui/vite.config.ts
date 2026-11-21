@@ -14,7 +14,6 @@ import {
   type UserConfig,
 } from "vite";
 import { mermaidClassicBundlePlugin } from "../packages/mermaid-renderer/vite-plugin.ts";
-import { CONTROL_UI_LOCALE_ENTRIES } from "../scripts/lib/control-ui-i18n-config.ts";
 import {
   CONTROL_UI_BUILD_ID_ATTRIBUTE,
   isControlUiVersionedPublicAsset,
@@ -26,7 +25,6 @@ import {
 import {
   controlUiCodeSplitting,
   controlUiIsolatedDesktopRuntimePlugin,
-  controlUiLocaleConfigHintsChunkPrefix,
 } from "./config/control-ui-chunking.ts";
 import { createControlUiDevGateway } from "./config/control-ui-dev-gateway.ts";
 import { controlUiHoverGuardPlugin } from "./config/control-ui-hover-guard.ts";
@@ -35,6 +33,7 @@ import { controlUiPluginDistributionsPlugin } from "./config/control-ui-plugin-d
 import { controlUiSocialCardPlugin } from "./config/control-ui-social-card.ts";
 import { controlUiSolidPlugin } from "./config/control-ui-solid.ts";
 import { controlUiWebAwesomePageRulePlugin } from "./config/control-ui-web-awesome-page-rule.ts";
+import { DEFAULT_THEME_TYPEFACE } from "./src/app/default-typeface.ts";
 import { normalizeControlUiBuildInfo } from "./src/build-info-normalizers.ts";
 import type { ControlUiBuildInfo } from "./src/build-info.ts";
 
@@ -104,46 +103,6 @@ export function createControlUiPrecompressedAssetVariants(
     },
   ];
 }
-
-function escapeControlUiAssetRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-}
-
-const controlUiLocaleAssetPatterns = CONTROL_UI_LOCALE_ENTRIES.map(({ locale }) => ({
-  locale,
-  base: new RegExp(`^assets/${escapeControlUiAssetRegExp(locale)}-[^/]+\\.js$`, "u"),
-  configHints: new RegExp(
-    `^assets/${controlUiLocaleConfigHintsChunkPrefix}${escapeControlUiAssetRegExp(locale)}-[^/]+\\.js$`,
-    "u",
-  ),
-}));
-
-function controlUiLocaleFromAssetPath(file: string, kind: "base" | "configHints"): string | null {
-  return (
-    controlUiLocaleAssetPatterns.find(({ [kind]: pattern }) => pattern.test(file))?.locale ?? null
-  );
-}
-
-export const resolveControlUiModulePreloadDependencies: ResolveModulePreloadDependenciesFn = (
-  filename,
-  deps,
-  context,
-) => {
-  if (context.hostType !== "js") {
-    return deps;
-  }
-  const locale = controlUiLocaleFromAssetPath(filename, "base");
-  if (!locale) {
-    return deps;
-  }
-  const matchingHint = deps.find(
-    (dep) => controlUiLocaleFromAssetPath(dep, "configHints") === locale,
-  );
-  if (!matchingHint) {
-    return deps;
-  }
-  return deps.filter((dep) => dep !== filename && dep !== matchingHint);
-};
 
 function normalizeBase(input: string): string {
   const trimmed = input.trim();
@@ -480,6 +439,10 @@ export async function refreshControlUiBuildOutput(
     htmlPath,
     controlUiBuildIdentityHtml(fs.readFileSync(htmlPath, "utf8"), buildInfo, cacheId),
   );
+  // Precache only the default theme's faces. Other fonts and theme styles are
+  // chosen by preferences and cached by the worker on first online use.
+  const offlineTypefaceStylesheet = `fonts/${DEFAULT_THEME_TYPEFACE}.css`;
+  const offlinePublicAssets: string[] = [];
   if (publicDir) {
     for (const asset of publicAssets) {
       const fontStylesheet = asset.startsWith("fonts/") && asset.endsWith(".css");
@@ -489,11 +452,15 @@ export async function refreshControlUiBuildOutput(
       const filePath = path.join(buildOutDir, asset);
       const assetSource = fs.readFileSync(path.join(publicDir, asset), "utf8");
       if (fontStylesheet) {
+        const faces = /url\("([^"/?#]+\.woff2)"\)/gu;
+        if (asset === offlineTypefaceStylesheet) {
+          offlinePublicAssets.push(
+            asset,
+            ...Array.from(assetSource.matchAll(faces), ([, face]) => `fonts/${face}`),
+          );
+        }
         // Relative CSS URLs do not inherit their parent stylesheet's query.
-        const versioned = assetSource.replace(
-          /url\("([^"/?#]+\.woff2)"\)/gu,
-          `url("$1?v=${cacheId}")`,
-        );
+        const versioned = assetSource.replace(faces, `url("$1?v=${cacheId}")`);
         fs.writeFileSync(filePath, versioned);
       } else {
         const manifest = JSON.parse(assetSource) as { icons: Array<{ src: string }> };
@@ -513,16 +480,9 @@ export async function refreshControlUiBuildOutput(
   // route graph also warms assets loaded before the first worker controls a tab.
   const offlineShell = {
     html: fs.readFileSync(path.join(buildOutDir, "index.html"), "utf8"),
-    // Public fonts and theme styles are selected at runtime by preferences.
-    // Keep this bounded build inventory, not all lazy pages, locales, or plugins.
-    assets: [
-      ...new Set([
-        ...selectedBootAssets,
-        ...publicAssets.filter(
-          (asset) => /\.(?:css|woff2)$/u.test(asset) && isControlUiVersionedPublicAsset(asset),
-        ),
-      ]),
-    ]
+    // Keep this bounded build inventory, not all lazy pages, locales, plugins,
+    // fonts, or themes.
+    assets: [...new Set([...selectedBootAssets, ...offlinePublicAssets])]
       .toSorted()
       .map((file) => ({
         path: file.startsWith("assets/") ? file : `${file}?v=${encodeURIComponent(cacheId ?? "")}`,
@@ -686,13 +646,12 @@ export default function controlUiViteConfig(
   const staticImports = new Map<string, readonly string[]>();
   const copiedInputs = new Set<string>();
   const resolveModulePreloadDependencies: ResolveModulePreloadDependenciesFn = (
-    filename,
+    _filename,
     deps,
     context,
   ) => {
-    const pending = resolveControlUiModulePreloadDependencies(filename, deps, context);
     if (context.hostType !== "js") {
-      return pending;
+      return deps;
     }
     // The executing importer has already loaded its whole static JS graph.
     // Keep the lazy target, its other dependencies, and Vite's CSS preloads.
@@ -704,7 +663,7 @@ export default function controlUiViteConfig(
         imports.push(...(staticImports.get(dependency) ?? []));
       }
     }
-    return pending.filter((dep) => !loaded.has(dep));
+    return deps.filter((dep) => !loaded.has(dep));
   };
   return {
     base,

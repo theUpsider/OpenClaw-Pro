@@ -556,7 +556,7 @@ describe("signal createSignalEventHandler inbound context", () => {
     expect(recordParams?.updateLastRoute?.mainDmOwnerPin).toBeUndefined();
   });
 
-  it("runs Telegram-parity Signal status reactions when explicitly enabled", async () => {
+  it("runs quiet Signal status reactions when explicitly enabled", async () => {
     dispatchInboundMessageMock.mockImplementationOnce(
       async (params: DispatchInboundMessageMockParams) => {
         capture.ctx = params.ctx;
@@ -581,8 +581,7 @@ describe("signal createSignalEventHandler inbound context", () => {
 
     expect(dispatchInboundMessageMock).toHaveBeenCalledTimes(1);
     const sentEmojis = sentReactionEmojis();
-    expect(sentEmojis).toEqual(expect.arrayContaining(["👀", "🧠", "🛠️", "🗜️", "✅"]));
-    expect(sentEmojis.at(-1)).toBe("👀");
+    expect(sentEmojis).toEqual(["👀", "✅"]);
     expect(dispatchInboundMessageMock.mock.calls[0]?.[0].replyOptions).toEqual(
       expect.objectContaining({
         allowProgressCallbacksWhenSourceDeliverySuppressed: true,
@@ -731,9 +730,7 @@ describe("signal createSignalEventHandler inbound context", () => {
       }),
     );
     const sentEmojis = sentReactionEmojis();
-    expect(sentEmojis).toContain("❌");
-    expect(sentEmojis).not.toContain("✅");
-    expect(sentEmojis.at(-1)).toBe("👀");
+    expect(sentEmojis).toEqual(["👀", "❌"]);
   });
 
   it("keeps dispatch running when Signal status reaction send fails", async () => {

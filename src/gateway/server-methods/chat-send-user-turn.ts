@@ -98,6 +98,7 @@ export function prepareChatSendUserTurn(params: {
     | "systemInputProvenance"
     | "systemProvenanceReceipt"
     | "toolBindings"
+    | "workContext"
   >;
   session: Pick<PreparedChatSendSession, "agentId" | "clientRunId" | "sessionKey"> &
     Partial<Pick<PreparedChatSendSession, "cfg">>;
@@ -233,6 +234,7 @@ export function prepareChatSendUserTurn(params: {
     SessionCreation: { ...creation, ...(sandbox ? { sandbox } : {}) },
     ...resolveChatSendCallerContext(client, request.clientInfo, originatingChannel),
     GatewayRunToolBindings: request.toolBindings,
+    GatewayRunWorkContext: request.workContext?.snapshot,
     GatewayUiCommandTarget: gatewayUiCommandTarget,
   };
   const requester = client?.authenticatedUserProfile;

@@ -182,7 +182,12 @@ export function createWorkboardDispatchHandler(params: {
     if (cardId) {
       const started = result.started[0];
       if (!started?.card) {
-        throw new Error(result.startFailures[0]?.error ?? "Workboard card did not start.");
+        const queued = result.skipped[0];
+        throw new Error(
+          queued
+            ? `Card is queued: ${queued.ownerId} already has active Workboard work, and each lane runs one card at a time unless cards opt into parallel slots. Start it again once that slot frees.`
+            : (result.startFailures[0]?.error ?? "Workboard card did not start."),
+        );
       }
       return { ...started, card: redactClaimToken(started.card) };
     }

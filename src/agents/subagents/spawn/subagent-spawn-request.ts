@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { resolveSessionStorePathCore } from "../../../config/sessions/paths.js";
+import type { OpenClawConfig } from "../../../config/types.openclaw.js";
 import type { SubagentLifecycleHookRunner } from "../../../plugins/hooks.js";
 import { isValidAgentId, normalizeAgentId } from "../../../routing/session-key.js";
 import { waitForSessionParticipantRecording } from "../../../sessions/session-participant-recording.js";
@@ -28,9 +29,48 @@ import { resolveConfiguredSubagentRunTimeoutSeconds } from "./subagent-spawn-pla
 import {
   getGlobalHookRunner,
   getRuntimeConfig,
+  resolveAgentConfig,
   resolveGatewaySessionStoreTargetInWorker,
 } from "./subagent-spawn.runtime.js";
 import { normalizeSubagentTaskName } from "./subagent-task-name.js";
+
+/**
+ * Resolves whether this child may use `message`. Order: explicit `allowMessaging` >
+ * requester agent `subagents.messageTool.enabled` > defaults > false. Collectors never
+ * message, and a subagent requester can only grant what its own session was granted.
+ */
+function resolveSubagentMessageToolGrant(params: {
+  cfg: OpenClawConfig;
+  requesterAgentId: string;
+  allowMessaging?: boolean;
+  collect: boolean;
+  requesterIsSubagent: boolean;
+  requesterMessageToolEnabled?: unknown;
+}): { ok: true; enabled: boolean } | { ok: false; error: string } {
+  const requested =
+    params.allowMessaging ??
+    resolveAgentConfig(params.cfg, params.requesterAgentId)?.subagents?.messageTool?.enabled ??
+    params.cfg.agents?.defaults?.subagents?.messageTool?.enabled ??
+    false;
+  if (!requested) {
+    return { ok: true, enabled: false };
+  }
+  const requesterCanMessage =
+    !params.requesterIsSubagent || params.requesterMessageToolEnabled === true;
+  if (!params.collect && requesterCanMessage) {
+    return { ok: true, enabled: true };
+  }
+  if (params.allowMessaging !== true) {
+    // Config defaults never fail a spawn; they simply do not apply here.
+    return { ok: true, enabled: false };
+  }
+  return {
+    ok: false,
+    error: params.collect
+      ? "allowMessaging is unavailable for collect=true children."
+      : "allowMessaging requires a requester that can use the message tool itself.",
+  };
+}
 
 export async function resolveSubagentSpawnRequest(
   params: SpawnSubagentParams,
@@ -245,6 +285,17 @@ export async function resolveSubagentSpawnRequest(
         )
       : undefined,
   });
+  const messageToolGrant = resolveSubagentMessageToolGrant({
+    cfg,
+    requesterAgentId,
+    allowMessaging: params.allowMessaging,
+    collect: params.collect === true,
+    requesterIsSubagent: callerDepth >= 1,
+    requesterMessageToolEnabled: earlyRequester?.requesterEntry?.subagentMessageToolEnabled,
+  });
+  if (!messageToolGrant.ok) {
+    return rejectSubagentSpawnRequest("forbidden", messageToolGrant.error);
+  }
   const resolveAdmission = (pendingChildren = 0) => {
     const collectorRuns = params.collect
       ? swarmGroupId
@@ -269,6 +320,7 @@ export async function resolveSubagentSpawnRequest(
       requestedAgentId: effectiveRequestedAgentId,
       configuredAgentIds,
       additionalActiveChildren: pendingChildren,
+      messageToolEnabled: messageToolGrant.enabled,
     });
   };
   try {

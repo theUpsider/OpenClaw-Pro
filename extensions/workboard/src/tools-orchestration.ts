@@ -3,14 +3,23 @@ import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import { asNonArrayRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { Type } from "typebox";
 import { redactClaimToken, redactDispatchResult } from "./card-redaction.js";
+import type { WorkboardMutationScope } from "./store-inputs.js";
 import type { WorkboardStore } from "./store.js";
 import {
+  askField,
+  askKindField,
+  boundCardIdField,
   cardIdField,
   createWorkboardCardMutations,
   claimTokenField,
+  dispatchModeField,
+  maxConcurrentPerOwnerField,
+  parallelizableField,
   strictObject,
+  withWorkboardOperatorAsk,
   workspaceField,
 } from "./tools-card-mutations.js";
+import { resolveBoundBoardId, type VoiceBoardBinding } from "./voice-board-binding.js";
 
 const CardIdSchema = strictObject({
   id: cardIdField(),
@@ -27,15 +36,19 @@ const OptionalOperatorNoteField = Type.Optional(
 export function createWorkboardOrchestrationTools(params: {
   store: WorkboardStore;
   ownerId: string;
+  voiceBoard?: VoiceBoardBinding;
+  agentId?: string;
+  interaction?: Omit<NonNullable<WorkboardMutationScope["interaction"]>, "at">;
 }): AnyAgentTool[] {
-  const { store, ownerId } = params;
+  const { store, ownerId, voiceBoard, agentId, interaction } = params;
   const { readScopedCardToolParams, scopedCardMutation, claimedCardMutation } =
-    createWorkboardCardMutations(store, ownerId);
+    createWorkboardCardMutations(store, ownerId, voiceBoard, agentId, interaction);
   return [
     {
       name: "workboard_boards",
       label: "Workboard Boards",
-      description: "List Workboard board namespaces with active, archived, and status counts.",
+      description:
+        "List Workboard board namespaces with active, archived, and status counts, plus each cards board's classification palette (name and color, at most 10) that card labels draw from.",
       parameters: strictObject({}),
       execute: async () => jsonResult(await store.listBoards()),
     },
@@ -145,19 +158,26 @@ export function createWorkboardOrchestrationTools(params: {
         workspace: workspaceField(),
         maxRuntimeSeconds: Type.Optional(Type.Number({ description: "Runtime budget." })),
         maxRetries: Type.Optional(Type.Number({ description: "Retry budget." })),
+        parallelizable: parallelizableField(),
+        maxConcurrentPerOwner: maxConcurrentPerOwnerField(),
+        dispatchMode: dispatchModeField(),
+        ask: askField(),
+        askKind: askKindField(),
         summary: Type.Optional(Type.String({ description: "Specification summary comment." })),
         token: Type.Optional(Type.String({ description: "Claim token for claimed cards." })),
       }),
       execute: async (_toolCallId, rawParams) => {
         const { record, id, scope } = await readScopedCardToolParams(asNonArrayRecord(rawParams));
-        return jsonResult({ card: redactClaimToken(await store.specify(id, record, scope)) });
+        return jsonResult({
+          card: redactClaimToken(await store.specify(id, withWorkboardOperatorAsk(record), scope)),
+        });
       },
     },
     {
       name: "workboard_decompose",
       label: "Workboard Decompose",
       description:
-        "Fan out a Workboard card into linked child cards and optionally complete the parent orchestration card.",
+        "Fan out a Workboard card into linked child cards and optionally complete the parent orchestration card. Children inherit the parent's dispatchMode unless they explicitly choose native or external.",
       parameters: strictObject({
         id: Type.String({ description: "Parent Workboard card id." }),
         token: Type.Optional(Type.String({ description: "Claim token for claimed cards." })),
@@ -180,6 +200,9 @@ export function createWorkboardOrchestrationTools(params: {
             workspace: workspaceField(),
             maxRuntimeSeconds: Type.Optional(Type.Number()),
             maxRetries: Type.Optional(Type.Number()),
+            parallelizable: parallelizableField(),
+            maxConcurrentPerOwner: maxConcurrentPerOwnerField(),
+            dispatchMode: dispatchModeField(),
             idempotencyKey: Type.Optional(Type.String()),
           }),
         ),
@@ -275,7 +298,7 @@ export function createWorkboardOrchestrationTools(params: {
       label: "Workboard Reassign",
       description: "Change a card assignee and optionally reset failure state during recovery.",
       parameters: strictObject({
-        id: cardIdField(),
+        id: boundCardIdField(),
         token: ScopedClaimTokenField,
         agentId: Type.Optional(Type.String({ description: "New assignee id." })),
         status: OptionalNextStatusField,
@@ -307,7 +330,11 @@ export function createWorkboardOrchestrationTools(params: {
       }),
       execute: async (_toolCallId, rawParams) => {
         const record = asNonArrayRecord(rawParams);
-        const result = await store.dispatch({ boardId: record.boardId });
+        const boardId =
+          record.boardId !== undefined || !voiceBoard
+            ? record.boardId
+            : resolveBoundBoardId(voiceBoard, "cards", (await store.listBoards()).boards);
+        const result = await store.dispatch({ boardId });
         return jsonResult(redactDispatchResult(result));
       },
     },

@@ -532,6 +532,7 @@ function* assembleOpenClawCodingTools(
   options?.recordToolPrepStage?.("message-provider-policy");
   const toolsForModelProvider = applyModelProviderToolPolicy(toolsForMessageProvider, {
     ...options,
+    ...(sandboxFsBridge ? { sandboxBridge: sandboxFsBridge } : {}),
     agentId,
     preparedRequesterPolicy: capabilityProfile.policy,
     localModelLeanPreserveToolNames,

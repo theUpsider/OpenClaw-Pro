@@ -138,6 +138,7 @@ export function insertCard(db: WorkboardSqlConnection, card: WorkboardCard): voi
     template_id: () => bindNull(metadata?.templateId),
     archived_at: () => bindNull(metadata?.archivedAt),
     stale_json: () => jsonValue(metadata?.stale),
+    interaction_json: () => jsonValue(metadata?.interaction),
     lifecycle_status_source_updated_at: () => bindNull(metadata?.lifecycleStatusSourceUpdatedAt),
     failure_count: () => bindNull(metadata?.failureCount),
   })();
@@ -155,6 +156,7 @@ export function insertCard(db: WorkboardSqlConnection, card: WorkboardCard): voi
     to_status: (event) => bindNull(event.toStatus),
     session_key: (event) => bindNull(event.sessionKey),
     run_id: (event) => bindNull(event.runId),
+    agent_id: (event) => bindNull(event.agentId),
   });
   insertChildren(db, "workboard_card_attempts", card.id, metadata?.attempts, {
     id: (entry) => entry.id,

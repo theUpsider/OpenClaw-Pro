@@ -212,6 +212,7 @@ export type FollowupRun = {
     | "bootstrapUserProfileId"
     | "gatewayUiCommandTarget"
     | "toolBindings"
+    | "workContext"
     | "scheduledAutomation"
     | "chatType"
     | "agentAccountId"

@@ -633,11 +633,13 @@ describe("embedded run detached session metadata", () => {
         const recorder = await prepareEmbeddedAttemptTrajectory({
           activeSession: { sessionId: attempt.sessionId },
           attempt,
+          capabilityToolNames: [],
           clientToolCount: 0,
           effectiveToolCount: 0,
           effectiveWorkspace: params.workspaceDir,
           localModelLeanEnabled: false,
           sessionAgentId: "research",
+          wireToolNames: [],
         });
         await recorder?.flush();
         return successfulAttempt(params.sessionId);

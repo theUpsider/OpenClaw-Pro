@@ -120,41 +120,56 @@ describe("runSkillExperienceReview", () => {
     }
   });
 
-  it("announces changes committed before the review run failed", async () => {
-    const workspaceDir = state.workspaceDir;
-    const candidate = await createExperienceReviewCandidate(
-      "review-fails-after-commit",
-      [{ role: "user", content: "Reconcile the budget.", timestamp: 1 }],
-      { workspaceDir, modelId: "gpt-test" },
-    );
-    setRuntimeConfigSnapshot(candidate.config);
-    const committed: WorkshopChange = {
-      id: "c1",
-      agentId: "main",
-      skillName: "actual-budget-operations",
-      action: "patch",
-      actor: "review",
-      summary: "tightened reconciliation step",
-      versionId: "20260101T000000001Z-patch",
-      createdAtMs: 1,
-    };
-    mocks.listWorkshopChanges.mockResolvedValue([committed]);
-    // The skill_workshop call committed; the follow-up model request then timed out.
-    mocks.runSkillWorkshopReview.mockResolvedValue({
-      meta: { durationMs: 1, error: { kind: "timeout", message: "model request timed out" } },
-    });
+  it.each([
+    { sender: "an unknown sender", senderIsOwner: undefined, expected: false },
+    { sender: "the owner", senderIsOwner: true, expected: true },
+  ])(
+    "announces changes committed before the review run failed for $sender",
+    async ({ senderIsOwner, expected }) => {
+      const workspaceDir = state.workspaceDir;
+      const fixture = await createExperienceReviewCandidate(
+        "review-fails-after-commit",
+        [{ role: "user", content: "Reconcile the budget.", timestamp: 1 }],
+        { workspaceDir, modelId: "gpt-test" },
+      );
+      const candidate = {
+        ...fixture,
+        ctx: {
+          ...fixture.ctx,
+          foregroundPromptContext: { ...fixture.ctx.foregroundPromptContext, senderIsOwner },
+        },
+      };
+      setRuntimeConfigSnapshot(candidate.config);
+      const committed: WorkshopChange = {
+        id: "c1",
+        agentId: "main",
+        skillName: "actual-budget-operations",
+        action: "patch",
+        actor: "review",
+        summary: "tightened reconciliation step",
+        versionId: "20260101T000000001Z-patch",
+        createdAtMs: 1,
+      };
+      mocks.listWorkshopChanges.mockResolvedValue([committed]);
+      // The skill_workshop call committed; the follow-up model request then timed out.
+      mocks.runSkillWorkshopReview.mockResolvedValue({
+        meta: { durationMs: 1, error: { kind: "timeout", message: "model request timed out" } },
+      });
 
-    await expect(runSkillExperienceReview(candidate)).rejects.toThrow("model request timed out");
-    expect(mocks.postWorkshopChangeNotice).toHaveBeenCalledWith(
-      expect.objectContaining({
-        generation: expect.objectContaining({
-          sessionKey: candidate.source.sessionKey,
-          sessionId: candidate.source.sessionId,
+      await expect(runSkillExperienceReview(candidate)).rejects.toThrow("model request timed out");
+      expect(mocks.postWorkshopChangeNotice).toHaveBeenCalledWith(
+        expect.objectContaining({
+          generation: expect.objectContaining({
+            sessionKey: candidate.source.sessionKey,
+            sessionId: candidate.source.sessionId,
+          }),
+          changes: [committed],
+          // Only the owner's own turn may surface the notice in a chat.
+          senderIsOwner: expected,
         }),
-        changes: [committed],
-      }),
-    );
-  });
+      );
+    },
+  );
 
   it("keeps a later append live without MAIN SQL and denies unprepared use after revocation", async () => {
     const candidate = await createExperienceReviewCandidate(

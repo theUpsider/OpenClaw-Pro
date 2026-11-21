@@ -1,21 +1,19 @@
 /** @jsxImportSource @solidjs/web */
 import type { BoardGetParams } from "@openclaw/gateway-protocol";
 import type { JSX } from "@solidjs/web";
-import { createMemo, For, Show, onCleanup } from "solid-js";
+import { createMemo, createSignal, For, Show, onCleanup } from "solid-js";
 import { icons } from "../../components/icons.tsx";
 import { t } from "../../i18n/index.ts";
-import {
-  isActiveWorkboardCard,
-  nextWorkboardCardPosition,
-  workboardCardSessionKey,
-} from "../../lib/workboard/card-state.ts";
+import { formatUiExternalText } from "../../lib/format-error.ts";
+import { moveWorkboardCardToStatus } from "../../lib/workboard/card-settle.ts";
+import { isActiveWorkboardCard, workboardCardSessionKey } from "../../lib/workboard/card-state.ts";
 import { canStartWorkboardCard } from "../../lib/workboard/execution.ts";
 import {
   archiveWorkboardCard,
   deleteWorkboardCard,
   findWorkboardSession,
+  getWorkboardLaneQueue,
   getWorkboardState,
-  moveWorkboardCard,
   startWorkboardCard,
   stopWorkboardCard,
   type WorkboardCard,
@@ -23,7 +21,12 @@ import {
   type WorkboardExecutionMode,
   type WorkboardStatus,
 } from "../../lib/workboard/index.ts";
+import {
+  resolveWorkboardInteraction,
+  workboardInteractionTarget,
+} from "../../lib/workboard/interaction.ts";
 import { workboardCardSessionTarget } from "../../lib/workboard/session-resolution.ts";
+import { cardAgentLabel } from "./agent-filter.ts";
 import { openEditModal } from "./view-card-modal.tsx";
 import {
   canMutate,
@@ -34,29 +37,32 @@ import {
   workboardViewState,
   type WorkboardProps,
 } from "./view-helpers.tsx";
+/**
+ * Resolves false when a guard refused the move or the write failed. Only a failed
+ * write sets the board error; callers that must not end silently report refusals.
+ *
+ * `expectedUpdatedAt` is the revision the caller rendered; passing it makes the store
+ * refuse a move onto a card that changed since then instead of overwriting it. Omitting
+ * it keeps the previous behaviour, where the store moves from its own latest read.
+ */
 export async function moveCardToStatus(
   props: WorkboardProps,
   card: WorkboardCard,
   status: WorkboardStatus,
-) {
-  const state = getWorkboardState(props.host);
-  if (
-    !isActiveWorkboardCard(card) ||
-    status === card.status ||
-    state.busyCardIds.has(card.id) ||
-    state.dispatching ||
-    !canMutate(props) ||
-    !props.connected ||
-    !props.client
-  ) {
-    return;
-  }
-  await moveWorkboardCard({
-    ...workboardMutationContext(props),
-    cardId: card.id,
+  options: { labelsRemove?: readonly string[]; expectedUpdatedAt?: number } = {},
+): Promise<boolean> {
+  return await moveWorkboardCardToStatus(
+    {
+      host: props.host,
+      client: props.client,
+      requestUpdate: props.onRequestUpdate,
+      connected: props.connected,
+      ...(props.canWrite !== undefined ? { canWrite: props.canWrite } : {}),
+    },
+    card,
     status,
-    position: nextWorkboardCardPosition(state.cards, card, status),
-  });
+    options,
+  );
 }
 export function CardMoveControl(input: {
   workboard: WorkboardProps;
@@ -162,6 +168,11 @@ export function getCardActionState(props: WorkboardProps, card: WorkboardCard) {
         }
       : undefined,
   );
+  // The dictation fallback for cards without an execution session. Additive on
+  // purpose: it never reaches `sessionTarget` (the `chat.abort` target of Stop) and
+  // never `live` (which arms Stop). Only "Open session" and the session tab read it.
+  const interaction = resolveWorkboardInteraction(card, props.interactionSessions);
+  const interactionTarget = workboardInteractionTarget(interaction);
   const busy = state.busyCardIds.has(card.id) || state.dispatching;
   const writable = canMutate(props);
   const live =
@@ -174,6 +185,8 @@ export function getCardActionState(props: WorkboardProps, card: WorkboardCard) {
     live,
     linkedSessionKey,
     sessionTarget,
+    interaction,
+    interactionTarget,
     writable,
     showStartControls: writable && canStartWorkboardCard(card),
     archived: Boolean(card.metadata?.archivedAt),
@@ -324,6 +337,23 @@ export function StartExecutionButton(input: {
   const engineName = createMemo(() =>
     input.engine === "codex" ? t("workboard.engineOpenAI") : t("workboard.engineClaude"),
   );
+  // The claim gate refuses a card whose lane slot is held, so a queued card's
+  // first click only arms "Try to start" instead of sending a start that fails.
+  const queue = createMemo(() =>
+    input.mode === "autonomous" ? getWorkboardLaneQueue(input.card, state().cards) : undefined,
+  );
+  const [armed, setArmed] = createSignal(false);
+  const queuedText = createMemo(() => {
+    const current = queue();
+    return current
+      ? t("workboard.startQueuedHelp", {
+          position: String(current.position),
+          total: String(current.total),
+          agent: cardAgentLabel(input.card, input.workboard.agentsList),
+          holder: formatUiExternalText(current.holder.title, current.holder.id),
+        })
+      : "";
+  });
   const disabled = createMemo(
     () =>
       busy() ||
@@ -333,17 +363,22 @@ export function StartExecutionButton(input: {
   );
   const title = createMemo(() => {
     const blocked = runtimeBlock();
+    const action = input.engine
+      ? input.mode === "autonomous"
+        ? t("workboard.runEngine", {
+            engine: engineName(),
+          })
+        : t("workboard.openEngine", {
+            engine: engineName(),
+          })
+      : t("workboard.runDefaultAgent");
     return blocked
       ? blocked
-      : input.engine
-        ? input.mode === "autonomous"
-          ? t("workboard.runEngine", {
-              engine: engineName(),
-            })
-          : t("workboard.openEngine", {
-              engine: engineName(),
-            })
-        : t("workboard.runDefaultAgent");
+      : queue()
+        ? armed()
+          ? t("workboard.startAnyway", { action })
+          : queuedText()
+        : action;
   });
   const start = async () => {
     const key = await startWorkboardCard({
@@ -370,14 +405,34 @@ export function StartExecutionButton(input: {
         "workboard-card__start",
         `workboard-card__start--${input.mode}`,
         input.engine ? "" : "workboard-card__start--default",
+        { "workboard-card__start--queued": Boolean(queue()) && !armed() },
       ]}
       type="button"
       aria-label={title()}
+      title={queue() ? title() : undefined}
       disabled={disabled()}
-      onClick={() => void start()}
+      onClick={() => {
+        if (queue() && !armed()) {
+          setArmed(true);
+          return;
+        }
+        void start();
+      }}
     >
       {input.engine ? (
         <span>{engineName()}</span>
+      ) : queue() && !armed() ? (
+        <span>
+          {t("workboard.startQueued", {
+            position: String(queue()?.position),
+            total: String(queue()?.total),
+          })}
+        </span>
+      ) : queue() ? (
+        <>
+          {icons.play}
+          <span>{t("workboard.startAnywayShort")}</span>
+        </>
       ) : (
         <>
           {input.mode === "autonomous" ? icons.play : icons.penLine}

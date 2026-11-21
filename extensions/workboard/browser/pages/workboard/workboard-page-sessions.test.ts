@@ -7,6 +7,7 @@ import type {
 import type { ControlUiAgentPickerProps, ControlUiHost } from "openclaw/plugin-sdk/control-ui";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { pressVoiceGate } from "../../test/voice-gate.ts";
 import { mountPage } from "./workboard-page.test-support.ts";
 
 beforeEach(() => {
@@ -903,3 +904,136 @@ it.each(["resolved", "rejected"] as const)(
     expect(page.container.querySelector(".workboard-board-draft")).toBeNull();
   },
 );
+
+it("sends a voice turn to the saved Board agent conversation with the Sessions board binding", async () => {
+  const page = sessionsPage();
+  const sessionKey = "agent:writer:board-conversation";
+  page.board.sessions.agentSessionKey = sessionKey;
+  const openSession = vi.fn();
+  Object.assign(page.fixture.host, { dock: { openSession, close: vi.fn(), openSessionKey: null } });
+  const request = expectDefined(page.request.getMockImplementation(), "request");
+  page.request.mockImplementation(async (method, params) =>
+    method === "sessions.describe"
+      ? { session: { key: sessionKey, agentId: "writer", isDock: true } }
+      : request(method, params),
+  );
+  await page.connect();
+  const microphone = expectDefined(
+    page.container.querySelector<
+      HTMLElement & { props: Parameters<ControlUiHost["components"]["mountDictationControl"]>[1] }
+    >(".workboard-page-title [data-test-dictation]"),
+    "voice microphone",
+  );
+
+  microphone.props.onStart?.();
+  microphone.props.onTranscript("pin the retries session to done");
+  await pressVoiceGate("Send");
+
+  const context = { page: "workboard", detail: { boardId: "sessions", boardKind: "sessions" } };
+  expect(page.request).toHaveBeenCalledWith("chat.send", {
+    sessionKey,
+    message: "pin the retries session to done",
+    idempotencyKey: expect.any(String),
+    workContext: context,
+  });
+  expect(page.fixture.host.sessions.create).not.toHaveBeenCalled();
+  expect(openSession).toHaveBeenCalledExactlyOnceWith({
+    sessionKey,
+    agentId: "writer",
+    label: "Sessions board · Team sessions",
+    context,
+  });
+});
+
+function voiceMicrophone(page: ReturnType<typeof mountPage>) {
+  return expectDefined(
+    page.container.querySelector<
+      HTMLElement & { props: Parameters<ControlUiHost["components"]["mountDictationControl"]>[1] }
+    >(".workboard-page-title [data-test-dictation]"),
+    "voice microphone",
+  );
+}
+
+function voiceError(page: ReturnType<typeof mountPage>) {
+  return page.container.querySelector(".workboard-voice__error")?.textContent;
+}
+
+it("refuses a voice turn when another Sessions board replaced the one dictation started on", async () => {
+  const page = sessionsPage({ boardId: "board-a" });
+  const other = { ...page.board, id: "board-b", name: "Other sessions" };
+  page.board.sessions.agentSessionKey = "agent:writer:board-a";
+  other.sessions = { ...other.sessions, agentSessionKey: "agent:writer:board-b" };
+  const openSession = vi.fn();
+  Object.assign(page.fixture.host, { dock: { openSession, close: vi.fn(), openSessionKey: null } });
+  const request = expectDefined(page.request.getMockImplementation(), "request");
+  page.request.mockImplementation(async (method, params) => {
+    if (method === "workboard.cards.list") {
+      return {
+        cards: [],
+        boards: [
+          { ...page.board, total: 0, active: 0, archived: 0, byStatus: {} },
+          { ...other, total: 0, active: 0, archived: 0, byStatus: {} },
+        ],
+      };
+    }
+    if (method === "workboard.sessionsBoard.read") {
+      const board = (params as { boardId: string }).boardId === "board-b" ? other : page.board;
+      return { ...structuredClone(page.result), board };
+    }
+    if (method === "sessions.describe") {
+      const key = (params as { key: string }).key;
+      return { session: { key, agentId: "writer", isDock: true } };
+    }
+    return request(method, params);
+  });
+  await page.connect();
+  const microphone = voiceMicrophone(page);
+
+  microphone.props.onStart?.();
+  page.navigate("board-b");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(page.request).toHaveBeenCalledWith(
+    "workboard.sessionsBoard.read",
+    expect.objectContaining({ boardId: "board-b" }),
+  );
+  microphone.props.onTranscript("pin the retries session to done");
+  await pressVoiceGate("Send");
+
+  expect(voiceError(page)).toBe("The board changed while you were speaking. Nothing was sent.");
+  expect(page.request.mock.calls.some(([method]) => method === "chat.send")).toBe(false);
+  expect(page.request.mock.calls.some(([method]) => method === "sessions.describe")).toBe(false);
+  expect(page.fixture.host.sessions.create).not.toHaveBeenCalled();
+  expect(openSession).not.toHaveBeenCalled();
+  expect(page.container.querySelector('.workboard-sessions__warning[role="alert"]')).toBeNull();
+});
+
+it("reports Board agent failures and a busy board next to the microphone", async () => {
+  const page = sessionsPage();
+  const openSession = vi.fn();
+  Object.assign(page.fixture.host, { dock: { openSession, close: vi.fn(), openSessionKey: null } });
+  vi.mocked(page.fixture.host.sessions.create).mockResolvedValue(null);
+  await page.connect();
+  const microphone = voiceMicrophone(page);
+
+  microphone.props.onStart?.();
+  microphone.props.onTranscript("pin the retries session to done");
+  await pressVoiceGate("Send");
+  expect(voiceError(page)).toBe("The board conversation could not be created. Try again.");
+  expect(page.request.mock.calls.some(([method]) => method === "chat.send")).toBe(false);
+  // The failure belongs to the speaker's microphone, not the board's banner.
+  expect(page.container.querySelector('.workboard-sessions__warning[role="alert"]')).toBeNull();
+  await pressVoiceGate("Discard");
+
+  const create = createDeferred<string | null>();
+  vi.mocked(page.fixture.host.sessions.create).mockReturnValue(create.promise);
+  button(page, "Board agent").click();
+  await vi.advanceTimersByTimeAsync(0);
+  microphone.props.onStart?.();
+  microphone.props.onTranscript("pin the retries session to done");
+  await pressVoiceGate("Send");
+  expect(voiceError(page)).toBe("The board is saving another change. Try again when it finishes.");
+  expect(page.request.mock.calls.some(([method]) => method === "chat.send")).toBe(false);
+  create.resolve(null);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(openSession).not.toHaveBeenCalled();
+});

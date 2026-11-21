@@ -1,7 +1,7 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { ConfigUiHint, ConfigUiHints } from "../api/types.ts";
 import { configHintTranslationKey } from "../i18n/lib/config-hint-translation.ts";
-import { translateActive } from "../i18n/lib/translate.ts";
+import { translateConfigHint } from "../i18n/lib/translate.ts";
 
 export function isEnvPlaceholder(value: string): boolean {
   return /^\$\{[^}]*\}$/.test(value.trim());
@@ -130,10 +130,10 @@ export function localizedHintForPath(path: Array<string | number>, hints: Config
   return {
     ...hint,
     label: hint.label
-      ? (translateActive(configHintTranslationKey(hintPath, "label", hint.label)) ?? hint.label)
+      ? (translateConfigHint(configHintTranslationKey(hintPath, "label", hint.label)) ?? hint.label)
       : hint.label,
     help: hint.help
-      ? (translateActive(configHintTranslationKey(hintPath, "help", hint.help)) ?? hint.help)
+      ? (translateConfigHint(configHintTranslationKey(hintPath, "help", hint.help)) ?? hint.help)
       : hint.help,
   };
 }

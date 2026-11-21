@@ -43,6 +43,7 @@ export type WorkboardDependencyState = {
 export type WorkboardDispatchSummary = {
   started: number;
   failures: number;
+  queued: number;
   promoted: number;
   blocked: number;
   reclaimed: number;
@@ -81,11 +82,21 @@ export type WorkboardUiState = {
   priorityFilter: Set<WorkboardPriority>;
   statusFilter: Set<WorkboardStatus>;
   attentionFilter: Set<WorkboardHealthKey>;
+  labelFilter: Set<string>;
   donePeriod: "all" | "week";
   agentFilter: string;
   boardFilter: string;
   showArchived: boolean;
+  /** "Needs you" lens: one ordered inbox of the cards waiting on the operator. */
+  attentionInbox: boolean;
+  /**
+   * The lens shows the operator's own steps in full and the "no agent" rest as one collapsed
+   * count row; this expands that row. Collapsed by default: housekeeping is not the operator's
+   * step, so opening it is a deliberate act. View state only, never stored.
+   */
+  inboxUnownedExpanded: boolean;
   layout: "comfortable" | "compact";
+  sort: "position" | "created" | "updated";
   viewMode: "board" | "list";
   emptyColumnMode: "show" | "collapse" | "hide";
   collapsedStatuses: Set<WorkboardStatus>;

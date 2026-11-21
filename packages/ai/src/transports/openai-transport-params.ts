@@ -14,7 +14,10 @@ import {
   resolveOpenAICompletionsCompat,
   usesNativeOpenAICodexResponsesBackend,
 } from "./openai-completions-compat.js";
-import { resolveOpenAIReasoningEffortMap } from "./openai-reasoning-compat.js";
+import {
+  resolveOpenAIReasoningEffortMap,
+  resolveOpenAINumericReasoningEfforts,
+} from "./openai-reasoning-compat.js";
 import { OPENAI_RESPONSES_APIS } from "./openai-responses-contracts.js";
 import type { OpenAIModeModel } from "./openai-transport-shared.js";
 import { resolveOpencodeSessionHeaders } from "./session-affinity.js";
@@ -408,6 +411,8 @@ export function getCompat(model: OpenAIModeModel) {
   return {
     ...resolved,
     reasoningEffortMap: resolveOpenAIReasoningEffortMap(model, {}),
+    // The numeric map is the route's sole mapping when present, so carry it as presence.
+    numericReasoningEfforts: resolveOpenAINumericReasoningEfforts(model),
     openRouterRouting: (resolved.openRouterRouting as Record<string, unknown> | undefined) ?? {},
     requiresStringContent: compat.requiresStringContent ?? false,
     strictMessageKeys: compat.strictMessageKeys === true,

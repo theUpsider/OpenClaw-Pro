@@ -81,4 +81,29 @@ describe("clampThinkingLevel", () => {
     expect(getSupportedThinkingLevels(model)).toContain("max");
     expect(clampThinkingLevel(model, "max")).toBe("max");
   });
+
+  it("exposes every numeric-mapped level on a chat-template route", () => {
+    const model = makeModel(undefined, {
+      id: "ds41",
+      api: "openclaw-openai-completions-transport",
+      provider: "example",
+      compat: {
+        thinkingFormat: "qwen-chat-template",
+        supportedReasoningEfforts: ["low", "high", "xhigh", "max"],
+        numericReasoningEfforts: { low: 40, medium: 50, high: 70, xhigh: 80, max: 100 },
+      },
+    });
+
+    expect(getSupportedThinkingLevels(model)).toEqual([
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    expect(clampThinkingLevel(model, "xhigh")).toBe("xhigh");
+    expect(clampThinkingLevel(model, "max")).toBe("max");
+  });
 });

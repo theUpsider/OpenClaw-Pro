@@ -198,7 +198,9 @@ function transcriptSafeErrorMessage(
     256,
   );
   replacement.usage = structuredClone(message.usage);
-  replacement.retryAfterMs = message.retryAfterMs;
+  if (message.retryAfterMs !== undefined) {
+    replacement.retryAfterMs = message.retryAfterMs;
+  }
   return replacement;
 }
 
@@ -279,7 +281,9 @@ export function createWorkerInferenceStreamAdapter(
       settled = true;
       partial.stopReason = reason;
       partial.errorMessage = error instanceof Error ? error.message : String(error);
-      partial.retryAfterMs = retryAfterMs;
+      if (retryAfterMs !== undefined) {
+        partial.retryAfterMs = retryAfterMs;
+      }
       if (usage) {
         partial.usage = structuredClone(usage);
       }

@@ -14,6 +14,7 @@ import { afterWorkboardUpdate } from "../../test/settle.ts";
 import {
   mountPage,
   observeSessions,
+  cardSessionCalls,
   openBoardEditor,
   openSessionTab,
   openSessionButton,
@@ -251,7 +252,7 @@ it.each([
     const page = mountPage();
     const session = createGatewaySession({ key, agentId: "writer" });
     const primaryRows = [createGatewaySession({ key: "global", agentId: "main", kind: "global" })];
-    const observe = observeSessions(page, { sessions: [session], hasMore: false });
+    observeSessions(page, { sessions: [session], hasMore: false });
     Object.assign(page.fixture.host.sessions, { rows: primaryRows });
     const card = createWorkboardCard({ agentId: "main", sessionKey: link });
     page.cards([card]);
@@ -266,16 +267,18 @@ it.each([
         expect.objectContaining({ session: { sessionKey: key, agentId: "writer" } }),
       ),
     );
-    expect(observe).toHaveBeenCalledWith(
-      expect.objectContaining({
-        search: link,
-        archived: "all",
-        limit: 2,
-        includeGlobal: false,
-        includeUnknown: false,
-      }),
-      expect.any(Function),
-    );
+    expect(cardSessionCalls(page)).toEqual([
+      [
+        expect.objectContaining({
+          search: link,
+          archived: "all",
+          limit: 2,
+          includeGlobal: false,
+          includeUnknown: false,
+        }),
+        expect.any(Function),
+      ],
+    ]);
     expect(page.fixture.host.sessions.rows).toEqual(primaryRows);
     expect(page.fixture.host.sessions.refresh).not.toHaveBeenCalled();
     expectDefined(openSessionButton(page.container), "open resolved session").click();
@@ -293,7 +296,7 @@ it.each(["unknown"] as const)(
     const ambient = createGatewaySession({ key, kind: key, agentId: "main" });
     const exact = createGatewaySession({ key: "agent:writer:existing", agentId: "writer" });
     Object.assign(page.fixture.host.sessions, { rows: [ambient, exact] });
-    const observe = observeSessions(page, { sessions: [ambient], hasMore: false });
+    observeSessions(page, { sessions: [ambient], hasMore: false });
     const card = createWorkboardCard({ agentId: "writer", sessionKey: key });
     page.cards([card]);
     page.fixture.connection.connected = true;
@@ -318,7 +321,7 @@ it.each(["unknown"] as const)(
     expect(
       page.container.querySelector(".workboard-detail__session-row")?.getAttribute("title"),
     ).toBe("Edit the card to select an exact session");
-    expect(observe).not.toHaveBeenCalled();
+    expect(cardSessionCalls(page)).toEqual([]);
     expect(page.fixture.host.components.mountSessionSummary).not.toHaveBeenCalled();
     expect(openSessionButton(page.container)).toBeUndefined();
     expectDefined(
@@ -355,7 +358,7 @@ it.each([
   async ({ owners, hasMore, totalCount, label }) => {
     const page = mountPage();
     const localKey = "subagent:workboard-default-unresolved";
-    const observe = observeSessions(page, {
+    observeSessions(page, {
       sessions: owners.map((owner) => createGatewaySession({ key: `agent:${owner}:${localKey}` })),
       hasMore,
       totalCount,
@@ -370,7 +373,7 @@ it.each([
     page.fixture.notify();
 
     await afterWorkboardUpdate(() => {
-      expect(observe).toHaveBeenCalledOnce();
+      expect(cardSessionCalls(page)).toHaveLength(1);
       expect(
         page.container
           .querySelector(".workboard-detail .workboard-session-badge")
@@ -396,7 +399,7 @@ it("releases the prior session query when another card takes the drawer", async 
   const first = createWorkboardCard({ id: "first", sessionKey: firstKey });
   const second = createWorkboardCard({ id: "second", sessionKey: secondKey });
   const releaseFirst = vi.fn();
-  const observe = observeSessions(page, {
+  observeSessions(page, {
     sessions: [createGatewaySession({ key: `agent:writer:${secondKey}` })],
     hasMore: false,
   }).mockImplementationOnce((_query, listener) => {
@@ -407,7 +410,7 @@ it("releases the prior session query when another card takes the drawer", async 
   page.workboard.state.detailCardId = first.id;
   page.fixture.connection.connected = true;
   page.fixture.notify();
-  await afterWorkboardUpdate(() => expect(observe).toHaveBeenCalledOnce());
+  await afterWorkboardUpdate(() => expect(cardSessionCalls(page)).toHaveLength(1));
 
   page.workboard.state.detailCardId = second.id;
   page.workboard.notify();
@@ -422,7 +425,7 @@ it("releases the prior session query when another card takes the drawer", async 
     expect.any(HTMLElement),
     expect.objectContaining({ session: { sessionKey: `agent:main:${firstKey}` } }),
   );
-  expect(observe).toHaveBeenCalledTimes(2);
+  expect(cardSessionCalls(page)).toHaveLength(2);
   expect(releaseFirst).toHaveBeenCalledOnce();
 });
 

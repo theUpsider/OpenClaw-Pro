@@ -4,12 +4,40 @@ import { accountSessionGoalUsage } from "../../config/sessions/goals-transitions
 import { readSessionEntryReadOnlyInWorker } from "../../config/sessions/session-entry-read-runtime.js";
 import type { SessionEntryCohortReader } from "../../config/sessions/session-entry-read-runtime.types.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { getInProcessGatewayRequestContext } from "../../plugins/runtime/gateway-request-scope.js";
 import { formatSystemTurnPrompt } from "../../sessions/system-turn-prompt.js";
 import { SkillLibraryError } from "../../skills/skill-library-error.js";
+import {
+  decideGoalTurnEndContinuation,
+  type DecideGoalTurnEndParams,
+  type GoalTurnEndDecision,
+} from "./goal-verification-coordinator.js";
 import { enqueueFollowupRun, getFollowupQueueDepth } from "./queue/enqueue.js";
 import { isFollowupRunAborted, type FollowupRun, type QueueSettings } from "./queue/types.js";
 import { runAfterReplyOperationClear, type ReplyOperation } from "./reply-run-registry.js";
+
+const goalVerificationLog = createSubsystemLogger("auto-reply/goal-verification");
+
+/**
+ * FAIL-OPEN boundary for the opt-in verification gate: verification decides
+ * whether a goal may complete, never whether the session's turn survives. Any
+ * bookkeeping failure (a store write after a verifier timeout, a registry error)
+ * is logged and the turn continues exactly as it would have without the gate —
+ * no completion authorized, no stuck session, no rejected finalization.
+ */
+async function goalTurnEndDecisionBeforeQueue(
+  params: DecideGoalTurnEndParams,
+): Promise<GoalTurnEndDecision> {
+  try {
+    return await decideGoalTurnEndContinuation(params);
+  } catch (error) {
+    goalVerificationLog.warn("goal verification bookkeeping failed; continuing today's flow", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { queue: true };
+  }
+}
 
 export type GoalContinuation = Pick<SessionEntry, "sessionId" | "lifecycleRevision"> & {
   goalId: string;
@@ -134,6 +162,12 @@ export async function enqueueGoalContinuation(params: {
   sourceRunId: string;
   operation: ReplyOperation;
   runFollowup: (run: FollowupRun) => Promise<void>;
+  /**
+   * Delivers the one-time "needs attention" notice when automation stops.
+   * Callers route it through their own visible delivery path; absence only
+   * affects a stopped loop's notice, never the goal state itself.
+   */
+  onNotice?: (text: string) => void | Promise<void>;
 }): Promise<boolean> {
   const eligible = () =>
     !params.operation.abortSignal.aborted &&
@@ -191,14 +225,48 @@ export async function enqueueGoalContinuation(params: {
   if (source?.kind === "drop") {
     return false;
   }
+  // Adversarial completion verification (opt-in; no I/O when the gate is off).
+  // A non-passing verdict replaces the nudge with the missing points, and an
+  // exhausted budget stops automation with a one-time visible notice.
+  const decision = await goalTurnEndDecisionBeforeQueue({
+    cfg: params.base.run.config ?? {},
+    agentId: params.base.run.agentId,
+    sessionKey: params.sessionKey,
+    storePath: params.storePath,
+    goal: entry.goal,
+    result: params.result,
+    executor: { provider: params.base.run.provider, model: params.base.run.model },
+    // A continuation keeps its verdict; a user turn invalidates a stored one.
+    goalContinuation: params.base.goalContinuation !== undefined,
+    signal: params.operation.abortSignal,
+  });
+  if (!decision.queue) {
+    if (decision.notice) {
+      // Best-effort: the attention marker is already durable and the goal status
+      // surfaces it, so only the first caller reaches here. A delivery failure is
+      // recorded rather than swallowed — the stop must stay diagnosable — and it
+      // must never turn a stopped loop into a failed turn.
+      try {
+        await params.onNotice?.(decision.notice);
+      } catch (error) {
+        goalVerificationLog.warn("goal stopped-loop notice could not be delivered", {
+          sessionKey: params.sessionKey,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return false;
+  }
   const base = params.base;
   const cancellation = new AbortController();
   const nudge: FollowupRun = {
     ...base,
     goalContinuation: continuation,
-    prompt: formatSystemTurnPrompt(
-      "Advance the active goal; keep it active until fully achieved. Use the current goal context, and verify the entire objective before marking it complete.",
-    ),
+    prompt:
+      decision.promptOverride ??
+      formatSystemTurnPrompt(
+        "Advance the active goal; keep it active until fully achieved. Use the current goal context, and verify the entire objective before marking it complete.",
+      ),
     summaryLine: "goal-continuation",
     messageId: ["goal", continuation.sessionId, continuation.goalId, params.sourceRunId].join(":"),
     abortSignal: base.abortSignal

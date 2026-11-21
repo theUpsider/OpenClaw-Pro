@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GatewayProtocolClient, type GatewayProtocolSocketHandlers } from "./protocol-client.js";
-import { DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS } from "./timeouts.js";
+import {
+  DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS,
+  STABLE_CONNECTION_BACKOFF_RESET_MS,
+} from "./timeouts.js";
 
 type HandshakeConnection = {
   handlers: GatewayProtocolSocketHandlers;
@@ -225,7 +228,9 @@ describe("GatewayProtocolClient connect handshake", () => {
         expect(onConnectHello).toHaveBeenCalledOnce();
         expect(client.connecting).toBe(false);
         expect(client.connected).toBe(true);
-        await vi.advanceTimersByTimeAsync(DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS);
+        // The connect deadline no longer applies, and outliving the stable window
+        // lets the next outage restart at the initial delay.
+        await vi.advanceTimersByTimeAsync(STABLE_CONNECTION_BACKOFF_RESET_MS);
         expect(replacement.close).not.toHaveBeenCalled();
         replacement.close(1012, "restart");
         replacement.handlers.close(1012, "restart");
@@ -384,5 +389,37 @@ describe("GatewayProtocolClient connect handshake", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(connection.send).not.toHaveBeenCalled();
     client.stop();
+  });
+
+  it("resets reconnect backoff only after a connection stays up past the stable window", async () => {
+    vi.useFakeTimers();
+    const { client, connections, onReconnectScheduled } = createHandshakeClient();
+    const connectAndClose = async (index: number, connectedMs: number) => {
+      const connection = connections[index];
+      assert(connection);
+      receiveConnectChallenge(connection);
+      receiveHello(connection);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(client.connected).toBe(true);
+      await vi.advanceTimersByTimeAsync(connectedMs);
+      connection.close(1006, "transport lost");
+      const delayMs = onReconnectScheduled.mock.lastCall?.[0];
+      assert(delayMs !== undefined);
+      await vi.advanceTimersByTimeAsync(delayMs);
+      expect(connections).toHaveLength(index + 2);
+      return delayMs;
+    };
+    try {
+      client.start();
+      // initialMs 10, multiplier 2, no jitter draw.
+      expect(await connectAndClose(0, 0)).toBe(10);
+      // Hello succeeded, but the socket died inside the window: backoff keeps growing.
+      expect(await connectAndClose(1, STABLE_CONNECTION_BACKOFF_RESET_MS - 1)).toBe(20);
+      expect(await connectAndClose(2, 1_000)).toBe(40);
+      // A connection that outlived the window restarts at the initial delay.
+      expect(await connectAndClose(3, STABLE_CONNECTION_BACKOFF_RESET_MS)).toBe(10);
+    } finally {
+      client.stop();
+    }
   });
 });

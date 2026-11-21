@@ -1,6 +1,6 @@
 import type { PluginsReloadResult } from "../../packages/gateway-protocol/src/schema/plugins.js";
 import { theme } from "../../packages/terminal-core/src/theme.js";
-import { formatSelectedEntry } from "../plugins/reload-entry-guidance.js";
+import { formatSelectedEntry, RELOAD_GENERATION_NOTICE } from "../plugins/reload-entry-guidance.js";
 import { defaultRuntime } from "../runtime.js";
 import { resolvePluginCapabilityConsentCliOptions } from "./plugin-capability-consent.js";
 import { resolvePluginLifecycleGateway } from "./plugins-lifecycle-client.js";
@@ -39,6 +39,6 @@ export async function runPluginsReloadCommand(
     defaultRuntime.log(`${id}: ${formatSelectedEntry(entry)}`);
   }
   defaultRuntime.log(
-    `Reloaded ${result.restartRequired ? "registrations for " : ""}${pluginIds.length === 1 ? "plugin" : "plugins"} ${pluginIds.map((id) => `"${id}"`).join(", ")} (generation ${result.runtime.generation}).${result.restartRequired ? " Gateway restart required to load edited code." : ""}`,
+    `Reloaded ${result.restartRequired ? "registrations for " : ""}${pluginIds.length === 1 ? "plugin" : "plugins"} ${pluginIds.map((id) => `"${id}"`).join(", ")} (generation ${result.runtime.generation}).${result.restartRequired ? " Gateway restart required to load edited code." : ` ${RELOAD_GENERATION_NOTICE}`}`,
   );
 }

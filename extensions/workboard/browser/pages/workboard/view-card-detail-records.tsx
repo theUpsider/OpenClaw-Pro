@@ -1,6 +1,7 @@
 /** @jsxImportSource @solidjs/web */
 import type { WorkboardRunAttempt, WorkboardProof } from "@openclaw/workboard-contract";
 import { For, Show, createMemo } from "solid-js";
+import { Markdown } from "../../components/host-components.tsx";
 import { icons } from "../../components/icons.tsx";
 import { t } from "../../i18n/index.ts";
 import { formatUiExternalText } from "../../lib/format-error.ts";
@@ -160,7 +161,7 @@ function ProofDetails(props: { proof: readonly WorkboardProof[] }) {
                 {entry().url ? (
                   <p class="workboard-detail__record-reference">{entry().url}</p>
                 ) : undefined}
-                {entry().note ? <p>{entry().note}</p> : undefined}
+                <Show when={entry().note}>{(note) => <Markdown markdown={note()} />}</Show>
                 <DetailTime value={entry().createdAt} />
               </li>
             )}

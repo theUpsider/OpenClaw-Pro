@@ -137,6 +137,89 @@ describe("Workboard card execution actions", () => {
     },
   );
 
+  it("presents a busy lane's Start as a queue position and starts only on a second click", async () => {
+    const holder = createWorkboardCard({
+      id: "holder",
+      title: "Ship lane view",
+      status: "running",
+      agentId: "b",
+    });
+    const card = createWorkboardCard({ status: "ready", agentId: "b" });
+    const client = createWorkboardTestClient(() => ({ ...card, updatedAt: 2 }));
+    const { container, state, props } = renderDetails(card, { client });
+    state.cards = [holder, card];
+    props.onRequestUpdate?.();
+    flush();
+    const button = expectDefined(
+      container.querySelector<HTMLButtonElement>(
+        ".workboard-detail__actions .workboard-card__start--default",
+      ),
+      "default start control",
+    );
+
+    expect(button.textContent).toBe("Queued 1/1");
+    expect(button.classList.contains("workboard-card__start--queued")).toBe(true);
+    expect(button.getAttribute("aria-label")).toBe(
+      "Queued 1 of 1 for b — slot held by Ship lane view. Select to start anyway.",
+    );
+    button.click();
+    flush();
+    expect(client.request).not.toHaveBeenCalled();
+    expect(button.textContent).toBe("Try to start");
+    expect(button.getAttribute("aria-label")).toBe(
+      "Try to start: Run default agent. The server still refuses while the slot is held.",
+    );
+
+    button.click();
+    await waitForFast(() =>
+      expect(client.request).toHaveBeenCalledWith("workboard.cards.start", { id: card.id }),
+    );
+  });
+
+  it("records that the operator opened an automatically finished card", async () => {
+    const card = createWorkboardCard({
+      status: "review",
+      updatedAt: 7,
+      metadata: { automation: { awaitingAcceptance: true, autoCompletedAt: 5 } },
+    });
+    const client = createWorkboardTestClient((_method, params) => {
+      const patch = (params as { patch: { acceptanceSeenAt: number } }).patch;
+      return {
+        card: {
+          ...card,
+          updatedAt: 8,
+          metadata: { automation: { ...card.metadata?.automation, ...patch } },
+        },
+      };
+    });
+    const { container, state } = renderDetails(card, { client });
+
+    expect(container.querySelector(".workboard-waiting")?.textContent).toBe(
+      "The agent finished this card. Move it to Done to accept the result.",
+    );
+    await waitForFast(() => expect(state.cards[0]?.updatedAt).toBe(8));
+    expect(client.request).toHaveBeenCalledOnce();
+    expect(client.request).toHaveBeenCalledWith("workboard.cards.update", {
+      id: card.id,
+      expectedUpdatedAt: 7,
+      patch: { acceptanceSeenAt: expect.any(Number) },
+    });
+    expect(state.error).toBeNull();
+  });
+
+  it("keeps the normal Start control while the lane slot is free", () => {
+    const card = createWorkboardCard({ status: "ready", agentId: "b" });
+    const { container } = renderDetails(card);
+    const button = expectDefined(
+      container.querySelector<HTMLButtonElement>(
+        ".workboard-detail__actions .workboard-card__start--default",
+      ),
+      "default start control",
+    );
+    expect(button.textContent).toBe("Start");
+    expect(button.getAttribute("aria-label")).toBe("Run default agent");
+  });
+
   it.each(["start", "stop"] as const)(
     "rejects a retained %s action after the card link changes",
     async (action) => {

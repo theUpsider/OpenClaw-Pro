@@ -5,7 +5,7 @@ import {
   WorkerRuntimeContextMessageSchema,
   WORKER_PROVIDER_REPLAY_MAX_DATA_BYTES,
   WORKER_PROTOCOL_MAX_IDENTIFIER_LENGTH,
-  WORKER_PROTOCOL_MAX_PAYLOAD_BYTES,
+  WORKER_PROTOCOL_MAX_NON_IMAGE_PAYLOAD_BYTES,
 } from "../../packages/gateway-protocol/src/schema/worker-admission.js";
 import type {
   WorkerTranscriptCommitRequestFrame,
@@ -136,10 +136,10 @@ export function projectWorkerProviderReplay<
     return { kind: "complete", message: candidate };
   }
   const frameBytes = workerTranscriptMessageFrameBytes(candidate);
-  if (frameBytes === undefined || frameBytes > WORKER_PROTOCOL_MAX_PAYLOAD_BYTES) {
+  if (frameBytes === undefined || !isWorkerTranscriptMessageFrameSafe(candidate)) {
     return providerReplayUnavailable({
-      bytes: frameBytes ?? WORKER_PROTOCOL_MAX_PAYLOAD_BYTES + 1,
-      limitBytes: WORKER_PROTOCOL_MAX_PAYLOAD_BYTES,
+      bytes: frameBytes ?? WORKER_PROTOCOL_MAX_NON_IMAGE_PAYLOAD_BYTES + 1,
+      limitBytes: WORKER_PROTOCOL_MAX_NON_IMAGE_PAYLOAD_BYTES,
       reason: "transcript-commit-frame-budget",
     });
   }

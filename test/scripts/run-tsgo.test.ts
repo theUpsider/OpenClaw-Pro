@@ -4,13 +4,22 @@ import fs from "node:fs";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  LOCAL_CHECK_MEMORY_CEILING_BYTES,
+  LOCAL_CHECK_MEMORY_MIN_BYTES,
+} from "../../scripts/lib/local-check-memory-limit.mts";
 import {
   createSparseTsgoSkipEnv,
   getSparseTsgoGuardError,
   shouldSkipSparseTsgoGuardError,
 } from "../../scripts/lib/tsgo-sparse-guard.mts";
-import { resolveTsgoTimeoutMs } from "../../scripts/run-tsgo.mts";
+import {
+  prepareTsgoCommand,
+  probeLocalTsgoMemoryCap,
+  resolveLocalTsgoRunMemoryLimit,
+  resolveTsgoTimeoutMs,
+} from "../../scripts/run-tsgo.mts";
 import { createBoundedChildOutput } from "../helpers/bounded-child-output.js";
 import { createFixtureLifetime } from "../helpers/fixture-lifetime.js";
 import {
@@ -27,6 +36,14 @@ import { createScriptTestHarness } from "./test-helpers.js";
 const { createTempDir } = createScriptTestHarness();
 const fixture = createFixtureLifetime();
 afterEach(() => fixture.cleanup());
+
+// The metrics-branch test drives runPreparedTsgoCommand in-process; the real
+// generator resolves installed bootstrap dependencies from the checkout, which a
+// temporary fixture has none of. The branch under test is cap propagation, not
+// declaration generation, so the generator is stubbed for the whole file.
+vi.mock("../../scripts/generate-kysely-types.mts", () => ({
+  ensureKyselyTypes: vi.fn(async () => {}),
+}));
 
 it.each([true])(
   "refuses a shared install without creating dependency links (linked=%s)",
@@ -196,6 +213,298 @@ describe("run-tsgo sparse guard", () => {
       PATH: "/usr/bin",
       OPENCLAW_TSGO_SPARSE_SKIP: "1",
     });
+  });
+});
+
+const LIMIT_ENV = "OPENCLAW_LOCAL_CHECK_MEMORY_LIMIT_MB";
+const NO_LIMIT_ENV = "OPENCLAW_LOCAL_CHECK_NO_MEMORY_LIMIT";
+const CAP_WARNING = "local memory cap unavailable on this host";
+
+/**
+ * Force the containment probe down the Linux path on any developer platform.
+ * The probe keys off `process.platform`, so without this the assertions below
+ * would compare a Darwin/Windows host against Linux-only behaviour. Restores the
+ * original descriptor so the rest of the suite observes the real platform.
+ */
+function withLinuxPlatform<T>(run: () => T): T {
+  const descriptor = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { configurable: true, value: "linux" });
+  try {
+    return run();
+  } finally {
+    if (descriptor) {
+      Object.defineProperty(process, "platform", descriptor);
+    }
+  }
+}
+
+/** Async companion: keeps the Linux platform pinned across an awaited call. */
+async function withLinuxPlatformAsync<T>(run: () => Promise<T>): Promise<T> {
+  const descriptor = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { configurable: true, value: "linux" });
+  try {
+    return await run();
+  } finally {
+    if (descriptor) {
+      Object.defineProperty(process, "platform", descriptor);
+    }
+  }
+}
+
+/**
+ * A PATH directory whose containment probes either answer or cannot.
+ *
+ * `available` writes both shims the probe uses: `systemctl` answers the
+ * reachability question and `systemd-run` runs the payload. The shim is a POSIX
+ * shell script, so the surrounding suite skips Windows; `enforceable: false`
+ * answers reachability but fails the bounded scope, which is the "answers but
+ * cannot enforce" host the probe must also reject.
+ */
+function backendPath(dir: string, available: boolean, enforceable = available) {
+  fs.mkdirSync(dir, { recursive: true });
+  if (available) {
+    const systemctl = path.join(dir, "systemctl");
+    fs.writeFileSync(
+      systemctl,
+      `#!/bin/sh\nif [ "$1" = "--user" ] && [ "$2" = "show" ]; then echo "LoadState=not-found"; exit 0; fi\nexit 0\n`,
+      "utf8",
+    );
+    fs.chmodSync(systemctl, 0o755);
+    const systemdRun = path.join(dir, "systemd-run");
+    fs.writeFileSync(systemdRun, `#!/bin/sh\nexit ${enforceable ? 0 : 1}\n`, "utf8");
+    fs.chmodSync(systemdRun, 0o755);
+  }
+  return dir;
+}
+
+function capEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    CI: undefined,
+    GITHUB_ACTIONS: undefined,
+    OPENCLAW_LOCAL_CHECK: "1",
+    [LIMIT_ENV]: undefined,
+    [NO_LIMIT_ENV]: undefined,
+    ...overrides,
+  };
+}
+
+// The fixtures are POSIX shell shims, so the suites stay off Windows; the probe
+// itself is pinned to the Linux path inside each test so macOS runs the same
+// assertions instead of the platform's own degradation.
+describe.skipIf(process.platform === "win32")("run-tsgo local memory cap", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  // The fixture compiler is a script, so it needs an executable bit on POSIX.
+  function writeFakeCompiler(cwd: string, body: string) {
+    const binDir = path.join(cwd, "node_modules", ".bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const fakeTsgo = path.join(binDir, "tsgo");
+    fs.writeFileSync(fakeTsgo, body, "utf8");
+    fs.chmodSync(fakeTsgo, 0o755);
+    overrideNativeFixtureExecutable(cwd, fakeTsgo);
+    return fakeTsgo;
+  }
+
+  function prepareCap(cwd: string, env: NodeJS.ProcessEnv) {
+    const command = prepareTsgoCommand(["-p", "tsconfig.extensions.json"], env, cwd);
+    if (!command) {
+      throw new Error("compiler unexpectedly skipped");
+    }
+    return command;
+  }
+
+  it("carries the resolved cap on the prepared command object", () => {
+    const cwd = createTempDir("openclaw-run-tsgo-cap-");
+    writeFakeCompiler(cwd, "#!/bin/sh\nexit 0\n");
+    // An explicit override keeps the assertion independent of this host's capacity.
+    const command = prepareCap(cwd, capEnv({ [LIMIT_ENV]: "12288" }));
+    expect(command.memoryLimitBytes).toBe(12 * 1024 ** 3);
+  });
+
+  it.each([
+    { name: "an explicit opt-out", env: { [NO_LIMIT_ENV]: "1" } },
+    { name: "CI", env: { CI: "true" } },
+    { name: "GitHub Actions", env: { GITHUB_ACTIONS: "true" } },
+  ])("prepares no cap under $name", ({ env }) => {
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = createTempDir("openclaw-run-tsgo-cap-unbounded-");
+    writeFakeCompiler(cwd, "#!/bin/sh\nexit 0\n");
+    const command = prepareCap(cwd, capEnv({ [LIMIT_ENV]: "12288", ...env }));
+    expect(command.memoryLimitBytes).toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("caps a local run even when OPENCLAW_LOCAL_CHECK is disabled outside CI", () => {
+    const cwd = createTempDir("openclaw-run-tsgo-cap-local-forced-");
+    writeFakeCompiler(cwd, "#!/bin/sh\nexit 0\n");
+    // The runner normalizes the local flag before applying any policy, so the cap
+    // and the throttling keep sharing one on/off decision outside CI.
+    const command = prepareCap(cwd, capEnv({ [LIMIT_ENV]: "12288", OPENCLAW_LOCAL_CHECK: "0" }));
+    expect(command.memoryLimitBytes).toBe(12 * 1024 ** 3);
+  });
+
+  it("derives a cap inside the fixed clamp when only host capacity is known", () => {
+    const cwd = createTempDir("openclaw-run-tsgo-cap-capacity-");
+    writeFakeCompiler(cwd, "#!/bin/sh\nexit 0\n");
+    const command = prepareCap(cwd, capEnv());
+    const limitBytes = command.memoryLimitBytes;
+    expect(Number.isSafeInteger(limitBytes)).toBe(true);
+    expect(limitBytes).toBeGreaterThanOrEqual(LOCAL_CHECK_MEMORY_MIN_BYTES);
+    expect(limitBytes).toBeLessThanOrEqual(LOCAL_CHECK_MEMORY_CEILING_BYTES);
+  });
+
+  it("rejects an invalid override instead of silently running uncapped", () => {
+    const cwd = createTempDir("openclaw-run-tsgo-cap-invalid-");
+    writeFakeCompiler(cwd, "#!/bin/sh\nexit 0\n");
+    expect(() => prepareCap(cwd, capEnv({ [LIMIT_ENV]: "0" }))).toThrow(
+      /positive whole number of mebibytes/u,
+    );
+  });
+
+  it("uses the cap when the containment backend answers", () => {
+    const cwd = createTempDir("openclaw-run-tsgo-probe-ok-");
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    const env = capEnv({ PATH: backendPath(path.join(cwd, "bin-ok"), true) });
+    withLinuxPlatform(() => {
+      expect(probeLocalTsgoMemoryCap(env)).toBeUndefined();
+      expect(resolveLocalTsgoRunMemoryLimit({ env, memoryLimitBytes: 4096 })).toBe(4096);
+    });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("degrades when the manager answers but cannot enforce the scope", () => {
+    const cwd = createTempDir("openclaw-run-tsgo-probe-unenforceable-");
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    const env = capEnv({ PATH: backendPath(path.join(cwd, "bin-noenforce"), true, false) });
+    withLinuxPlatform(() => {
+      expect(probeLocalTsgoMemoryCap(env)).toMatch(/cannot enforce/u);
+      expect(resolveLocalTsgoRunMemoryLimit({ env, memoryLimitBytes: 4096 })).toBeUndefined();
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("degrades exactly once, on stderr, when the backend cannot be probed", () => {
+    const cwd = createTempDir("openclaw-run-tsgo-probe-missing-");
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    const env = capEnv({ PATH: backendPath(path.join(cwd, "bin-missing"), false) });
+    withLinuxPlatform(() => {
+      expect(probeLocalTsgoMemoryCap(env)).toMatch(/systemctl/u);
+      expect(resolveLocalTsgoRunMemoryLimit({ env, memoryLimitBytes: 4096 })).toBeUndefined();
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain(CAP_WARNING);
+    expect(message).toContain("running uncapped");
+    expect(message).toContain(`${NO_LIMIT_ENV}=1 to run always uncapped`);
+  });
+
+  it("degrades on a platform without the containment backend", () => {
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    const descriptor = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { configurable: true, value: "darwin" });
+    try {
+      expect(
+        resolveLocalTsgoRunMemoryLimit({ env: capEnv(), memoryLimitBytes: 4096 }),
+      ).toBeUndefined();
+    } finally {
+      if (descriptor) {
+        Object.defineProperty(process, "platform", descriptor);
+      }
+    }
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain("unsupported platform darwin");
+  });
+
+  it("skips the probe entirely for an uncapped command", () => {
+    const cwd = createTempDir("openclaw-run-tsgo-probe-skip-");
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    const env = capEnv({ PATH: backendPath(path.join(cwd, "bin-none"), false) });
+    expect(resolveLocalTsgoRunMemoryLimit({ env, memoryLimitBytes: undefined })).toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe.skipIf(process.platform === "win32")("run-tsgo capped launch ownership", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("starts one capped child and never retries uncapped after a failure", async () => {
+    const managed = await import("../../scripts/lib/managed-child-process.mts");
+    const run = vi.spyOn(managed, "runManagedCommand").mockResolvedValue(0);
+    const runner = await import("../../scripts/run-tsgo.mts");
+    const cwd = createTempDir("openclaw-run-tsgo-launch-ok-");
+    const env = capEnv({ PATH: backendPath(path.join(cwd, "bin-ok"), true) });
+    await withLinuxPlatformAsync(async () => {
+      await expect(
+        runner.runLocalTsgoManagedCommand({ bin: "fake", env, memoryLimitBytes: 1024 }),
+      ).resolves.toBe(0);
+    });
+    // Exactly one launch, and it carried the cap.
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]?.[0]?.memoryLimitBytes).toBe(1024);
+  });
+
+  it("launches exactly once, uncapped, when the backend is unavailable", async () => {
+    const managed = await import("../../scripts/lib/managed-child-process.mts");
+    const run = vi.spyOn(managed, "runManagedCommand").mockResolvedValue(0);
+    const runner = await import("../../scripts/run-tsgo.mts");
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    const cwd = createTempDir("openclaw-run-tsgo-launch-degraded-");
+    const env = capEnv({ PATH: backendPath(path.join(cwd, "bin-missing"), false) });
+    await withLinuxPlatformAsync(async () => {
+      await expect(
+        runner.runLocalTsgoManagedCommand({ bin: "fake", env, memoryLimitBytes: 1024 }),
+      ).resolves.toBe(0);
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]?.[0]?.memoryLimitBytes).toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("propagates a capped failure without a second, uncapped attempt", async () => {
+    const managed = await import("../../scripts/lib/managed-child-process.mts");
+    const failure = Object.assign(new Error("killed by the kernel"), { code: "EPROCESSGROUP" });
+    const run = vi.spyOn(managed, "runManagedCommand").mockRejectedValue(failure);
+    const runner = await import("../../scripts/run-tsgo.mts");
+    const cwd = createTempDir("openclaw-run-tsgo-launch-fail-");
+    const env = capEnv({ PATH: backendPath(path.join(cwd, "bin-ok"), true) });
+    await withLinuxPlatformAsync(async () => {
+      await expect(
+        runner.runLocalTsgoManagedCommand({ bin: "fake", env, memoryLimitBytes: 1024 }),
+      ).rejects.toBe(failure);
+    });
+    // An OOM is an end result: exactly one launch, and the cap was still applied.
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]?.[0]?.memoryLimitBytes).toBe(1024);
+  });
+
+  it("carries the cap through the metrics branch", async () => {
+    const performance = await import("../../scripts/lib/tsgo-performance.mts");
+    const measured = vi.spyOn(performance, "runMeasuredTsgoCommand").mockResolvedValue(0);
+    const runner = await import("../../scripts/run-tsgo.mts");
+    const cwd = createTempDir("openclaw-run-tsgo-launch-metrics-");
+    const env = capEnv({
+      PATH: backendPath(path.join(cwd, "bin-ok"), true),
+      OPENCLAW_TSGO_METRICS_DIR: path.join(cwd, "metrics"),
+    });
+    // Drive the prepared-command contract directly: the metrics branch resolves the
+    // cap immediately before its own managed call, and that resolution is what this
+    // test has to exercise (a real prepare would also resolve the host toolchain).
+    const command = {
+      args: ["-p", "tsconfig.extensions.json"],
+      bin: "fake-tsgo",
+      cwd,
+      env,
+      memoryLimitBytes: 4096,
+      shell: false,
+      timeoutMs: undefined,
+    };
+    await withLinuxPlatformAsync(async () => {
+      await expect(runner.runPreparedTsgoCommand(command)).resolves.toBe(0);
+    });
+    // The metrics path must resolve the same cap, not silently drop it.
+    expect(measured).toHaveBeenCalledTimes(1);
+    expect(measured.mock.calls[0]?.[0]?.memoryLimitBytes).toBe(4096);
   });
 });
 

@@ -1,3 +1,4 @@
+import nodePath from "node:path";
 import { isRecord as isPlainRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { normalizeUniqueStringEntries } from "@openclaw/normalization-core/string-normalization";
@@ -356,7 +357,7 @@ const ToolExecBaseShape = {
     .strictObject({
       /** Optional reviewer model override (provider/model or agent model config). */
       model: AgentModelSchema.optional(),
-      thinking: z.enum(["minimal", "low", "medium", "high", "xhigh", "max"]).optional(),
+      thinking: z.enum(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]).optional(),
       /** Optional Fast processing for supported provider requests. */
       fastMode: z.boolean().optional(),
       /** Reviewer timeout in milliseconds (default: 30000). */
@@ -419,6 +420,63 @@ const ToolFsSchema = z
      * Default: false (unrestricted, matches legacy behavior).
      */
     workspaceOnly: z.boolean().optional(),
+  })
+  .optional();
+
+const WINDOWS_ABS_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
+const WINDOWS_UNC_PATH_PATTERN = /^\\\\[^\\]+\\[^\\]+/;
+const PATH_SCOPE_GLOB_PATTERN = /[*?[\]{}]/;
+
+/**
+ * Path entries name literal locations. Windows forms are accepted explicitly because config files
+ * are authored on other operating systems; globbing is refused so a rule cannot silently narrow.
+ */
+function isLiteralScopePath(value: string): boolean {
+  return (
+    nodePath.isAbsolute(value) ||
+    WINDOWS_ABS_PATH_PATTERN.test(value) ||
+    WINDOWS_UNC_PATH_PATTERN.test(value) ||
+    value === "~" ||
+    value.startsWith("~/")
+  );
+}
+
+const ToolPathScopeEntrySchema = z.strictObject({
+  /** Literal absolute or `~`-prefixed path covered by this rule, including its subtree. */
+  path: z
+    .string()
+    .trim()
+    .min(1, "pathScopes entry path must not be empty.")
+    .refine(isLiteralScopePath, "pathScopes entry path must be absolute or start with '~/'.")
+    .refine(
+      (value) => !PATH_SCOPE_GLOB_PATTERN.test(value),
+      "pathScopes entry path must be literal; glob characters are not supported.",
+    ),
+  /**
+   * `deny` refuses access and leaves the path discoverable; `deny+conceal` also removes it from
+   * listings. Default: `deny+conceal`.
+   */
+  mode: z.enum(["deny", "deny+conceal"]).optional(),
+});
+
+const ToolPathScopesByModelSchema = z.record(
+  z.string(),
+  z.strictObject({
+    // The worker tool surface caps the same list at 256 entries; rejecting it here keeps a config
+    // that the gateway accepts from breaking a worker turn later.
+    entries: z.array(ToolPathScopeEntrySchema).max(256).optional(),
+  }),
+);
+
+const ToolPathScopesSchema = z
+  .strictObject({
+    /**
+     * Keep exec/process available while path rules are active. Default: false, because command text
+     * is not path-checked and an open shell defeats the concealment promise.
+     */
+    allowExecWithEntries: z.boolean().optional(),
+    /** Path rules keyed by provider id or "provider/model". */
+    byModel: ToolPathScopesByModelSchema.optional(),
   })
   .optional();
 
@@ -632,6 +690,8 @@ const AgentToolsSchema = z
       .optional(),
     /** Filesystem tool path guards. */
     fs: ToolFsSchema,
+    /** Per-agent path visibility rules; unions with the global tools.pathScopes block. */
+    pathScopes: ToolPathScopesSchema,
     loopDetection: ToolLoopDetectionSchema,
     /** Explicit outbound destinations; does not grant session reads or bypass global/sandbox policy. */
     agentToAgent: z
@@ -718,6 +778,8 @@ export const ToolsSchema = z
     elevated: ElevatedToolsSchema,
     exec: ToolExecSchema,
     fs: ToolFsSchema,
+    /** Per-agent path visibility rules; unions with the global tools.pathScopes block. */
+    pathScopes: ToolPathScopesSchema,
     /** Sub-agent tool policy defaults (deny wins; progress_card is always denied). */
     subagents: NestedToolPolicySchema,
     /** Sandbox tool policy defaults (deny wins). */

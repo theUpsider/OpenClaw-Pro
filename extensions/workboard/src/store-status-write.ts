@@ -18,12 +18,26 @@ import { MAX_CARD_NOTIFICATIONS } from "./store-constants.js";
 import type { WorkboardCardPatch } from "./store-inputs.js";
 import { trimMetadataToBudget } from "./store-normalizers.js";
 
-export function finishRun(
+/**
+ * Statuses where a card may legitimately carry a live operator question. Mirrors
+ * `ASKING_STATUSES` in `browser/lib/workboard/operator-attention.ts`, which gates the lens on the
+ * same set; the two must agree on what "leaving the asking statuses" means. A card that moves
+ * between two of these keeps its question; one that settles into `ready`, `running`, `review`,
+ * `scheduled` or `done` has answered it.
+ */
+const ASKING_STATUSES: ReadonlySet<WorkboardStatus> = new Set([
+  "triage",
+  "backlog",
+  "todo",
+  "blocked",
+]);
+
+export function finishRun<Status extends "done" | "review" | "blocked">(
   card: WorkboardCard,
-  status: "done" | "blocked",
+  status: Status,
   now: number,
   reason?: string,
-): { status: "done" | "blocked"; execution?: WorkboardExecution; metadata: WorkboardMetadata } {
+): { status: Status; execution?: WorkboardExecution; metadata: WorkboardMetadata } {
   const execution =
     card.execution?.status === "running"
       ? { ...card.execution, status, updatedAt: now }
@@ -37,10 +51,10 @@ export function finishRun(
       attempts: closeRunningAttempts(
         card.metadata?.attempts,
         now,
-        status === "done" ? "succeeded" : "blocked",
+        status === "blocked" ? "blocked" : "succeeded",
         reason,
       ),
-      failureCount: status === "done" ? 0 : (card.metadata?.failureCount ?? 0) + 1,
+      failureCount: status === "blocked" ? (card.metadata?.failureCount ?? 0) + 1 : 0,
     },
   };
 }
@@ -97,13 +111,80 @@ export function settleManualStatusTransition(params: {
   execution: WorkboardExecution | undefined;
   metadata: WorkboardMetadata;
   now: number;
+  /** The operator (null actor) is the one settling, so acceptance is theirs to stamp. */
+  acceptedByOperator?: boolean;
   nextNotificationSequence: () => number;
   preserveProofId?: string;
 }): { execution: WorkboardExecution | undefined; metadata: WorkboardMetadata } {
-  const { existing, status, execution, now } = params;
+  const { existing, status, now } = params;
   // Status patches often spread existing metadata. Only a newly supplied
   // lifecycle source is provenance; copied markers must not survive a manual transition.
-  const metadata = { ...params.metadata, lifecycleStatusSourceUpdatedAt: undefined };
+  let metadata: WorkboardMetadata = {
+    ...params.metadata,
+    lifecycleStatusSourceUpdatedAt: undefined,
+  };
+  let execution = params.execution;
+  // Leaving review settles a worker's automatic completion: `done` accepts it,
+  // anything else sends it back. Either way it no longer awaits acceptance.
+  // updateCard refuses the write before it persists unless its actor may settle.
+  // The operator's acceptance of a pending result stamps `acceptanceSeenAt` in this
+  // same write: as a separate write the card the operator just accepted could still
+  // read as "New" through `workboardCardAcceptanceUnseen` until the stamp landed.
+  const settledPendingResult = Boolean(existing.metadata?.automation?.awaitingAcceptance);
+  if (status !== "review" && metadata.automation?.awaitingAcceptance) {
+    metadata = {
+      ...metadata,
+      automation: { ...metadata.automation, awaitingAcceptance: undefined },
+    };
+    if (status === "done" && execution?.status === "review") {
+      execution = { ...execution, status: "done", updatedAt: now };
+    }
+  }
+  if (
+    settledPendingResult &&
+    status === "done" &&
+    params.acceptedByOperator &&
+    metadata.automation &&
+    metadata.automation.acceptanceSeenAt === undefined
+  ) {
+    metadata = { ...metadata, automation: { ...metadata.automation, acceptanceSeenAt: now } };
+  }
+  // Tombstone and dangling-link reasons describe this block only; leaving `blocked` retires them.
+  // `ask`/`askKind` are the same kind of reason: the agent's question was aimed at this block,
+  // so settling the card out of `blocked` answers it. They are ordinary card fields, but a
+  // stored kind keeps reading as a live ask in every status (`workboardOperatorAskKind` answers
+  // from it alone), which would leave an already-answered card with a decidable face in the
+  // lens. Retiring them here keeps the stored state honest instead of gating the lens on it.
+  //
+  // Both fields are gated on the card LEAVING `blocked`: `triage`, `backlog` and `todo` cards can
+  // legitimately carry a live ask, so a move between those statuses must not delete the agent's
+  // question.
+  if (
+    status !== "blocked" &&
+    (metadata.automation?.restartTombstone || metadata.automation?.danglingSession)
+  ) {
+    metadata = {
+      ...metadata,
+      automation: {
+        ...metadata.automation,
+        restartTombstone: undefined,
+        danglingSession: undefined,
+      },
+    };
+  }
+  // `triage`, `backlog`, `todo` and `blocked` can all legitimately carry a live question, so the
+  // ask is retired only when the card leaves that set -- a move between two asking statuses keeps
+  // the agent's question, while a settle into `ready` answers it.
+  if (
+    ASKING_STATUSES.has(existing.status) &&
+    !ASKING_STATUSES.has(status) &&
+    (metadata.automation?.ask !== undefined || metadata.automation?.askKind !== undefined)
+  ) {
+    metadata = {
+      ...metadata,
+      automation: { ...metadata.automation, ask: undefined, askKind: undefined },
+    };
+  }
   if (status !== "done" && status !== "blocked") {
     return { execution, metadata };
   }

@@ -315,6 +315,10 @@ export function automationDetailFields(automation: WorkboardMetadata["automation
             : undefined,
         ],
         [t("workboard.detailRetryLimit"), automation.maxRetries],
+        [
+          t("workboard.detailParallelism"),
+          automation.parallelizable ? (automation.maxConcurrentPerOwner ?? 1) : undefined,
+        ],
       ]
     : [];
   return fields.filter(([, value]) => value !== undefined && value !== "");

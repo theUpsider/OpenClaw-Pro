@@ -120,10 +120,10 @@ export function UsageCreators(props: UsageCreatorsProps) {
                 </button>
               </th>
               <td class={props.mode === "tokens" ? "usage-creator-primary" : ""}>
-                {formatUsageTokens(group.totals.totalTokens)}
+                {formatUsageTokens(group.totals.totalTokens, group.totals.usageReport)}
               </td>
               <td class={props.mode === "cost" ? "usage-creator-primary" : ""}>
-                {formatUsageCost(group.totals.totalCost)}
+                {formatUsageCost(group.totals.totalCost, 2, group.totals.usageReport)}
               </td>
               <td>{group.sessionCount}</td>
             </tr>

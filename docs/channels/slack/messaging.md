@@ -14,7 +14,7 @@ What a Slack conversation looks like while OpenClaw works, and how commands reac
 
 `ackReaction` sends an acknowledgement emoji while OpenClaw is processing an inbound message. `ackReactionScope` decides _when_ that emoji is actually sent.
 
-The acknowledgement stays static during work. With `messages.statusReactions.enabled: true`, actual failures briefly show an error reaction before restoring the acknowledgement. Tool calls, thinking, compaction, and long-running tools do not cycle or accumulate reactions, and successful completion does not flash a separate success emoji.
+The acknowledgement stays static during work. With `messages.statusReactions.enabled: true`, the reaction is the quiet lifecycle: a single working reaction (👀) while the turn runs, ✅ when it completes, and ❌ when it fails. Tool calls, thinking, compaction, and long-running tools do not cycle or accumulate reactions, and the terminal ✅/❌ stays in place instead of reverting to the acknowledgement.
 
 ### Emoji (`ackReaction`)
 

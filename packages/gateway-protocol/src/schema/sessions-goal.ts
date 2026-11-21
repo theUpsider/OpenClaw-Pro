@@ -3,6 +3,39 @@ import { Type } from "typebox";
 import { closedObject } from "./closed-object.js";
 import { NonEmptyString } from "./primitives.js";
 
+/**
+ * Adversarial completion-verification state for one session goal.
+ *
+ * `checkedRevision` binds the outcome to the exact goal revision it judged; a
+ * recorded outcome is never reused for another revision. `unverified` covers
+ * errors, timeouts, and malformed verifier output and never authorizes
+ * completion.
+ */
+export const SessionGoalVerificationSchema = closedObject({
+  outcome: Type.Union([
+    Type.Literal("pass"),
+    Type.Literal("fail"),
+    Type.Literal("unknown"),
+    Type.Literal("unverified"),
+  ]),
+  checkedAt: Type.Number(),
+  checkedRevision: NonEmptyString,
+  missingPoints: Type.Array(Type.String()),
+  evidence: Type.Optional(Type.Array(Type.String())),
+  risks: Type.Optional(Type.Array(Type.String())),
+  /** Reason an outcome is `unverified`; never a passing authorization. */
+  error: Type.Optional(Type.String()),
+  /** Verifier runs counted against the current attempt budget, including errors. */
+  attempts: Type.Number(),
+});
+
+/** One-time "needs attention" marker recorded when automation stops on its own. */
+export const SessionGoalAttentionSchema = closedObject({
+  reason: Type.Union([Type.Literal("continuation-budget"), Type.Literal("verification-attempts")]),
+  at: Type.Number(),
+  detail: Type.Optional(Type.String()),
+});
+
 export const SessionGoalSchema = closedObject({
   schemaVersion: Type.Literal(1),
   id: NonEmptyString,
@@ -22,6 +55,12 @@ export const SessionGoalSchema = closedObject({
   tokensUsed: Type.Number(),
   tokenBudget: Type.Optional(Type.Number()),
   continuationTurns: Type.Number(),
+  /** Per-goal opt-in for adversarial completion verification; set at creation only. */
+  verifyCompletion: Type.Optional(Type.Boolean()),
+  /** Latest verifier outcome, or absent when verification never ran. */
+  verification: Type.Optional(SessionGoalVerificationSchema),
+  /** Present once automatic continuation stopped and a human should decide. */
+  attention: Type.Optional(SessionGoalAttentionSchema),
   lastStatusNote: Type.Optional(Type.String()),
   pausedAt: Type.Optional(Type.Number()),
   blockedAt: Type.Optional(Type.Number()),
@@ -31,7 +70,10 @@ export const SessionGoalSchema = closedObject({
 });
 
 export type SessionGoal = Static<typeof SessionGoalSchema>;
+export type SessionGoalVerification = Static<typeof SessionGoalVerificationSchema>;
+export type SessionGoalAttention = Static<typeof SessionGoalAttentionSchema>;
 export type SessionGoalStatus = SessionGoal["status"];
+export type SessionGoalVerificationOutcome = SessionGoalVerification["outcome"];
 
 const GoalOperationIdentity = {
   sessionKey: NonEmptyString,

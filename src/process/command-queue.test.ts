@@ -674,7 +674,7 @@ describe("command queue", () => {
     root?.release();
   });
 
-  it("does not re-admit queued work after its root is released normally", async () => {
+  it("re-admits queued work after its root is released normally", async () => {
     const outerLane = `released-outer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const innerLane = `released-inner-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     setCommandLaneConcurrency(outerLane, 0);
@@ -683,14 +683,16 @@ describe("command queue", () => {
     let task: Promise<string> | undefined;
     await root?.run(async () => {
       task = enqueueCommandInLane(outerLane, async () =>
-        enqueueCommandInLane(innerLane, async () => "unexpected"),
+        enqueueCommandInLane(innerLane, async () => "continued"),
       );
     });
 
+    // A settled lease is not a fence: the queued task re-enters admission on a
+    // fresh tracked root instead of being refused forever.
     root?.release();
     setCommandLaneConcurrency(outerLane, 1);
 
-    await expect(task).rejects.toBeInstanceOf(GatewayDrainingError);
+    await expect(task).resolves.toBe("continued");
   });
 
   it("shares lane state across distinct module instances", async () => {

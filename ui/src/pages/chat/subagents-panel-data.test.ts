@@ -177,6 +177,48 @@ describe("Subagents panel data ownership", () => {
     },
   );
 
+  it("publishes agent, model and thinking facts from the compact child row", async () => {
+    const known = child("known", {
+      model: "gpt-5.6-sol",
+      modelProvider: "openai",
+      thinkingLevel: "high",
+    });
+    const unknown = child("unknown");
+    const childRowModes: unknown[] = [];
+    const f = fixture((method, params) => {
+      if (method === "sessions.list") {
+        if (params.spawnedBy) {
+          childRowModes.push(params.rowMode);
+        }
+        return page(params.spawnedBy ? [known, unknown] : []);
+      }
+      if (method === "chat.history") {
+        return history(params.sessionKey === known.key ? known : unknown);
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    });
+    f.open();
+    await f.when(() => f.data.rows.length === 2);
+    // The panel reads compact rows; these facts must survive that projection.
+    expect(new Set(childRowModes)).toEqual(new Set(["compact"]));
+    expect(f.data.rows.map((row) => row.facts)).toEqual([
+      {
+        agentId: "worker",
+        model: "gpt-5.6-sol",
+        provider: "openai",
+        thinking: "high",
+        badge: { kind: "status", labelKey: "sessionsView.statusDone" },
+      },
+      {
+        agentId: "worker",
+        model: undefined,
+        provider: undefined,
+        thinking: undefined,
+        badge: { kind: "status", labelKey: "sessionsView.statusDone" },
+      },
+    ]);
+  });
+
   it("withdraws readable rows and their message subscription when the child list is denied", async () => {
     const row = child("running", {
       status: "running",

@@ -28,6 +28,32 @@ const LAZY_LOCALE_REGISTRY = {
   sv: () => import("../locales/sv.ts"),
 } satisfies Record<string, () => Promise<LocaleModule>>;
 type LazyLocale = keyof typeof LAZY_LOCALE_REGISTRY;
+
+// Config schema hint copy is only read by Settings surfaces, so it stays a
+// separate chunk rather than a static import of every locale catalog.
+const LAZY_LOCALE_CONFIG_HINTS_REGISTRY = {
+  "zh-CN": () => import("virtual:openclaw-control-ui-locale-config-hints/zh-CN"),
+  "zh-TW": () => import("virtual:openclaw-control-ui-locale-config-hints/zh-TW"),
+  "pt-BR": () => import("virtual:openclaw-control-ui-locale-config-hints/pt-BR"),
+  de: () => import("virtual:openclaw-control-ui-locale-config-hints/de"),
+  es: () => import("virtual:openclaw-control-ui-locale-config-hints/es"),
+  "ja-JP": () => import("virtual:openclaw-control-ui-locale-config-hints/ja-JP"),
+  ko: () => import("virtual:openclaw-control-ui-locale-config-hints/ko"),
+  fr: () => import("virtual:openclaw-control-ui-locale-config-hints/fr"),
+  hi: () => import("virtual:openclaw-control-ui-locale-config-hints/hi"),
+  ar: () => import("virtual:openclaw-control-ui-locale-config-hints/ar"),
+  it: () => import("virtual:openclaw-control-ui-locale-config-hints/it"),
+  tr: () => import("virtual:openclaw-control-ui-locale-config-hints/tr"),
+  uk: () => import("virtual:openclaw-control-ui-locale-config-hints/uk"),
+  id: () => import("virtual:openclaw-control-ui-locale-config-hints/id"),
+  pl: () => import("virtual:openclaw-control-ui-locale-config-hints/pl"),
+  th: () => import("virtual:openclaw-control-ui-locale-config-hints/th"),
+  vi: () => import("virtual:openclaw-control-ui-locale-config-hints/vi"),
+  nl: () => import("virtual:openclaw-control-ui-locale-config-hints/nl"),
+  fa: () => import("virtual:openclaw-control-ui-locale-config-hints/fa"),
+  ru: () => import("virtual:openclaw-control-ui-locale-config-hints/ru"),
+  sv: () => import("virtual:openclaw-control-ui-locale-config-hints/sv"),
+} satisfies Record<LazyLocale, () => Promise<{ default: TranslationMap }>>;
 export type Locale = typeof DEFAULT_LOCALE | LazyLocale;
 // SAFETY: The record contract guarantees every own key is a LazyLocale.
 const LAZY_LOCALES = Object.keys(LAZY_LOCALE_REGISTRY) as LazyLocale[];
@@ -64,4 +90,11 @@ export async function loadLazyLocaleTranslation(locale: Locale): Promise<Transla
   }
   const module: LocaleModule = await LAZY_LOCALE_REGISTRY[locale]();
   return module[locale.replaceAll("-", "_")] ?? null;
+}
+
+export async function loadLazyLocaleConfigHints(locale: Locale): Promise<TranslationMap | null> {
+  if (locale === DEFAULT_LOCALE) {
+    return null;
+  }
+  return (await LAZY_LOCALE_CONFIG_HINTS_REGISTRY[locale]()).default;
 }

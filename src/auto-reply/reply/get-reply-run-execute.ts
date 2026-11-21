@@ -462,6 +462,7 @@ export async function executePreparedReplyRun(state: PreparedReplyRunAdmission) 
         : undefined,
       gatewayUiCommandTarget: ctx.GatewayUiCommandTarget,
       toolBindings: ctx.GatewayRunToolBindings,
+      workContext: ctx.GatewayRunWorkContext,
       chatType: replyRoute.chatType,
       agentAccountId: replyRoute.accountId,
       conversationRoutePeerId: sessionCtx.ConversationRoutePeerId,

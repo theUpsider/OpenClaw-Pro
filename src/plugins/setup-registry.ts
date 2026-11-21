@@ -121,13 +121,16 @@ const NOOP_LOGGER: PluginLogger = {
   error() {},
 };
 
-// Setup results cannot outlive their module owner or keep a retired graph alive.
-const setupRegistries = new WeakMap<
-  PluginCache,
-  { snapshot: unknown; results: LruCache<PluginSetupRegistry> }
->();
+type SetupRegistryCache = {
+  snapshot: PluginMetadataSnapshot | undefined;
+  results: LruCache<PluginSetupRegistry>;
+  recordPositions?: Map<PluginManifestRecord, number>;
+};
 
-function getSetupRegistryCache() {
+// Setup results cannot outlive their module owner or keep a retired graph alive.
+const setupRegistries = new WeakMap<PluginCache, SetupRegistryCache>();
+
+function getSetupRegistryCache(): SetupRegistryCache {
   const owner = getPluginCache();
   const { snapshot } = owner.metadata.current;
   let cached = setupRegistries.get(owner);
@@ -135,7 +138,30 @@ function getSetupRegistryCache() {
     cached = { snapshot, results: new LruCache<PluginSetupRegistry>(16) };
     setupRegistries.set(owner, cached);
   }
-  return cached.results;
+  return cached;
+}
+
+// Caller-supplied manifests may reuse results only when every record is, by object
+// identity, a record of the snapshot that scopes this cache; equal copies or foreign
+// records return null and register uncached. Positions keep the caller's record order.
+function resolveSnapshotRecordPositions(
+  cache: SetupRegistryCache,
+  manifestRegistry: PluginManifestRegistry,
+): number[] | null {
+  const snapshotRecords = cache.snapshot?.manifestRegistry.plugins;
+  if (!snapshotRecords) {
+    return null;
+  }
+  cache.recordPositions ??= new Map(snapshotRecords.map((record, index) => [record, index]));
+  const positions: number[] = [];
+  for (const record of manifestRegistry.plugins) {
+    const position = cache.recordPositions.get(record);
+    if (position === undefined) {
+      return null;
+    }
+    positions.push(position);
+  }
+  return positions;
 }
 function resolveSetupApiPath(
   rootDir: string,
@@ -216,12 +242,17 @@ function matchesProvider(provider: ProviderPlugin, providerId: string): boolean 
   );
 }
 
-function resolveSetupRegistryCacheKey(params?: {
-  config?: OpenClawConfig;
-  workspaceDir?: string;
-  env?: NodeJS.ProcessEnv;
-  pluginIds?: readonly string[];
-}): string | null {
+function resolveSetupRegistryCacheKey(
+  params:
+    | {
+        config?: OpenClawConfig;
+        workspaceDir?: string;
+        env?: NodeJS.ProcessEnv;
+        pluginIds?: readonly string[];
+      }
+    | undefined,
+  recordPositions: readonly number[] | null,
+): string | null {
   const env = params?.env ?? process.env;
   if (env !== process.env) {
     return null;
@@ -236,6 +267,7 @@ function resolveSetupRegistryCacheKey(params?: {
     resolvePluginMetadataEnvFingerprint(env),
     process.cwd(),
     params?.pluginIds ? [...params.pluginIds].toSorted() : null,
+    recordPositions,
   ]);
 }
 
@@ -474,9 +506,15 @@ export const resolvePluginSetupRegistry = withPluginSetupCache(function (params?
     };
   }
 
-  // Caller-supplied manifests own their registration; only implicit inventory requests reuse it.
-  const resultCacheKey = params?.manifestRegistry ? null : resolveSetupRegistryCacheKey(params);
-  const resultCache = getSetupRegistryCache();
+  const setupCache = getSetupRegistryCache();
+  const resultCache = setupCache.results;
+  const recordPositions = params?.manifestRegistry
+    ? resolveSnapshotRecordPositions(setupCache, params.manifestRegistry)
+    : null;
+  const resultCacheKey =
+    params?.manifestRegistry && !recordPositions
+      ? null
+      : resolveSetupRegistryCacheKey(params, recordPositions);
   if (resultCacheKey !== null) {
     const cached = resultCache.get(resultCacheKey);
     if (cached) {

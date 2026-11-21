@@ -1,6 +1,7 @@
 import DOMPurify from "dompurify";
 import { CONTROL_UI_ROOT_PUBLIC_ASSETS } from "../../../src/gateway/control-ui-root-assets.js";
 import { pruneMapToMaxSize } from "../../../src/infra/map-size.ts";
+import { escapeHtml } from "../../../src/shared/html-escape.js";
 import { stripUnsupportedCitationControlMarkers } from "../../../src/shared/text/citation-control-markers.js";
 import { routeIdFromPath } from "../app-route-paths.ts";
 import { resolveControlUiPaths } from "../app/browser.ts";
@@ -107,6 +108,12 @@ const progressSanitizeOptions = {
   ...sanitizeOptions,
   ALLOWED_TAGS: [...allowedTags, "progress"],
   ALLOWED_ATTR: [...allowedAttrs, "value", "max"],
+};
+// Inline Markdown renders inside interactive controls (radio/option buttons), which
+// must not contain interactive content; the label keeps only the link text.
+const inlineSanitizeOptions = {
+  ...sanitizeOptions,
+  ALLOWED_TAGS: allowedTags.filter((tag) => !["a", "button", "input"].includes(tag)),
 };
 
 const sanitizers = new Map<typeof sanitizeOptions, ReturnType<typeof DOMPurify>>();
@@ -634,6 +641,35 @@ export function toSanitizedMarkdownHtml(
   markdownCache.set(cacheKey, sanitized);
   pruneMapToMaxSize(markdownCache, MARKDOWN_CACHE_LIMIT);
   return sanitized;
+}
+
+/**
+ * Renders a single Markdown line as phrasing content, for labels and other text
+ * that must stay inside an interactive element where a block wrapper is invalid.
+ * Shares the block path's parser, normalization and DOMPurify allowlist, minus the
+ * interactive tags (links, buttons, fields) that a control's content model forbids;
+ * only the outer `<p>` differs, so no host-internal Markdown owner is duplicated.
+ */
+export function toSanitizedInlineMarkdownHtml(
+  markdownLocal: string,
+  options: MarkdownRenderOptions = {},
+): string {
+  const renderOptions = normalizeMarkdownRenderOptions(options);
+  const renderInput = normalizeMarkdownLineBreaks(
+    stripUnsupportedCitationControlMarkers(markdownLocal),
+  );
+  if (!renderInput.trim()) {
+    return "";
+  }
+  const sanitizer = markdownSanitizer(inlineSanitizeOptions);
+  let rendered: string;
+  try {
+    rendered = markdownParser.renderInline(renderInput, renderOptions);
+  } catch (err) {
+    console.warn("[markdown] md.renderInline failed, falling back to plain text:", err);
+    return sanitizer.sanitize(escapeHtml(renderInput));
+  }
+  return sanitizer.sanitize(rendered);
 }
 
 function markdownRenderKey(options: MarkdownRenderEnv): string {

@@ -85,7 +85,9 @@ export async function prepareHarnessContextMedia(params: {
     workspaceOnly,
     localRoots: workspaceOnly
       ? undefined
-      : getAgentScopedMediaLocalRoots(params.config ?? {}, params.agentId, params.workspaceDir),
+      : getAgentScopedMediaLocalRoots(params.config ?? {}, params.agentId, params.workspaceDir, {
+          workspaceOnly: params.sandbox !== undefined,
+        }),
     sandbox: params.sandbox,
     ...limits,
   });

@@ -13,6 +13,8 @@ import {
   LiveIntegerSchema,
   LiveSequenceSchema,
   LiveTextSchema,
+  WorkerMessageTextSchema,
+  WORKER_MESSAGE_MAX_TEXT_BYTES,
   WORKER_PROTOCOL_MAX_PAYLOAD_BYTES,
   WorkerAdmissionFailureReasonSchema,
   WorkerErrorShapeSchema,
@@ -38,6 +40,9 @@ export {
   WORKER_TRANSCRIPT_MAX_CONTENT_PARTS,
   WORKER_TRANSCRIPT_MAX_JSON_DEPTH,
   WORKER_PROVIDER_REPLAY_MAX_DATA_BYTES,
+  WORKER_MESSAGE_MAX_TEXT_BYTES,
+  WORKER_CONTEXT_MAX_TEXT_BYTES,
+  WORKER_PROTOCOL_MAX_NON_IMAGE_PAYLOAD_BYTES,
 } from "./worker-protocol-primitives.js";
 
 // Additive RPCs require exact build-bound features; bump only for an incompatible base set.
@@ -194,8 +199,8 @@ export const WorkerHeartbeatRequestFrameSchema = workerRequestSchema(
 export const WorkerHeartbeatResponseFrameSchema = workerResponseSchema(WorkerHeartbeatResultSchema);
 
 const transcriptSchemas = workerMessageSchemas(
-  LiveTextSchema,
-  Type.String({ minLength: 1, maxLength: WORKER_PROTOCOL_MAX_PAYLOAD_BYTES }),
+  WorkerMessageTextSchema,
+  Type.String({ minLength: 1, maxLength: WORKER_MESSAGE_MAX_TEXT_BYTES }),
   Type.Integer({ minimum: 0 }),
 );
 
@@ -209,13 +214,14 @@ export const WorkerTranscriptUserMessageSchema = closedObject({
 export const WorkerRuntimeContextFragmentsSchema = Type.Array(
   closedObject({
     kind: Type.Enum(["runtime-instruction", "conversation-data", "heartbeat-outcome"]),
-    text: Type.String(),
+    text: WorkerMessageTextSchema,
   }),
+  { maxItems: WORKER_TRANSCRIPT_MAX_CONTENT_PARTS },
 );
 
 const workerRuntimeContextFields = {
   role: Type.Literal("custom"),
-  content: Type.Union([Type.String(), transcriptSchemas.userContent]),
+  content: Type.Union([WorkerMessageTextSchema, transcriptSchemas.userContent]),
   display: Type.Literal(false),
   timestamp: Type.Integer({ minimum: 0 }),
 };

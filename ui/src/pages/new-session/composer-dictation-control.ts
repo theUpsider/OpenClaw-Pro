@@ -8,8 +8,14 @@ import type { NewSessionComposerTextareaController } from "./composer-controller
 
 registerNewSessionSetupEnglish();
 
+/** The draft that receives dictation; plugin hosts supply a transcript-only target. */
+export type DictationDraftTarget = Pick<
+  NewSessionComposerTextareaController,
+  "captureSelection" | "previewTranscript" | "insertTranscript"
+>;
+
 type NewSessionDictationOptions = {
-  textarea: NewSessionComposerTextareaController;
+  textarea: DictationDraftTarget;
   getClient: () => GatewayBrowserClient | null;
   isConnected: () => boolean;
   canCommit: () => boolean;
@@ -17,6 +23,7 @@ type NewSessionDictationOptions = {
   onError: (message: string) => void;
   onSubmit: () => void;
   requestUpdate: () => void;
+  idleLabel?: () => string;
 };
 
 /**
@@ -105,7 +112,7 @@ export class NewSessionDictationControl {
         connected,
         disabled: !enabled,
         readDictation: () => dictation,
-        idleLabel: t("newSession.dictate"),
+        idleLabel: this.options.idleLabel?.() ?? t("newSession.dictate"),
         microphonePicker: {
           devices: this.devicePicker.devices,
           loading: this.devicePicker.loading,

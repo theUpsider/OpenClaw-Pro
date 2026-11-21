@@ -12,6 +12,7 @@ import { createWorkboardDatabase } from "./sqlite-store-schema.js";
 import { createWorkboardSqliteStores } from "./sqlite-store.js";
 import { workboardTestDatabaseInput } from "./test/database-config.js";
 import { openPostgresFixture } from "./test/postgres-fixture.js";
+import { WORKBOARD_POSTGRES_MIGRATIONS } from "./workboard-postgres-migrations.js";
 
 const postgresInput = workboardTestDatabaseInput();
 const postgresUrl = postgresInput?.connection;
@@ -339,18 +340,87 @@ describe.skipIf(!postgresUrl)("experimental PostgreSQL workboard admission and r
     const opened = await openDatabase(dbPath);
     const schema = opened.schema;
     await opened.close();
+    // One newer than this build: the store may not be downgraded in place.
     await observer.query(
-      `UPDATE ${quoteIdentifier(schema)}.openclaw_schema_meta SET version = 4 WHERE store = 'workboard'`,
+      `UPDATE ${quoteIdentifier(schema)}.openclaw_schema_meta SET version = 6 WHERE store = 'workboard'`,
     );
     replaceAnchorForFreshAdmission(dbPath);
-    expect(() => createWorkboardDatabase(dbPath, undefined, postgresInput)).toThrow(/expected.*3/i);
+    expect(() => createWorkboardDatabase(dbPath, undefined, postgresInput)).toThrow(/expected.*5/i);
     expect(
       (
         await observer.query<{ version: number }>(
           `SELECT version::integer FROM ${quoteIdentifier(schema)}.openclaw_schema_meta WHERE store = 'workboard'`,
         )
       ).rows,
-    ).toEqual([{ version: 4 }]);
+    ).toEqual([{ version: 6 }]);
+  });
+
+  // Migrates a genuine version-4 store (no interaction column) to the current version.
+  it("adds the interaction column when a version-4 store migrates", async () => {
+    const dbPath = databasePath();
+    const [version4] = WORKBOARD_POSTGRES_MIGRATIONS;
+    const opened = await openDatabase(dbPath);
+    const schema = opened.schema;
+    await opened.close();
+    // Rebuild the physical schema from the version-4 DDL, never by dropping a column
+    // (a dropped column leaves an attribute-number hole the migration would inherit).
+    await observer.query(`DROP SCHEMA ${quoteIdentifier(schema)} CASCADE`);
+    await observer.query(
+      `CREATE SCHEMA ${quoteIdentifier(schema)}; SET search_path TO ${quoteIdentifier(schema)}; ${version4.schema.postgres}`,
+    );
+    await observer.query(
+      `CREATE TABLE ${quoteIdentifier(schema)}.openclaw_schema_meta (store TEXT PRIMARY KEY, version BIGINT NOT NULL, store_id TEXT NOT NULL, fingerprint TEXT, ddl_hash TEXT, server_major BIGINT)`,
+    );
+    const anchor = new DatabaseSync(dbPath, { readOnly: true });
+    let storeId: string;
+    try {
+      storeId = String(
+        anchor.prepare("SELECT store_id FROM openclaw_engine_anchor").get()?.store_id ?? "",
+      );
+    } finally {
+      anchor.close();
+    }
+    await observer.query(
+      `INSERT INTO ${quoteIdentifier(schema)}.openclaw_schema_meta (store, version, store_id) VALUES ('workboard', 4, $1)`,
+      [storeId],
+    );
+    await observer.query(
+      `INSERT INTO ${quoteIdentifier(schema)}.workboard_boards (id, name, created_at, updated_at) VALUES ('board', 'Persisted before the migration', 1, 2)`,
+    );
+    replaceAnchorForFreshAdmission(dbPath);
+
+    const migrated = await openDatabase(dbPath);
+    try {
+      // The migrated catalog matches the generated DDL, which the column position decides.
+      const columns = await observer.query<{ column_name: string; ordinal_position: number }>(
+        `SELECT column_name, ordinal_position FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'workboard_cards' AND column_name IN ('failure_count', 'interaction_json') ORDER BY ordinal_position`,
+        [schema],
+      );
+      expect(columns.rows).toEqual([
+        { column_name: "failure_count", ordinal_position: 33 },
+        { column_name: "interaction_json", ordinal_position: 34 },
+      ]);
+      expect(
+        (
+          await migrated.fixture.statements([
+            {
+              sql: "SELECT name FROM workboard_boards WHERE id = ?",
+              method: "get",
+              args: ["board"],
+            },
+          ])
+        ).at(0),
+      ).toEqual({ name: "Persisted before the migration" });
+      expect(
+        (
+          await observer.query<{ version: number }>(
+            `SELECT version::integer AS version FROM ${quoteIdentifier(schema)}.openclaw_schema_meta WHERE store = 'workboard'`,
+          )
+        ).rows,
+      ).toEqual([{ version: 5 }]);
+    } finally {
+      await migrated.close();
+    }
   });
 
   it("refuses PostgreSQL metadata belonging to a different anchor", async () => {

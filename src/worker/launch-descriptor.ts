@@ -34,7 +34,12 @@ import {
   WorkerInferenceModelRefSchema,
   WorkerInferenceOptionsSchema,
 } from "../../packages/gateway-protocol/src/schema/worker-inference.js";
+import {
+  checkWorkerProtocolJson,
+  WORKER_CONTEXT_MAX_TEXT_BYTES,
+} from "../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
 import { PROTOCOL_VERSION } from "../../packages/gateway-protocol/src/version.js";
+import { isWorkerTextFrameWithinBudget } from "../../packages/gateway-protocol/src/worker-transcript-budget.js";
 import type { RuntimeContextFragment } from "../agents/internal-runtime-context.js";
 import {
   ComputerUseCapabilityDescriptorSchema,
@@ -42,7 +47,6 @@ import {
 } from "../plugins/computer-use-contract.js";
 import { isWorkerDesktopArgs, isWorkerDesktopString } from "../shared/worker-desktop-descriptor.js";
 import { hasExactOwnKeys, workerProtocolObject } from "./protocol-record.js";
-import { isWorkerTranscriptMessageFrameSafe } from "./transcript-message.js";
 import {
   parseWorkerConnectionEndpoint,
   type WorkerConnectionEndpoint,
@@ -205,7 +209,10 @@ const AssignmentSchema = workerProtocolObject({
     .custom<SkillResourceDelivery>((value) => Value.Check(SkillResourceDeliverySchema, value))
     .optional(),
   agentId: Identifier,
-  operationalRunInstance: z.object({ instanceId: Identifier, runId: Identifier }).readonly(),
+  operationalRunInstance: workerProtocolObject({
+    instanceId: Identifier,
+    runId: Identifier,
+  }).readonly(),
   // The worker carries this opaque host-signed envelope without parsing private identity.
   agentRuntimeIdentityToken: z.string().min(1).max(16_384),
   runId: Identifier,
@@ -213,11 +220,12 @@ const AssignmentSchema = workerProtocolObject({
   prompt: z.custom<string | Extract<WorkerTranscriptMessage, { role: "user" }>["content"]>(
     (value) =>
       typeof value === "string" ||
-      Value.Check(WorkerTranscriptUserMessageSchema, {
-        role: "user",
-        content: value,
-        timestamp: 0,
-      }),
+      (!checkWorkerProtocolJson(value) &&
+        Value.Check(WorkerTranscriptUserMessageSchema, {
+          role: "user",
+          content: value,
+          timestamp: 0,
+        })),
   ),
   suppressPromptTranscript: z.boolean(),
   workspaceDir: WorkspacePath,
@@ -228,7 +236,7 @@ const AssignmentSchema = workerProtocolObject({
   inferenceOptions: z.custom<WorkerInferenceOptions>((value) =>
     Value.Check(WorkerInferenceOptionsSchema, value),
   ),
-  systemPrompt: z.string().optional(),
+  systemPrompt: z.string().max(WORKER_CONTEXT_MAX_TEXT_BYTES).optional(),
   inHistorySystemUpdates: z.boolean().optional(),
   includeEmptySnapshots: z.boolean().optional(),
   runtimeContext: z
@@ -240,7 +248,10 @@ const AssignmentSchema = workerProtocolObject({
     (value) =>
       Array.isArray(value) &&
       value.length <= WORKER_INFERENCE_MAX_CONTEXT_MESSAGES &&
-      value.every((message) => Value.Check(WorkerTranscriptMessageSchema, message)),
+      value.every(
+        (message) =>
+          !checkWorkerProtocolJson(message) && Value.Check(WorkerTranscriptMessageSchema, message),
+      ),
   ),
   transcript: workerProtocolObject({ baseLeafId: Identifier.nullable(), nextSeq: Sequence.min(1) }),
   liveEvents: workerProtocolObject({ ackedSeq: Sequence, nextSeq: Sequence.min(1) }).refine(
@@ -284,6 +295,49 @@ export function buildWorkerConnectParams(
   };
 }
 
+/**
+ * Admission after schema parsing and fitting. Plans may be oversized while the
+ * Gateway fits history; node launch and managed/standalone ingress must pass here.
+ * The frame may include the managed-turn wrapper and privately supplied endpoint.
+ * The closed endpoint has its own existing size bound; charge it to the data/
+ * transport ceilings while residual control covers the plan and managed wrapper.
+ */
+export function isWorkerLaunchPlanWithinBudget(
+  plan: WorkerLaunchPlan | WorkerLaunchDescriptor,
+  frame: unknown = plan,
+  reservedEndpointBytes = 0,
+): boolean {
+  const assignment = plan.assignment;
+  const endpointBytes =
+    "connectionEndpoint" in plan
+      ? Buffer.byteLength(JSON.stringify(plan.connectionEndpoint), "utf8")
+      : 0;
+  return isWorkerTextFrameWithinBudget(
+    frame,
+    {
+      messages: [
+        ...assignment.initialMessages,
+        {
+          role: "user",
+          content:
+            typeof assignment.prompt === "string"
+              ? [{ type: "text", text: assignment.prompt }]
+              : assignment.prompt,
+          timestamp: 0,
+        },
+      ],
+      systemPrompt: assignment.systemPrompt,
+      runtimeContext: assignment.runtimeContext,
+      residual: "context",
+    },
+    {
+      // Fitting supplies a null endpoint placeholder; admission has the exact typed endpoint.
+      additionalBytes: reservedEndpointBytes ? reservedEndpointBytes - "null".length : 0,
+      residualMetadataBytes: endpointBytes + reservedEndpointBytes,
+    },
+  );
+}
+
 function validateWorkerLaunchPlan(candidate: WorkerLaunchPlan): WorkerLaunchPlan {
   const frame: WorkerConnectRequestFrame = {
     type: "req",
@@ -299,14 +353,21 @@ function validateWorkerLaunchPlan(candidate: WorkerLaunchPlan): WorkerLaunchPlan
       !candidate.admission.handshake.protocolFeatures.includes(
         WORKER_LOCAL_INFERENCE_PROTOCOL_FEATURE,
       )) ||
-    !isWorkerTranscriptMessageFrameSafe({
-      role: "user",
-      content:
-        typeof candidate.assignment.prompt === "string"
-          ? [{ type: "text", text: candidate.assignment.prompt }]
-          : candidate.assignment.prompt,
-      timestamp: Number.MAX_SAFE_INTEGER,
-    })
+    !isWorkerTextFrameWithinBudget(
+      { prompt: candidate.assignment.prompt },
+      {
+        messages: [
+          {
+            role: "user",
+            content:
+              typeof candidate.assignment.prompt === "string"
+                ? [{ type: "text", text: candidate.assignment.prompt }]
+                : candidate.assignment.prompt,
+            timestamp: 0,
+          },
+        ],
+      },
+    )
   ) {
     throw new Error("invalid worker launch descriptor");
   }
@@ -352,5 +413,9 @@ export function parseWorkerLaunchDescriptor(value: unknown): WorkerLaunchDescrip
   if (!connectionEndpoint) {
     throw new Error("invalid worker launch descriptor");
   }
-  return { ...plan, connectionEndpoint };
+  const descriptor = { ...plan, connectionEndpoint };
+  if (!isWorkerLaunchPlanWithinBudget(descriptor)) {
+    throw new Error("invalid worker launch descriptor");
+  }
+  return descriptor;
 }

@@ -38,6 +38,7 @@ type StatusDegradationSummary = Pick<
   | "degradedPlugins"
   | "startupMigrationWarning"
   | "startupRecoveryWarning"
+  | "startupRecoveryTombstoneWarning"
   | "installationReplacementWarning"
   | "childRuntime"
   | "secretEgressProxy"
@@ -55,6 +56,7 @@ function buildStatusDegradationRows(
   };
   addWarning("Startup migrations", summary.startupMigrationWarning);
   addWarning("Session recovery", summary.startupRecoveryWarning);
+  addWarning("Session tombstones", summary.startupRecoveryTombstoneWarning);
   addWarning(
     "Gateway runtime",
     summary.childRuntime ? formatMissingChildRuntimeWarning(summary.childRuntime) : undefined,

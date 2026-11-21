@@ -110,16 +110,18 @@ export function DailyChartCompact(props: {
         : [];
       const breakdownLines = segments.map(
         ({ value, labelKey }) =>
-          `${t(labelKey)} ${isTokenMode ? formatUsageTokens(value) : formatAnalysisCost(value)}`,
+          `${t(labelKey)} ${isTokenMode ? formatUsageTokens(value, d.usageReport) : formatAnalysisCost(value, d.usageReport)}`,
       );
+      // A day with an interrupted response shows its recorded subtotals as lower bounds.
       const totalLabel = isTokenMode
-        ? formatUsageTokens(d.totalTokens)
-        : formatAnalysisCost(d.totalCost);
+        ? formatUsageTokens(d.totalTokens, d.usageReport)
+        : formatAnalysisCost(d.totalCost, d.usageReport);
       const dateLabel = formatFullDate(d.date);
-      const tokensLabel = `${formatUsageTokens(d.totalTokens)} ${normalizeLowercaseStringOrEmpty(
-        t("usage.metrics.tokens"),
-      )}`.trim();
-      const costLabel = formatAnalysisCost(d.totalCost);
+      const tokensLabel =
+        `${formatUsageTokens(d.totalTokens, d.usageReport)} ${normalizeLowercaseStringOrEmpty(
+          t("usage.metrics.tokens"),
+        )}`.trim();
+      const costLabel = formatAnalysisCost(d.totalCost, d.usageReport);
       const segmentTotal = segments.reduce((sum, segment) => sum + segment.value, 0) || 1;
       return {
         date: d.date,
@@ -297,7 +299,9 @@ export function CostBreakdownCompact(props: { totals: UsageTotals; mode: "tokens
         className,
         labelKey,
         percentage: total === 0 ? 0 : (value / total) * 100,
-        formatted: isTokenMode ? formatUsageTokens(value) : formatAnalysisCost(value),
+        formatted: isTokenMode
+          ? formatUsageTokens(value, totals.usageReport)
+          : formatAnalysisCost(value, totals.usageReport),
       };
     });
 
@@ -332,8 +336,8 @@ export function CostBreakdownCompact(props: { totals: UsageTotals; mode: "tokens
       <div class="cost-breakdown-total">
         {t("usage.breakdown.total")}:{" "}
         {state().isTokenMode
-          ? formatUsageTokens(state().totals.totalTokens)
-          : formatAnalysisCost(state().totals.totalCost)}
+          ? formatUsageTokens(state().totals.totalTokens, state().totals.usageReport)
+          : formatAnalysisCost(state().totals.totalCost, state().totals.usageReport)}
       </div>
     </div>
   );

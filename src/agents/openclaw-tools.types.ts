@@ -1,3 +1,4 @@
+import type { ChatWorkContext } from "../../packages/gateway-protocol/src/chat-work-context.js";
 import type { ChatType } from "../channels/chat-type.js";
 import type { InboundEventKind } from "../channels/inbound-event/kind.js";
 import type { ConversationReadInvocationOrigin } from "../channels/plugins/conversation-read-origin.js";
@@ -35,6 +36,8 @@ export type OpenClawSharedToolsOptions = {
    */
   questionPrompt?: QuestionPromptDelivery;
   toolBindings?: Readonly<Record<string, unknown>>;
+  /** Captured chat.send work context; quoted reference data, never authority. */
+  workContext?: ChatWorkContext;
   /** Trusted runtime-only authorization for one bounded cross-conversation recall pass. */
   conversationRecall?: ConversationRecallContext;
   /** Host-resolved memory partition shared by plugin tools for this turn. */

@@ -804,6 +804,27 @@ describe("Telegram send recovery conformance over HTTP", () => {
     },
   );
 
+  it("drops only the reply a fail-closed message_sending guard denies", async () => {
+    const registry = createEmptyPluginRegistry();
+    addTestHook({
+      registry,
+      pluginId: "fail-closed-guard",
+      hookName: "message_sending",
+      failurePolicy: "fail-closed",
+      handler: (event: { content: string }) => {
+        if (event.content.includes("unreachable")) {
+          throw new Error("guard backend unreachable");
+        }
+        return undefined;
+      },
+    });
+    initializeGlobalHookRunner(registry);
+    await deliver([{ text: "Denied while guard unreachable." }, { text: "Allowed follow-up." }]);
+    expect(requests.map(({ method, fields }) => [method, fields.text])).toEqual([
+      ["sendMessage", "Allowed follow-up."],
+    ]);
+  });
+
   it("does not claim delivery when all text is rejected as empty", async () => {
     const description = "text must be non-empty";
     rejections.push(`Bad Request: ${description}`, `Bad Request: ${description}`);

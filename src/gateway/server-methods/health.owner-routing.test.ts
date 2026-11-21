@@ -1,6 +1,9 @@
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { recordStartupRecoveryStoreResult } from "../../agents/main-session-recovery/main-session-restart-recovery-diagnostics.js";
+import {
+  recordStartupRecoveryStoreResult,
+  recordStartupRecoveryTombstone,
+} from "../../agents/main-session-recovery/main-session-restart-recovery-diagnostics.js";
 import { setPreparedModelRuntimeStartupStatus } from "../../agents/prepared-model-runtime.startup-status.js";
 import { createGatewayHostLifecycle } from "../../cli/gateway-cli/host-lifecycle.js";
 import { resetConfigRuntimeState, setRuntimeConfigSnapshot } from "../../config/config.js";
@@ -303,6 +306,39 @@ describe("Gateway status owner routing", () => {
       });
     },
   );
+
+  it("restricts startup tombstone session keys to admins while reporting the count", async () => {
+    await withStateDirEnv("openclaw-gateway-startup-tombstone-", async ({ stateDir }) => {
+      const storePath = path.join(stateDir, "sessions.json");
+      const config = { agents: { entries: { c: {} } }, session: { store: storePath } };
+      const sessionKey = "agent:c:main";
+      try {
+        recordStartupRecoveryTombstone({
+          agentId: "c",
+          storePath,
+          sessionKey,
+          reason: "delegated recovery sender authority is unavailable",
+          unattended: true,
+          lifecycleGeneration: getAgentEventLifecycleGeneration(),
+        });
+        const reader = (await callStatus(config)).mock.calls[0]?.[1];
+        expect(reader.startupRecoveryTombstoneWarning).toContain(
+          "1 lost delegated sender authority",
+        );
+        expect(reader.startupRecoveryTombstoneWarning).toContain("/new or /reset");
+        expect(reader.startupRecoveryTombstoneWarning).not.toContain(sessionKey);
+        const admin = (await callStatus(config, ["operator.admin"])).mock.calls[0]?.[1];
+        expect(admin.startupRecoveryTombstoneWarning).toContain(`c: ${sessionKey}`);
+        expect(admin.startupRecoveryWarning).toBeUndefined();
+
+        rotateAgentEventLifecycleGeneration();
+        const restarted = (await callStatus(config, ["operator.admin"])).mock.calls[0]?.[1];
+        expect(restarted.startupRecoveryTombstoneWarning).toBeUndefined();
+      } finally {
+        rotateAgentEventLifecycleGeneration();
+      }
+    });
+  });
 
   it.each(["main", "molty", undefined])(
     "uses recorded owner %s for status and public main aliases",

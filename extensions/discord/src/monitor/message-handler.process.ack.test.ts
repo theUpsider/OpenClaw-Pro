@@ -237,7 +237,7 @@ describe("processDiscordMessage ack reactions", () => {
     expect(getReactionEmojis()).toEqual(["👀", "📈"]);
   });
 
-  it("keeps one acknowledgement through reasoning, tools, compaction, silence, and success", async () => {
+  it("keeps one working reaction through reasoning, tools, compaction, and silence, then ends on done", async () => {
     vi.useFakeTimers();
     const dispatchEntered = createDeferred<void>();
     dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
@@ -255,7 +255,8 @@ describe("processDiscordMessage ack reactions", () => {
 
     const ctx = await createAutomaticSourceDeliveryContext({
       cfg: {
-        messages: { ackReaction: "👀" },
+        // The quiet working reaction does not follow the configured ack emoji.
+        messages: { ackReaction: "👍" },
         session: { store: "/tmp/openclaw-discord-process-test-sessions.json" },
       },
     });
@@ -265,8 +266,8 @@ describe("processDiscordMessage ack reactions", () => {
     await vi.runAllTimersAsync();
     await runPromise;
 
-    expect(getReactionEmojis()).toEqual(["👀"]);
-    expect(sendMocks.removeReactionDiscord).not.toHaveBeenCalled();
+    expect(getReactionEmojis()).toEqual(["👀", DEFAULT_EMOJIS.done]);
+    expect(sendMocks.removeReactionDiscord.mock.calls.map((call) => call[2])).toEqual(["👀"]);
   });
 });
 
@@ -708,7 +709,7 @@ describe("processDiscordMessage session routing", () => {
 
     expect(fetchImpl).not.toHaveBeenCalled();
     expectRecordFields(requireRecord(getLastDispatchCtx(), "dispatch context"), {
-      BodyForAgent: '[Audio transcript (machine-generated, untrusted)]: "/status"',
+      BodyForAgent: '[STT generated (may contain transcription mistakes)]: "/status"',
       RawBody: "",
       CommandBody: "",
       CommandTurn: {

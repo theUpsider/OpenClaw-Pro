@@ -15,6 +15,8 @@ export const SESSIONS_SEND_RESULT_GUIDANCE =
 export const SESSIONS_SPAWN_TOOL_DISPLAY_SUMMARY =
   "Spawn hidden subagent (ephemeral) or visible work session (durable).";
 export const SESSIONS_SPAWN_SUBAGENT_TOOL_DISPLAY_SUMMARY = "Spawn subagent session.";
+export const SESSIONS_SPAWN_ALLOW_MESSAGING_DESCRIPTION =
+  "Give this one child the message tool. Disabled by default: a subagent can only send messages when the spawn passes allowMessaging: true. Hidden subagent only; unavailable with ACP, visible, or collect.";
 export const AGENTS_WAIT_TOOL_DISPLAY_SUMMARY = "Wait for collector subagents.";
 export const SESSION_STATUS_TOOL_DISPLAY_SUMMARY = "Show session status/model/usage.";
 export const ASK_USER_TOOL_DISPLAY_SUMMARY = "Ask the user and wait for an answer.";
@@ -155,6 +157,7 @@ export function describeSessionsSpawnTool(options?: {
     visibilityLine,
     ...(options?.swarmEnabled ? [SESSIONS_SPAWN_COLLECTOR_GUIDANCE] : []),
     "Inherits parent workspace. Native task arrives in the child's initial `[Subagent Task]` message.",
+    "Subagents have no `message` tool by default; a subagent can only send messages when the spawn passes `allowMessaging: true` (hidden native subagent only).",
     ...(options?.acpAvailable === false
       ? []
       : ['`runtime="acp"` ids: codex, claude, gemini, opencode, or configured ACP.']),

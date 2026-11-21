@@ -507,6 +507,25 @@ describe("config schema", () => {
     );
   });
 
+  it("accepts the ultra exec reviewer thinking ceiling and rejects near-miss spellings", () => {
+    const tools = ToolsSchema.parse({
+      exec: { reviewer: { thinking: "ultra" } },
+    });
+    expect(tools?.exec?.reviewer?.thinking).toBe("ultra");
+
+    const config = OpenClawSchema.parse({
+      agents: { entries: { main: { tools: { exec: { reviewer: { thinking: "ultra" } } } } } },
+    });
+    expect(config.agents?.entries?.main?.tools?.exec?.reviewer?.thinking).toBe("ultra");
+
+    for (const typo of ["ultraa", "ultr", "ULTRAS", "xtreme", "ultra-"]) {
+      expect(
+        ToolsSchema.safeParse({ exec: { reviewer: { thinking: typo } } }).success,
+        `reviewer thinking "${typo}" must be rejected`,
+      ).toBe(false);
+    }
+  });
+
   it.each([
     { policy: { security: "full", ask: "off" }, hint: 'Replace security/ask with mode="full"' },
     { policy: { security: "full", ask: "on-miss" }, hint: "no exact mode equivalent" },

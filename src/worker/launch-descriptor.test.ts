@@ -4,9 +4,14 @@ import {
   WORKER_PROTOCOL_MAX_IDENTIFIER_LENGTH,
   WORKER_PROTOCOL_MAX_PAYLOAD_BYTES,
   WORKER_RPC_SET_VERSION,
+  type WorkerTranscriptMessage,
 } from "../../packages/gateway-protocol/src/schema/worker-admission.js";
 import { WORKER_INFERENCE_MAX_CONTEXT_MESSAGES } from "../../packages/gateway-protocol/src/schema/worker-inference.js";
-import { WORKER_PROTOCOL_MAX_MEDIA_PAYLOAD_BYTES } from "../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
+import {
+  WORKER_CONTEXT_MAX_RESIDUAL_BYTES,
+  WORKER_PROTOCOL_MAX_MEDIA_PAYLOAD_BYTES,
+  WORKER_MESSAGE_MAX_TEXT_BYTES,
+} from "../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
 import { createNoisyPngBuffer } from "../../test/helpers/image-fixtures.js";
 import type { WorkerGitHubLaunchBinding, WorkerLaunchDescriptor } from "./launch-descriptor.js";
 import { buildWorkerConnectParams, parseWorkerLaunchDescriptor } from "./launch-descriptor.js";
@@ -83,7 +88,7 @@ function withAssignment(overrides: Record<string, unknown>, descriptor = launchD
 }
 
 describe("worker launch descriptor", () => {
-  it("admits bounded image-only input and replay without raising the text budget", () => {
+  it("admits bounded image-only input and replay with bounded text and replay", () => {
     const descriptor = launchDescriptor();
     const image = {
       type: "image" as const,
@@ -105,12 +110,37 @@ describe("worker launch descriptor", () => {
       expectInvalidDescriptor(withAssignment({ prompt: [invalidImage] }, descriptor));
     }
     for (const prompt of [
-      "x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES),
-      [{ type: "text", text: "x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES) }, image],
+      "x".repeat(WORKER_MESSAGE_MAX_TEXT_BYTES + 1),
+      [{ type: "text", text: "x".repeat(WORKER_MESSAGE_MAX_TEXT_BYTES + 1) }, image],
       [{ ...image, data: "x".repeat(WORKER_PROTOCOL_MAX_MEDIA_PAYLOAD_BYTES) }],
     ]) {
       expectInvalidDescriptor(withAssignment({ prompt }, descriptor));
     }
+  });
+
+  it("admits large contexts and rejects aggregate overflow and forged text metadata", () => {
+    const descriptor = launchDescriptor();
+    const large = "x".repeat(WORKER_MESSAGE_MAX_TEXT_BYTES);
+    descriptor.assignment.prompt = large;
+    descriptor.assignment.initialMessages = Array.from({ length: 6 }, () => ({
+      role: "user",
+      content: [{ type: "text", text: large }],
+      timestamp: 1,
+    }));
+    descriptor.assignment.systemPrompt = large;
+    expect(parseWorkerLaunchDescriptor(descriptor)).toEqual(descriptor);
+    expectInvalidDescriptor(withAssignment({ systemPrompt: large + "x" }, descriptor));
+    expectInvalidDescriptor(
+      withAssignment(
+        {
+          operationalRunInstance: {
+            ...descriptor.assignment.operationalRunInstance,
+            text: large,
+          },
+        },
+        descriptor,
+      ),
+    );
   });
 
   it.each(["workspaceDir", "workerContainmentRoot"] as const)(
@@ -308,6 +338,7 @@ describe("worker launch descriptor", () => {
       }),
     ];
     for (const field of [
+      "operationalRunInstance",
       "modelRef",
       "inferenceOptions",
       "transcript",
@@ -526,23 +557,50 @@ describe("worker launch descriptor", () => {
     }
   });
 
-  it("caps initial history at the inference context limit", () => {
+  it("caps initial history by both the context residual and the inference context count", () => {
     const descriptor = launchDescriptor();
     const message = descriptor.assignment.initialMessages[0];
     if (!message) {
       throw new Error("expected launch fixture message");
     }
+    // A long history of small messages exceeds 64 KiB of residual but fits the context residual.
     descriptor.assignment.initialMessages = Array.from(
       { length: WORKER_INFERENCE_MAX_CONTEXT_MESSAGES },
       () => structuredClone(message),
     );
-    expect(parseWorkerLaunchDescriptor(structuredClone(descriptor))).toEqual(descriptor);
+    expect(parseWorkerLaunchDescriptor(descriptor)).toEqual(descriptor);
 
     descriptor.assignment.initialMessages = Array.from(
       { length: WORKER_INFERENCE_MAX_CONTEXT_MESSAGES + 1 },
       () => structuredClone(message),
     );
+    expectInvalidDescriptor(descriptor);
 
+    const toolCall = (id: string, command: string): WorkerTranscriptMessage => ({
+      role: "assistant",
+      content: [{ type: "toolCall", id, name: "exec", arguments: { command } }],
+      api: "api",
+      provider: "provider",
+      model: "model",
+      stopReason: "toolUse",
+      usage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      timestamp: 1,
+    });
+    descriptor.assignment.initialMessages = [
+      toolCall("call-1", "x".repeat(WORKER_CONTEXT_MAX_RESIDUAL_BYTES / 2)),
+    ];
+    expect(parseWorkerLaunchDescriptor(descriptor)).toEqual(descriptor);
+    descriptor.assignment.initialMessages = [
+      toolCall("call-1", "x".repeat(WORKER_CONTEXT_MAX_RESIDUAL_BYTES / 2)),
+      toolCall("call-2", "x".repeat(WORKER_CONTEXT_MAX_RESIDUAL_BYTES / 2)),
+    ];
     expectInvalidDescriptor(descriptor);
   });
 });

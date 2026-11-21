@@ -7,8 +7,20 @@ export const WORKER_PROTOCOL_MAX_IDENTIFIER_LENGTH = 256;
 export const WORKER_PROTOCOL_MAX_FRAME_ID_LENGTH = 128;
 export const WORKER_PROTOCOL_MAX_PAYLOAD_BYTES = 64 * 1024;
 export const WORKER_PROTOCOL_MAX_CONCURRENT_TOOLS = 4;
+export const WORKER_MESSAGE_MAX_TEXT_BYTES = 1024 * 1024;
+export const WORKER_CONTEXT_MAX_TEXT_BYTES = 8 * 1024 * 1024;
+export const WORKER_PROTOCOL_MAX_NON_IMAGE_PAYLOAD_BYTES = 16 * 1024 * 1024;
+/**
+ * Non-text residual of frames that carry a conversation (inference start and terminal, transcript
+ * commits, launch plans): tool definitions, tool-call arguments and per-message metadata. It grows
+ * with every tool call, so it cannot share the 64 KiB control budget; a worker hit that budget after
+ * about 20 tool calls. Complete frames stay bounded by WORKER_PROTOCOL_MAX_NON_IMAGE_PAYLOAD_BYTES.
+ */
+export const WORKER_CONTEXT_MAX_RESIDUAL_BYTES = 4 * 1024 * 1024;
+export const WorkerMessageTextSchema = Type.String({ maxLength: WORKER_MESSAGE_MAX_TEXT_BYTES });
+export const WorkerContextTextSchema = Type.String({ maxLength: WORKER_CONTEXT_MAX_TEXT_BYTES });
 // Image-bearing inference, transcript and computer results share this transport ceiling.
-// Non-image control data keeps the ordinary frame budget.
+// Residual control data keeps the ordinary frame budget.
 export const WORKER_PROTOCOL_MAX_MEDIA_PAYLOAD_BYTES = 25 * 1024 * 1024;
 
 /** Image data alone may exceed the ordinary control-frame budget. */
@@ -179,7 +191,7 @@ export const WORKER_TRANSCRIPT_MAX_CONTENT_PARTS = 128;
 
 export const WORKER_TRANSCRIPT_MAX_JSON_DEPTH = 32;
 
-export const WORKER_PROVIDER_REPLAY_MAX_DATA_BYTES = WORKER_PROTOCOL_MAX_PAYLOAD_BYTES;
+export const WORKER_PROVIDER_REPLAY_MAX_DATA_BYTES = 8 * 1024 * 1024;
 
 const WorkerReplayHashSchema = Type.String({
   minLength: 2,
@@ -273,10 +285,10 @@ export function workerMessageSchemas(text: TString, signature: TString, timestam
         }),
       ),
       stopReason: Type.Enum(["stop", "length", "toolUse", "error", "aborted"]),
-      errorMessage: Type.Optional(text),
+      errorMessage: Type.Optional(LiveTextSchema),
       errorCode: Type.Optional(Type.String({ maxLength: 256 })),
       errorType: Type.Optional(Type.String({ maxLength: 256 })),
-      errorBody: Type.Optional(text),
+      errorBody: Type.Optional(LiveTextSchema),
       retryAfterMs: Type.Optional(
         Type.Union([Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }), Type.Null()]),
       ),

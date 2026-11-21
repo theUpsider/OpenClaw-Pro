@@ -66,7 +66,8 @@ Variables are case-insensitive. `{think}` is an alias for `{thinkingLevel}`.
 - `messages.statusReactions.enabled`: enables lifecycle status reactions on Slack, Discord, Signal, Telegram, and WhatsApp.
   On Discord, unset keeps status reactions enabled when ack reactions are active.
   On Slack, Signal, Telegram, and WhatsApp, set it explicitly to `true` to enable lifecycle status reactions.
-  Slack uses its native assistant thread status and rotating loading messages for progress by default, while keeping the configured ack reaction static.
+  Supported channels use the quiet lifecycle: one working reaction (👀) for the whole turn, then ✅ on success or ❌ on error, with no intermediate activity emoji. The working reaction is 👀 regardless of `messages.ackReaction`. Telegram cannot render ✅/❌ and substitutes a supported emoji instead.
+  Slack uses its native assistant thread status and rotating loading messages for progress by default, alongside the quiet reaction.
 
 ### Queue
 

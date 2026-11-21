@@ -265,7 +265,10 @@ export interface QuotaSuspension {
 
 export type {
   SessionGoal,
+  SessionGoalAttention,
   SessionGoalStatus,
+  SessionGoalVerification,
+  SessionGoalVerificationOutcome,
 } from "../../../packages/gateway-protocol/src/schema/sessions-goal.js";
 
 export type RestartRecoveryRun = {
@@ -405,6 +408,8 @@ type SessionEntryCore = SessionRestartRecoveryState &
     subagentRole?: "orchestrator" | "leaf";
     /** Explicit control scope assigned at spawn time for subagent control decisions. */
     subagentControlScope?: "children" | "none";
+    /** Spawn-time opt-in that lifts the subagent always-deny of the `message` tool; only `true` grants. */
+    subagentMessageToolEnabled?: true;
     /** Version of the requester tool-policy snapshot captured when this child was spawned. */
     inheritedToolPolicyVersion?: 1;
     /** Sender/channel restriction provenance retained with the inherited tool snapshot. */

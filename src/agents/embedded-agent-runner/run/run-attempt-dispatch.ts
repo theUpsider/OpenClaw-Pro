@@ -423,6 +423,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
     gatewayUiCommandTarget: params.gatewayUiCommandTarget,
     pinnedWidgetAuthoring: params.pinnedWidgetAuthoring,
     toolBindings: params.toolBindings,
+    workContext: params.workContext,
     chatType: params.chatType,
     agentAccountId: params.agentAccountId,
     conversationRoutePeerId: params.conversationRoutePeerId,

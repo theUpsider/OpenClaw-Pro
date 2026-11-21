@@ -1792,7 +1792,8 @@
                       },
                       "plugins/codex-native-plugins",
                       "plugins/codex-supervision",
-                      "specs/codex-supervision"
+                      "specs/codex-supervision",
+                      "specs/goal-completion-verification"
                     ]
                   },
                   "plugins/copilot",

@@ -169,11 +169,9 @@ export function controlUiLocaleModulesPlugin(): Plugin {
         if (activeCache !== catalogCache) {
           continue;
         }
-        if (request.configHints) {
-          return `export default ${JSON.stringify(partition.configHints)};`;
-        }
-        return `import configHints from ${JSON.stringify(`${localeConfigHintsModulePrefix}${request.locale}`)};
-export default { ...${JSON.stringify(partition.base)}, ...configHints };`;
+        // The I18nManager loads config hints on first lookup; a static import here
+        // would pull the hint chunk with every locale switch.
+        return `export default ${JSON.stringify(request.configHints ? partition.configHints : partition.base)};`;
       }
     },
   };

@@ -808,6 +808,7 @@ describe("notifications changed events", () => {
       {
         sessionKey: "agent:main:node-node-n5",
         contextKey: "notification:notif-5",
+        replace: true,
       },
     );
     expect(requestHeartbeatMock).toHaveBeenCalledWith({

@@ -1,4 +1,5 @@
 import type { WorkerTranscriptCommitParams } from "../../../packages/gateway-protocol/src/schema/worker-admission.js";
+import { isWorkerTranscriptFrameWithinBudget } from "../../../packages/gateway-protocol/src/worker-transcript-budget.js";
 import type { BoundAgentRunSessionTarget } from "../../agents/run-session-target.types.js";
 import {
   captureSessionActorStorageOwner,
@@ -43,6 +44,16 @@ export function createWorkerTranscriptCommitter(options: WorkerTranscriptCommitt
     }
     if (params.request.runEpoch !== params.identity.ownerEpoch) {
       return { ok: false, reason: "epoch-mismatch" };
+    }
+    if (
+      !isWorkerTranscriptFrameWithinBudget({
+        type: "req",
+        id: "commit",
+        method: "worker.transcript.commit",
+        params: params.request,
+      })
+    ) {
+      return { ok: false, reason: "invalid-batch" };
     }
     const authority = { assertCurrent: params.assertCurrent, authorize: params.assertCurrent };
     const namespace = captureSessionActorStorageOwner(params.sessionTarget, authority);

@@ -17,6 +17,7 @@ import type { MainSessionRecoveryObservation } from "./main-session-recovery-sta
 import { commitMainSessionRecovery } from "./main-session-recovery-store.js";
 import type { readMainSessionRecoveryCheckpoint } from "./main-session-restart-recovery-checkpoint.js";
 import { resolveRestartRecoveryDeliveryContext } from "./main-session-restart-recovery-delivery.js";
+import { recordStartupRecoveryTombstone } from "./main-session-restart-recovery-diagnostics.js";
 import {
   mainSessionRecoveryLog,
   resolveRestartRecoveryTerminalClientRunId,
@@ -118,7 +119,12 @@ export async function finishDelegatedRestartRecovery(
   ) {
     return await tombstoneMainRestartRecoveryWithNotice(params);
   }
-  return await settleInterruptedRestartRecovery(params);
+  const outcome = await settleInterruptedRestartRecovery(params);
+  if (outcome === "settled") {
+    // Only the session's own transcript learns about the dropped turn.
+    recordStartupRecoveryTombstone({ ...params, unattended: true });
+  }
+  return outcome;
 }
 
 function buildTombstonedSessionNotice(reason: string): string {
@@ -241,6 +247,7 @@ export async function tombstoneMainRestartRecoveryWithNotice(params: {
         },
       });
       if (notice === "written") {
+        recordStartupRecoveryTombstone({ ...params, unattended: true });
         return "tombstoned";
       }
       if (notice === "failed") {
@@ -287,6 +294,7 @@ export async function tombstoneMainRestartRecoveryWithNotice(params: {
   mainSessionRecoveryLog.warn(
     `tombstoned main-session restart recovery: ${params.sessionKey} (${params.reason})`,
   );
+  recordStartupRecoveryTombstone({ ...params, unattended: true });
   await sendRestartRecoveryTombstoneNotice({
     ...params,
     deliveryContext,

@@ -9,12 +9,14 @@ import { parseAgentSessionKey } from "../../../lib/sessions/session-key.ts";
 import { defineSolidBridge, type SolidBridgeElement } from "../../../lit/solid-bridge.ts";
 import type { PaneSessionChangeOptions } from "../chat-pane-shared.ts";
 import { isUnfinishedSubagent } from "../chat-spawned-subagent.ts";
+import { formatSubagentModel, type SubagentFacts } from "../subagent-facts.ts";
 import { SubagentsPanelData, type SubagentsPanelRow } from "../subagents-panel-data.ts";
 import {
   SessionPanelGroups,
   useSessionPanel,
   type SessionPanelProps,
 } from "./chat-session-panel.tsx";
+import "../../../components/agent-row-chip.tsx";
 import "../../../components/elapsed-time.tsx";
 import "./chat-session-panels.css";
 import "./chat-subagents-panel.css";
@@ -29,6 +31,48 @@ type Props = SessionPanelProps & {
 type Methods = { refresh(): Promise<void> };
 export type ChatSubagentsPanel = SolidBridgeElement<Props, Methods>;
 let panelSequence = 0;
+
+function SubagentFactChips(props: { facts: SubagentFacts }) {
+  const fact = (label: string, value: string | undefined) =>
+    t("chat.subagentsPanel.fact", { label, value: value ?? t("chat.subagentsPanel.unknown") });
+  const modelFact = () => fact(t("sessionsView.model"), formatSubagentModel(props.facts));
+  const thinkingFact = () => fact(t("sessionsView.thinking"), props.facts.thinking);
+  return (
+    <div class="chat-subagents__facts" role="group" aria-label={t("chat.subagentsPanel.facts")}>
+      {props.facts.agentId ? (
+        <span class="chip chat-subagents__fact">
+          <openclaw-agent-row-chip prop:agentId={props.facts.agentId} />
+        </span>
+      ) : (
+        <span class="chip chat-subagents__fact chat-subagents__fact--unknown">
+          {fact(t("chat.subagentsPanel.agent"), undefined)}
+        </span>
+      )}
+      <span
+        class={["chip chat-subagents__fact", !props.facts.model && "chat-subagents__fact--unknown"]}
+        data-fact="model"
+        title={modelFact()}
+      >
+        {props.facts.model ?? modelFact()}
+      </span>
+      <span
+        class={[
+          "chip chat-subagents__fact",
+          !props.facts.thinking && "chat-subagents__fact--unknown",
+        ]}
+        data-fact="thinking"
+        title={thinkingFact()}
+      >
+        {thinkingFact()}
+      </span>
+      {props.facts.badge && (
+        <span class="chip chat-subagents__fact" data-fact={props.facts.badge.kind}>
+          {t(props.facts.badge.labelKey)}
+        </span>
+      )}
+    </div>
+  );
+}
 
 export const ChatSubagentsPanel = defineSolidBridge<Props, Methods>(
   "openclaw-chat-subagents-panel",
@@ -180,6 +224,7 @@ export const ChatSubagentsPanel = defineSolidBridge<Props, Methods>(
                           </button>
                         )}
                       </div>
+                      <SubagentFactChips facts={row().facts} />
                       <div class="chat-subagents__metadata">
                         <span class="chat-subagents__work">
                           {row().callCount !== undefined && (

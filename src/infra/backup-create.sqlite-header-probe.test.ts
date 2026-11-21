@@ -29,6 +29,36 @@ it("probes a batch through a declared worker using the current runtime without e
   });
 });
 
+// Slow-storage regression (#194239): a batch that misses its own deadline must
+// split and retry, so a cold cache delays the probe instead of aborting the
+// backup. Only a path that cannot answer alone still fails.
+it("splits a probe batch that misses its deadline so slow storage still gets an answer", () => {
+  const answered = (...answers: boolean[]) => ({
+    pid: 1,
+    output: [],
+    stdout: JSON.stringify(answers),
+    stderr: "",
+    status: 0,
+    signal: null,
+  });
+  const timedOut = {
+    pid: 2,
+    output: [],
+    stdout: "",
+    stderr: "",
+    status: null,
+    signal: "SIGTERM" as const,
+    error: Object.assign(new Error("spawnSync node ETIMEDOUT"), { code: "ETIMEDOUT" }),
+  };
+  const spawn = vi.spyOn(childProcess, "spawnSync").mockReturnValueOnce(timedOut);
+  spawn.mockReturnValueOnce(timedOut).mockReturnValueOnce(answered(false, true));
+  spawn.mockReturnValueOnce(answered(false)).mockReturnValueOnce(answered(false, true));
+  const paths = ["/backup/a", "/backup/b.db", "/backup/c", "/backup/d", "/backup/e.db"];
+  const expected = new Map(paths.map((pathname) => [pathname, pathname.endsWith("db")]));
+  expect(probeSqliteDatabaseHeaders(paths)).toEqual(expected);
+  expect(spawn).toHaveBeenCalledTimes(5);
+});
+
 // Archive-owner regression for the isolated header probe (#148796): when the
 // probe cannot answer for a retained candidate, backup creation must abort
 // before any archive is published instead of guessing the file is plain bytes.

@@ -30,6 +30,7 @@ import {
 import { testing as replyRunRegistryTesting } from "../../auto-reply/reply/reply-run-registry.test-support.js";
 import type { MsgContext } from "../../auto-reply/templating.js";
 import { recordAgentRunTerminalOutcome } from "../../channels/turn/agent-run-terminal-outcome.js";
+import { formatChatWorkContext } from "../../chat/work-context.js";
 import {
   appendTranscriptEvent,
   appendTranscriptMessage,
@@ -4121,6 +4122,30 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
       expect(mockState.lastDispatchCtx).toBeUndefined();
     },
   );
+
+  it.each([
+    {
+      name: "the captured snapshot",
+      workContext: { page: " workboard ", detail: { boardKind: "sessions", boardId: " ops " } },
+      expected: { page: "workboard", detail: { boardId: "ops", boardKind: "sessions" } },
+    },
+    { name: "nothing", workContext: undefined, expected: undefined },
+  ])("hands plugin tools $name as run work context", async ({ workContext, expected }) => {
+    await createReadyChatTranscript("openclaw-chat-send-run-work-context-");
+    const { send } = createChatRequestFixture();
+
+    await send({
+      idempotencyKey: `idem-run-work-context-${expected ? "set" : "unset"}`,
+      message: "open the board",
+      ...(workContext ? { requestParams: { workContext } } : {}),
+      expectBroadcast: false,
+    });
+
+    expect(mockState.lastDispatchCtx?.GatewayRunWorkContext).toEqual(expected);
+    expect(mockState.lastDispatchCtx?.BodyForAgent).toBe(
+      expected ? `open the board\n\n${formatChatWorkContext(expected)}` : "open the board",
+    );
+  });
 
   it("injects ACP system provenance into the agent-visible body", async () => {
     await createReadyChatTranscript("openclaw-chat-send-system-provenance-acp-");

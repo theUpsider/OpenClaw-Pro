@@ -4,6 +4,7 @@ import {
   defaultsClaudeAdaptiveThinking,
   requiresClaudeAdaptiveThinking,
   resolveAnthropicThinkingEffort,
+  resolveClaudeFable5ModelIdentity,
   resolveClaudeHaiku55ModelIdentity,
   resolveClaudeOpus5ModelIdentity,
   resolveClaudeSonnet5ModelIdentity,
@@ -73,6 +74,7 @@ export function resolveAnthropicTransportOptions(
     useModelDefault:
       resolveClaudeHaiku55ModelIdentity(model) !== undefined ||
       resolveClaudeSonnet5ModelIdentity(model) !== undefined ||
+      resolveClaudeFable5ModelIdentity(model) !== undefined ||
       resolveClaudeOpus5ModelIdentity(model) !== undefined,
   });
   if (baseMaxTokens === undefined) {

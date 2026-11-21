@@ -10,6 +10,7 @@ import type {
   WorkerInferenceTerminalFrame,
   WorkerInferenceTerminalOutcome,
 } from "../../packages/gateway-protocol/src/schema/worker-inference.js";
+import { WORKER_MESSAGE_MAX_TEXT_BYTES } from "../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { WorkerConnectionStoppedError, WorkerFencedError } from "./worker-connection-contract.js";
 import type { WorkerConnectionFrameDispatcher } from "./worker-connection-frames.js";
@@ -212,17 +213,20 @@ function doneOutcome(): Extract<WorkerInferenceTerminalOutcome, { type: "done" }
 describe("worker transcript commit client", () => {
   it("splits semantic batches at the gateway frame byte ceiling", async () => {
     const harness = connectionHarness();
+    const firstIds = Array.from({ length: 8 }, (_, index) => `entry-${index + 1}`);
     harness.requestTranscriptCommit
-      .mockResolvedValueOnce(successResponse({ entryIds: ["entry-1"], newLeafId: "leaf-1" }))
-      .mockResolvedValueOnce(successResponse({ entryIds: ["entry-2"], newLeafId: "leaf-2" }));
+      .mockResolvedValueOnce(successResponse({ entryIds: firstIds, newLeafId: "leaf-1" }))
+      .mockResolvedValueOnce(successResponse({ entryIds: ["entry-9"], newLeafId: "leaf-2" }));
     const client = new WorkerTranscriptCommitClient(harness.connection, {
       runEpoch: 3,
       baseLeafId: null,
     });
-    const messages = [userMessage("a".repeat(40_000)), userMessage("b".repeat(40_000))];
+    const messages = Array.from({ length: 9 }, () =>
+      userMessage("a".repeat(WORKER_MESSAGE_MAX_TEXT_BYTES)),
+    );
 
     await expect(client.commit(messages)).resolves.toEqual({
-      entryIds: ["entry-1", "entry-2"],
+      entryIds: [...firstIds, "entry-9"],
       newLeafId: "leaf-2",
     });
 
@@ -230,12 +234,12 @@ describe("worker transcript commit client", () => {
     expect(harness.requestTranscriptCommit.mock.calls[0]?.[1]).toMatchObject({
       seq: 1,
       baseLeafId: null,
-      messages: [messages[0]],
+      messages: messages.slice(0, 8),
     });
     expect(harness.requestTranscriptCommit.mock.calls[1]?.[1]).toMatchObject({
       seq: 2,
       baseLeafId: "leaf-1",
-      messages: [messages[1]],
+      messages: [messages[8]],
     });
   });
 });

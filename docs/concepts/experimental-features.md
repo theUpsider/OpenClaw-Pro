@@ -303,7 +303,7 @@ Behavior and limits:
   response with a valid final body reaches the agent. `REJECT`, malformed
   replies, verification errors, and timeouts never steer. Failures log one
   bounded warning. Each reply is limited to 2,000 characters and each correction
-  to 120 words. The two stages share a 120-second deadline.
+  to 120 words. The two stages share a 240-second deadline.
 - A correction first attempts active-run steering. If steering is unavailable,
   it is queued for the next turn and expires after 24 hours. It is labeled as
   advice that the agent must check before acting.

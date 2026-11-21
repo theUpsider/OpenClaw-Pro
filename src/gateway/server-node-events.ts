@@ -865,9 +865,15 @@ async function handlePreparedNodeEvent(
         return pairingChangedResult(evt.event);
       }
       source?.assertCurrent();
+      // One queue slot per notification key: ongoing updates replace instead of filling the
+      // shared queue, so host events (exec/cron/hooks) keep their slots. Accepted: `removed`
+      // drops a queued `posted` for the same key, and the key is not node-scoped.
       const queued = enqueueSystemEvent(
         summary,
-        withSystemEventOwner({ sessionKey, contextKey: `notification:${key}` }, agentId),
+        withSystemEventOwner(
+          { sessionKey, contextKey: `notification:${key}`, replace: true },
+          agentId,
+        ),
       );
       if (queued) {
         requestHeartbeat({

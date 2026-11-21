@@ -114,6 +114,11 @@ export const AgentEntryBaseSchema = z.strictObject({
       model: AgentModelSchema.optional(),
       thinking: z.string().optional(),
       requireAgentId: z.boolean().optional(),
+      messageTool: z
+        .strictObject({
+          enabled: z.boolean().optional(),
+        })
+        .optional(),
     })
     .optional(),
   embeddedAgent: z

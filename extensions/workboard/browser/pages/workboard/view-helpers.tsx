@@ -40,6 +40,8 @@ export type WorkboardProps = {
   detailBoardAutomation?: BoardAutomationState;
   host: object;
   client: GatewayBrowserClient | null;
+  /** Full Control UI host; set by the Workboard page so card details can offer voice. */
+  controlUi?: ControlUiHost;
   connected: boolean;
   canWrite?: boolean;
   canGrant?: boolean;
@@ -48,6 +50,13 @@ export type WorkboardProps = {
   defaultAgentId?: string | null;
   sessions: GatewaySessionRow[];
   sessionResolution?: WorkboardSessionResolution;
+  /**
+   * Dock-inclusive window for the card interaction fallback. Additive and separate from
+   * `sessions`: that list feeds the attention/"Needs you" filter, so mixing dock rows
+   * into it would move an unrelated read. Read only by `CardSession`, the session tab
+   * and the interaction's "Open session" affordance.
+   */
+  interactionSessions?: readonly GatewaySessionRow[];
   scopeAgentId?: string | null;
   onClearAgentScope?: () => void;
   showAgentFilter?: boolean;
@@ -79,6 +88,7 @@ const eventLabelKeys: Record<WorkboardEvent["kind"], string> = {
   attempt_updated: "workboard.eventAttemptUpdated",
   comment_added: "workboard.eventCommentAdded",
   link_added: "workboard.eventLinkAdded",
+  unlinked: "workboard.eventUnlinked",
   proof_added: "workboard.eventProofAdded",
   artifact_added: "workboard.eventArtifactAdded",
   attachment_added: "workboard.eventAttachmentAdded",
@@ -154,7 +164,7 @@ export function dispatchSummaryMessage(state: WorkboardUiState) {
     return "";
   }
   const total = Object.values(summary).reduce((sum, count) => sum + count, 0);
-  return t(total === 0 ? "workboard.dispatchSummaryEmpty" : "workboard.dispatchSummary", {
+  const message = t(total === 0 ? "workboard.dispatchSummaryEmpty" : "workboard.dispatchSummary", {
     started: String(summary.started),
     failures: String(summary.failures),
     promoted: String(summary.promoted),
@@ -162,6 +172,9 @@ export function dispatchSummaryMessage(state: WorkboardUiState) {
     reclaimed: String(summary.reclaimed),
     orchestrated: String(summary.orchestrated),
   });
+  return summary.queued
+    ? `${message} ${t("workboard.dispatchSummaryQueued", { count: String(summary.queued) })}`
+    : message;
 }
 
 export function refreshStatusLabel(state: WorkboardUiState) {
@@ -307,9 +320,14 @@ export function cardHasUnresolvedStartedRun(card: WorkboardCard): boolean {
   return card.status === "running" && Boolean(sessionKey && runId);
 }
 
+/** The running indicator for the interaction fallback; identical to the lifecycle one. */
+export function InteractionSpinner() {
+  return <span class="session-run-spinner" aria-hidden="true" />;
+}
+
 export function renderLifecycleIcon(lifecycle: WorkboardLifecycle) {
   if (lifecycle.state === "running") {
-    return <span class="session-run-spinner" aria-hidden="true" />;
+    return <InteractionSpinner />;
   }
   const icon =
     lifecycle.state === "failed" &&

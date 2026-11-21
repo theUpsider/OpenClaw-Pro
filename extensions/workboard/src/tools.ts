@@ -1,22 +1,73 @@
-import { WORKBOARD_STATUSES, type WorkboardCard } from "@openclaw/workboard-contract";
+import {
+  WORKBOARD_PRIORITIES,
+  WORKBOARD_STATUSES,
+  type WorkboardCard,
+} from "@openclaw/workboard-contract";
 import { jsonResult, readStringParam } from "openclaw/plugin-sdk/core";
 import { resolveIntegerOption } from "openclaw/plugin-sdk/number-runtime";
 import type { AnyAgentTool, OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { Type } from "typebox";
+import { buildWorkboardParallelismPatch } from "./card-parallelism.js";
 import { redactClaimToken } from "./card-redaction.js";
+import { buildWorkboardCardUpdatePatch } from "./card-update.js";
+import type { WorkboardClassificationChange } from "./classification-palette.js";
+import { cardBoardId } from "./store-card-helpers.js";
+import type { WorkboardInteractionStamp } from "./store-inputs.js";
 import { normalizeCappedStringList } from "./store-string-lists.js";
 import type { WorkboardStore } from "./store.js";
 import {
+  askField,
+  askKindField,
+  boundCardIdField,
   cardIdField,
   claimTokenField,
   createWorkboardCardMutations,
+  decisionOptionsField,
+  dispatchModeField,
+  maxConcurrentPerOwnerField,
+  maxConcurrentPerOwnerPatchField,
+  parallelizableField,
   strictObject,
+  withDecisionOptions,
+  withWorkboardOperatorAsk,
   workspaceField,
 } from "./tools-card-mutations.js";
 import { createWorkboardOrchestrationTools } from "./tools-orchestration.js";
+import { readVoiceBoardBinding, type VoiceBoardBinding } from "./voice-board-binding.js";
 
 function contextOwner(ctx: OpenClawPluginToolContext | undefined): string {
   return ctx?.agentId || ctx?.sessionKey || ctx?.sessionId || "agent";
+}
+
+/** The calling agent recorded on card events; unlike the owner it never falls back. */
+function contextAgent(ctx: OpenClawPluginToolContext | undefined): string | undefined {
+  return ctx?.agentId?.trim() || undefined;
+}
+
+/**
+ * The interaction link for a card-bound turn: the session key and agent the server
+ * resolved for this invocation, never a tool argument. Only a turn that named one
+ * card (`detail.cardId`) records one, and only the board's dock conversation runs
+ * on this surface; a board-level voice turn, a plain agent edit, an operator write
+ * and the CLI all leave the field absent. Reference data, never authority.
+ */
+function cardBoundInteraction(
+  ctx: OpenClawPluginToolContext | undefined,
+  voiceBoard: VoiceBoardBinding | undefined,
+): Omit<WorkboardInteractionStamp, "at"> | undefined {
+  if (!voiceBoard?.cardId) {
+    return undefined;
+  }
+  const sessionKey = ctx?.sessionKey?.trim();
+  if (!sessionKey) {
+    return undefined;
+  }
+  const agentId = contextAgent(ctx);
+  return {
+    sessionKey,
+    ...(agentId ? { agentId } : {}),
+    surface: "plugin-dock",
+  };
 }
 
 function summarizeCard(card: WorkboardCard) {
@@ -61,6 +112,29 @@ function redactedProofResult(card: WorkboardCard) {
 
 const ScopedClaimTokenField = claimTokenField("Claim token for claimed cards.");
 
+const ReplacesField = Type.Optional(
+  Type.String({
+    description:
+      "Existing classification a new label overwrites when the board already has 10; the slot keeps its color and position.",
+  }),
+);
+
+/** The board palette after a card write, so the model reuses names instead of adding near-duplicates. */
+async function classificationResult(
+  store: WorkboardStore,
+  card: WorkboardCard,
+  change: WorkboardClassificationChange | undefined,
+) {
+  if (!change) {
+    return { classifications: await store.readClassifications(cardBoardId(card)) };
+  }
+  return {
+    classifications: change.classifications,
+    ...(change.added.length > 0 ? { classificationsAdded: change.added } : {}),
+    ...(change.replaced ? { classificationReplaced: change.replaced } : {}),
+  };
+}
+
 const CardIdSchema = strictObject({
   id: cardIdField(),
   token: claimTokenField(),
@@ -72,8 +146,11 @@ export function createWorkboardTools(params: {
 }): AnyAgentTool[] {
   const { store } = params;
   const ownerId = contextOwner(params.context);
-  const { readScopedCardToolParams, scopedCardMutation, claimedCardMutation } =
-    createWorkboardCardMutations(store, ownerId);
+  const callerAgentId = contextAgent(params.context);
+  const voiceBoard = readVoiceBoardBinding(params.context);
+  const interaction = cardBoundInteraction(params.context, voiceBoard);
+  const { readCardId, readScopedCardToolParams, scopedCardMutation, claimedCardMutation } =
+    createWorkboardCardMutations(store, ownerId, voiceBoard, callerAgentId, interaction);
   const tools: AnyAgentTool[] = [
     {
       name: "workboard_list",
@@ -110,20 +187,25 @@ export function createWorkboardTools(params: {
           .filter((card) => !tenant || card.metadata?.automation?.tenant === tenant)
           .slice(0, limit)
           .map(summarizeCard);
-        return jsonResult({ cards });
+        return jsonResult(voiceBoard ? { cards, voiceBoard } : { cards });
       },
     },
     {
       name: "workboard_create",
       label: "Workboard Create",
       description:
-        "Create a Workboard card, optionally with parent dependencies, tenant, skills, workspace, and key to prevent duplicate requests. Sessions boards do not hold cards; use workboard_sessions_board_read/update/move for them.",
+        "Create a Workboard card, optionally with parent dependencies, tenant, skills, workspace, and key to prevent duplicate requests. Labels come from the board's palette of at most 10 classifications (workboard_boards lists it; the result returns it): reuse a listed name, a new name takes a free slot, and on a full board pass replaces to overwrite one. The parallelizable label is exempt. Set dispatchMode external when a controller outside this Gateway owns the card's placement; the local dispatcher then never claims or starts it. Sessions boards do not hold cards; use workboard_sessions_board_read/update/move for them.",
       parameters: strictObject({
         title: Type.String({ description: "Card title." }),
         notes: Type.Optional(Type.String({ description: "Card notes or acceptance criteria." })),
         status: Type.Optional(Type.String({ description: "Initial status." })),
         priority: Type.Optional(Type.String({ description: "low, normal, high, or urgent." })),
-        labels: Type.Optional(Type.Array(Type.String(), { description: "Card labels." })),
+        labels: Type.Optional(
+          Type.Array(Type.String(), {
+            description: "Card labels; reuse the board's classifications.",
+          }),
+        ),
+        replaces: ReplacesField,
         agentId: Type.Optional(Type.String({ description: "Assigned agent id." })),
         parents: Type.Optional(Type.Array(Type.String(), { description: "Parent card ids." })),
         token: Type.Optional(Type.String({ description: "Claim token for claimed parent cards." })),
@@ -141,15 +223,31 @@ export function createWorkboardTools(params: {
         workspace: workspaceField(),
         maxRuntimeSeconds: Type.Optional(Type.Number({ description: "Run timeout seconds." })),
         maxRetries: Type.Optional(Type.Number({ description: "Retry budget." })),
+        parallelizable: parallelizableField(),
+        maxConcurrentPerOwner: maxConcurrentPerOwnerField(),
+        dispatchMode: dispatchModeField(),
         scheduledAt: Type.Optional(Type.Number({ description: "Unix epoch milliseconds." })),
+        decisionOptions: decisionOptionsField(),
+        ask: askField(),
+        askKind: askKindField(),
       }),
       execute: async (_toolCallId, rawParams) => {
-        const record = rawParams as Record<string, unknown>;
+        const record = withWorkboardOperatorAsk(
+          withDecisionOptions(rawParams as Record<string, unknown>),
+        );
         normalizeCappedStringList(record.parents, "parents");
+        const reported: { change?: WorkboardClassificationChange } = {};
+        const card = await store.create(
+          record,
+          { ownerId, token: record.token as string | undefined },
+          undefined,
+          (change) => {
+            reported.change = change;
+          },
+        );
         return jsonResult({
-          card: redactClaimToken(
-            await store.create(record, { ownerId, token: record.token as string | undefined }),
-          ),
+          card: redactClaimToken(card),
+          ...(await classificationResult(store, card, reported.change)),
         });
       },
     },
@@ -180,11 +278,14 @@ export function createWorkboardTools(params: {
       label: "Workboard Read",
       description:
         "Read one Workboard card and return bounded worker context with notes, attempts, comments, proof, links, and diagnostics.",
-      parameters: CardIdSchema,
+      parameters: strictObject({
+        id: boundCardIdField(),
+        token: claimTokenField(),
+      }),
       execute: async (_toolCallId, rawParams) => {
-        const record = rawParams as Record<string, unknown>;
-        const id = readStringParam(record, "id", { required: true });
-        const { card, workerContext } = await store.readWithWorkerContext(id);
+        const { card, workerContext } = await store.readWithWorkerContext(
+          await readCardId(rawParams),
+        );
         return jsonResult({
           card: redactClaimToken(card),
           workerContext,
@@ -245,7 +346,7 @@ export function createWorkboardTools(params: {
       label: "Workboard Comment",
       description: "Append a compact comment to a Workboard card.",
       parameters: strictObject({
-        id: cardIdField(),
+        id: boundCardIdField(),
         body: Type.String({ description: "Comment body." }),
         token: ScopedClaimTokenField,
       }),
@@ -259,7 +360,7 @@ export function createWorkboardTools(params: {
       description:
         "Attach proof or artifact metadata to a Workboard card after running tests, checks, or producing screenshots/logs. Returns proofId; pass it to workboard_complete when that call reports the terminal status for this proof.",
       parameters: strictObject({
-        id: cardIdField(),
+        id: boundCardIdField(),
         status: Type.Optional(Type.String({ description: "passed, failed, skipped, or unknown." })),
         label: Type.Optional(Type.String({ description: "Proof label." })),
         command: Type.Optional(Type.String({ description: "Command or exact step run." })),
@@ -292,9 +393,9 @@ export function createWorkboardTools(params: {
       name: "workboard_complete",
       label: "Workboard Complete",
       description:
-        "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest.",
+        "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest. Finished work moves to review until someone accepts it.",
       parameters: strictObject({
-        id: cardIdField(),
+        id: boundCardIdField(),
         token: claimTokenField(),
         summary: Type.Optional(Type.String({ description: "Completion summary." })),
         proofId: Type.Optional(
@@ -381,13 +482,19 @@ export function createWorkboardTools(params: {
     {
       name: "workboard_block",
       label: "Workboard Block",
-      description: "Block a claimed Workboard card with a durable reason and release the claim.",
+      description:
+        "Block a claimed Workboard card with a durable reason and release the claim. When the operator must decide, pass decisionOptions so the card offers them as a numbered picker; when you only need an answer or wait on something external, pass ask and askKind instead.",
       parameters: strictObject({
-        id: cardIdField(),
+        id: boundCardIdField(),
         token: claimTokenField(),
         reason: Type.Optional(Type.String({ description: "Blocker summary." })),
+        decisionOptions: decisionOptionsField(),
+        ask: askField(),
+        askKind: askKindField(),
       }),
-      execute: claimedCardMutation((id, record, scope) => store.block(id, record, scope)),
+      execute: claimedCardMutation((id, record, scope) =>
+        store.block(id, withWorkboardOperatorAsk(withDecisionOptions(record)), scope),
+      ),
     },
     {
       name: "workboard_unblock",
@@ -402,7 +509,7 @@ export function createWorkboardTools(params: {
       description:
         "Move a Workboard card to another status. Claimed cards require matching claim scope.",
       parameters: strictObject({
-        id: cardIdField(),
+        id: boundCardIdField(),
         status: Type.Union(
           WORKBOARD_STATUSES.map((status) => Type.Literal(status)),
           { description: "Target Workboard status." },
@@ -413,7 +520,113 @@ export function createWorkboardTools(params: {
         store.move(id, record.status, undefined, scope),
       ),
     },
-    ...createWorkboardOrchestrationTools({ store, ownerId }),
+    {
+      name: "workboard_set_parallelism",
+      label: "Workboard Set Parallelism",
+      description:
+        "Opt an existing Workboard card in or out of parallel owner slots. parallelizable false also removes the parallelizable label; maxConcurrentPerOwner null clears the ceiling. Claimed cards require matching claim scope.",
+      parameters: strictObject({
+        id: cardIdField(),
+        token: ScopedClaimTokenField,
+        parallelizable: parallelizableField(),
+        maxConcurrentPerOwner: maxConcurrentPerOwnerPatchField(),
+      }),
+      // store.update has no claim scope; readParams already checked it against
+      // this card version, and expectedUpdatedAt keeps the label rewrite on it.
+      execute: scopedCardMutation((id, record, scope, card) =>
+        store.update(id, buildWorkboardParallelismPatch(card, record), {
+          expectedUpdatedAt: card.updatedAt,
+          agentId: scope.agentId,
+          interaction: scope.interaction,
+        }),
+      ),
+    },
+    {
+      name: "workboard_set_dispatch_mode",
+      label: "Workboard Set Dispatch Mode",
+      description:
+        "Set who places and starts a Workboard card's worker. native (default): the local dispatcher claims and starts it. external: an external controller owns placement and transport, so the local dispatcher never claims or starts the card; the controller uses the normal claim/heartbeat/complete flow. Dependency promotion and claim cleanup still run for external cards. Complete, block, or reclaim owned work before changing its mode.",
+      parameters: strictObject({
+        id: cardIdField(),
+        token: ScopedClaimTokenField,
+        dispatchMode: Type.Union([Type.Literal("native"), Type.Literal("external")], {
+          description: "Placement owner for this card.",
+        }),
+      }),
+      execute: scopedCardMutation((id, record, scope, card) =>
+        store.update(
+          id,
+          { dispatchMode: record.dispatchMode },
+          {
+            expectedUpdatedAt: card.updatedAt,
+            agentId: scope.agentId,
+            interaction: scope.interaction,
+          },
+        ),
+      ),
+    },
+    {
+      name: "workboard_update",
+      label: "Workboard Update",
+      description:
+        "Set a Workboard card's priority, dispatch mode, decision options, or operator ask, or add/remove labels by name; other labels stay. Added labels follow the board's classification palette (at most 10, listed by workboard_boards and returned here); on a full board pass replaces to overwrite one. Use ask with askKind when the card waits on the operator for an answer (input) or on something external, and decisionOptions with the decision label for a multiple-choice call. Claimed cards require matching claim scope.",
+      parameters: strictObject({
+        id: boundCardIdField(),
+        token: ScopedClaimTokenField,
+        priority: Type.Optional(
+          Type.Union(
+            WORKBOARD_PRIORITIES.map((priority) => Type.Literal(priority)),
+            { description: "New priority." },
+          ),
+        ),
+        labelsAdd: Type.Optional(
+          Type.Array(Type.String(), { description: "Labels to add when absent." }),
+        ),
+        labelsRemove: Type.Optional(
+          Type.Array(Type.String(), { description: "Labels to remove, case-insensitive." }),
+        ),
+        replaces: ReplacesField,
+        decisionOptions: decisionOptionsField(),
+        dispatchMode: dispatchModeField(),
+        ask: askField(),
+        askKind: askKindField(),
+      }),
+      // Like workboard_set_parallelism: readParams checked claim scope on this
+      // card version, and expectedUpdatedAt refuses a label list built on a stale read.
+      execute: async (_toolCallId, rawParams) => {
+        const { record, id, card, scope } = await readScopedCardToolParams(rawParams);
+        const patch = {
+          ...buildWorkboardCardUpdatePatch(
+            card,
+            withWorkboardOperatorAsk(withDecisionOptions(record)),
+          ),
+          ...(record.replaces === undefined ? {} : { replaces: record.replaces }),
+        };
+        const reported: { change?: WorkboardClassificationChange } = {};
+        const updated =
+          Object.keys(patch).length === 0
+            ? card
+            : await store.update(id, patch, {
+                expectedUpdatedAt: card.updatedAt,
+                agentId: scope.agentId,
+                interaction: scope.interaction,
+                onClassifications: (change) => {
+                  reported.change = change;
+                },
+              });
+        return jsonResult({
+          card: redactClaimToken(updated),
+          ...(await classificationResult(store, updated, reported.change)),
+        });
+      },
+    },
+    ...createWorkboardOrchestrationTools({
+      store,
+      ownerId,
+      voiceBoard,
+      agentId: callerAgentId,
+      interaction,
+    }),
   ];
   for (const tool of tools) {
     const execute = tool.execute;

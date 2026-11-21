@@ -1,6 +1,7 @@
 import type { UnifiedModelCatalogSource } from "@openclaw/model-catalog-core/model-catalog-types";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { uniqueValues } from "@openclaw/normalization-core/string-normalization";
+import type { PluginHookFailurePolicyConfig } from "./hook-failure-policy.js";
 import type { PluginDiagnostic } from "./manifest-types.js";
 import { createNativeSessionCatalogGate } from "./native-session-catalog-registration.js";
 import { getPluginInstance } from "./plugin-instance-scope.js";
@@ -32,7 +33,7 @@ function mergeModelCatalogHooks(
   };
 }
 
-export type PluginTypedHookPolicy = {
+export type PluginTypedHookPolicy = PluginHookFailurePolicyConfig & {
   allowPromptInjection?: boolean;
   allowConversationAccess?: boolean;
   timeoutMs?: number;

@@ -8,6 +8,7 @@ import { afterEach, describe, expect } from "vitest";
 import { workboardSqliteBackendEntrypoint } from "./sqlite-backend-entrypoint.test-support.js";
 import { createWorkboardSqliteStores } from "./test/database-config.js";
 import { sqliteOnly as test } from "./test/sqlite-only.js";
+import { SCHEMA_VERSION } from "./workboard-schema.js";
 
 const workerModuleUrl = resolveRuntimeWorkerUrl(workboardSqliteBackendEntrypoint);
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -90,6 +91,70 @@ describe("Workboard SQLite schema admission", () => {
     }
   });
 
+  // Builds a schema-4 file by dropping the version-5 column and migration row.
+  test("adds the interaction column when an existing schema-4 database opens", async () => {
+    const dir = tempDirs.make("openclaw-workboard-interaction-migration-");
+    const dbPath = path.join(dir, "workboard.sqlite");
+    const initialized = createWorkboardSqliteStores({ dbPath, workerModuleUrl });
+    await initialized.ready;
+    await initialized.cards.register("legacy-card", {
+      version: 1,
+      card: {
+        id: "legacy-card",
+        title: "Legacy card",
+        status: "todo",
+        priority: "normal",
+        labels: [],
+        position: 1,
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    });
+    await initialized.close();
+    // Build the old format on a physical file this process has not admitted.
+    fs.renameSync(dbPath, `${dbPath}.seed`);
+    fs.copyFileSync(`${dbPath}.seed`, dbPath);
+    const downgrade = new DatabaseSync(dbPath);
+    try {
+      downgrade.exec("ALTER TABLE workboard_cards DROP COLUMN interaction_json");
+      downgrade.exec(
+        `DELETE FROM workboard_schema_migrations WHERE id = 'schema-${SCHEMA_VERSION}'`,
+      );
+    } finally {
+      downgrade.close();
+    }
+    expect(
+      new DatabaseSync(dbPath, { readOnly: true })
+        .prepare("SELECT name FROM pragma_table_info('workboard_cards') WHERE name = ?")
+        .get("interaction_json"),
+    ).toBeUndefined();
+
+    const reopened = createWorkboardSqliteStores({ dbPath, workerModuleUrl });
+    try {
+      const card = await reopened.cards.lookup("legacy-card");
+      expect(card).toMatchObject({ card: { id: "legacy-card", title: "Legacy card" } });
+      // No backfill: the reopened row carries no interaction link.
+      expect(card?.card.metadata?.interaction).toBeUndefined();
+    } finally {
+      await reopened.close();
+    }
+    const verified = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      expect(
+        verified
+          .prepare("SELECT name FROM pragma_table_info('workboard_cards') WHERE name = ?")
+          .get("interaction_json"),
+      ).toEqual({ name: "interaction_json" });
+      expect(
+        verified
+          .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = ?")
+          .get(`schema-${SCHEMA_VERSION}`),
+      ).toEqual({ found: 1 });
+    } finally {
+      verified.close();
+    }
+  });
+
   // Builds a legacy SQLite file and verifies its STRICT-table migration.
   test("migrates a version 2 workboard table to STRICT without losing rows", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-workboard-strict-migration-"));
@@ -128,7 +193,7 @@ describe("Workboard SQLite schema admission", () => {
           created_at, updated_at, archived_at
         FROM workboard_boards_strict;
         DROP TABLE workboard_boards_strict;
-        DELETE FROM workboard_schema_migrations WHERE id = 'schema-3';
+        DELETE FROM workboard_schema_migrations;
         INSERT OR IGNORE INTO workboard_schema_migrations (id, applied_at)
         VALUES ('schema-2', 1);
       `);
@@ -154,8 +219,8 @@ describe("Workboard SQLite schema admission", () => {
         ).toEqual({ strict: 1 });
         expect(
           migrated
-            .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = 'schema-3'")
-            .get(),
+            .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = ?")
+            .get(`schema-${SCHEMA_VERSION}`),
         ).toEqual({ found: 1 });
       } finally {
         migrated.close();

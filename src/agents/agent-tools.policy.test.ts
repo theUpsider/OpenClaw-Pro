@@ -213,6 +213,52 @@ describe("stored subagent tool policies", () => {
     expect(isToolAllowedByPolicyName("memory_search", policy)).toBe(true);
   });
 
+  it.each([
+    { name: "absent", optIn: {} },
+    { name: "a non-boolean value", optIn: { subagentMessageToolEnabled: "true" } },
+  ])("denies message when the stored opt-in is $name", async ({ optIn }) => {
+    const { config, sessionKey } = await storedSession({
+      spawnDepth: 1,
+      subagentRole: "orchestrator",
+      subagentControlScope: "children",
+      ...(optIn as Partial<SessionEntry>),
+    });
+    const policy = await withPreparedSessionCapabilityRead(() =>
+      resolveSubagentToolPolicyForSession(config, sessionKey),
+    );
+    expect(isToolAllowedByPolicyName("message", policy)).toBe(false);
+  });
+
+  it("lifts only message for a session spawned with the opt-in", async () => {
+    const { config, sessionKey } = await storedSession({
+      spawnDepth: 1,
+      subagentRole: "leaf",
+      subagentControlScope: "none",
+      subagentMessageToolEnabled: true,
+    });
+    const policy = await withPreparedSessionCapabilityRead(() =>
+      resolveSubagentToolPolicyForSession(config, sessionKey),
+    );
+    expect(isToolAllowedByPolicyName("message", policy)).toBe(true);
+    for (const tool of ["gateway", "sessions_send", "conversations_send", "session_status"]) {
+      expect(isToolAllowedByPolicyName(tool, policy), tool).toBe(false);
+    }
+  });
+
+  it.each([["message"], ["*"]])(
+    "keeps configured subagent deny %s ahead of the opt-in",
+    async (denied) => {
+      const { config, sessionKey } = await storedSession(
+        { spawnDepth: 1, subagentMessageToolEnabled: true },
+        { tools: { subagents: { tools: { deny: [denied] } } } },
+      );
+      const policy = await withPreparedSessionCapabilityRead(() =>
+        resolveSubagentToolPolicyForSession(config, sessionKey),
+      );
+      expect(isToolAllowedByPolicyName("message", policy)).toBe(false);
+    },
+  );
+
   it("applies inherited tool policy from stored ACP sessions without subagent metadata", async () => {
     const { config, sessionKey } = await storedSession(
       { inheritedToolAllow: ["custom_plugin_tool"], inheritedToolDeny: ["custom_denied_tool"] },

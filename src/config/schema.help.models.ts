@@ -161,6 +161,16 @@ export const MODEL_FIELD_HELP: Record<string, string> = {
     "Global opt-in for experimental assistance from the owning agent’s configured Decision model (default: false; requires explicit true). The effective decisionModel can be inherited from global defaults or selected per agent; an empty per-agent value disables assistance. Supported uses may send selected data to that provider and incur provider charges. See the Decision assistance documentation for supported uses, setup, and data handling. This setting does not gate explicit decision_evaluate calls, select providers, or grant actions.",
   "agents.defaults.experimental.localModelLean":
     "Advanced troubleshooting override that restricts optional tools such as browser, automations, and message. Off by default; supported local runtimes use automatic Tool Search without this restriction. Explicit tool allows and required delivery tools are preserved.",
+  "agents.defaults.experimental.goalCompletionVerification":
+    "Global opt-in for adversarial session-goal completion verification (default: false; requires explicit true). When armed, a goal created with its own verification opt-in stays open until an independent verifier passes its objective; the verifier runs as a separate model call and may incur provider charges. Goals created without their own opt-in are never affected. See the Goal completion verification spec for the trigger gates, loop cap, and data handling.",
+  "agents.defaults.experimental.goalVerificationModel":
+    "Model reference (provider/model) used for adversarial goal-completion verification. Defaults to the owning agent's primary model; the executing model is never used as its own verifier.",
+  "agents.defaults.experimental.goalVerificationCooldownMs":
+    "Minimum delay in milliseconds between two verifier runs for the same session goal (default: 15000). Prevents a tight continuation loop from repeating an expensive verification before anything changed.",
+  "agents.defaults.experimental.goalVerificationMaxContinuationTurns":
+    "Maximum automatic goal-continuation turns allowed for an armed goal (default: 12). At the cap OpenClaw stops scheduling automatic turns and surfaces the unresolved criteria once; the goal stays active and incomplete.",
+  "agents.defaults.experimental.goalVerificationMaxAttempts":
+    "Maximum verifier attempts per goal, including errors and timeouts (default: 6). At the cap OpenClaw stops verifying and surfaces the latest verdict or error once.",
   "agents.defaults.startupContext":
     'Runtime-owned first-turn prelude for bare "/new" and "/reset". Use this to control whether recent daily memory files are preloaded into the first prompt instead of asking the model to decide what to read.',
   "agents.defaults.startupContext.enabled":

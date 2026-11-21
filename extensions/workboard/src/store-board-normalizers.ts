@@ -83,6 +83,8 @@ export function normalizeBoardMetadata(
     ...(automationJobId ? { automationJobId } : {}),
     ...(defaultWorkspace ? { defaultWorkspace } : {}),
     ...(orchestration ? { orchestration } : {}),
+    // Only card label writes change the palette; metadata upserts carry it over.
+    ...(fallback?.classifications ? { classifications: fallback.classifications } : {}),
     createdAt: fallback?.createdAt ?? now,
     updatedAt: now,
     ...(archivedAt ? { archivedAt } : {}),

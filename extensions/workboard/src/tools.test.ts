@@ -630,9 +630,14 @@ describe("workboard tools", () => {
       }),
     );
     expect(completed.card).toMatchObject({
-      status: "done",
-      metadata: { proof: [{ id: pendingProof.proofId, status: "passed" }] },
+      status: "review",
+      metadata: {
+        proof: [{ id: pendingProof.proofId, status: "passed" }],
+        automation: { awaitingAcceptance: true },
+      },
     });
+    // The child waits until someone accepts the parent's result.
+    await store.update(parent.id, { status: "done" });
 
     const dispatch = readPayload(await tools.get("workboard_dispatch")?.execute("call-5", {}));
     expect(dispatch.promoted).toEqual([expect.objectContaining({ id: child.id, status: "ready" })]);

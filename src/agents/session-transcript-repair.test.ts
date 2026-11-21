@@ -867,4 +867,60 @@ describe("stripToolResultDetails", () => {
     expect(out[3]?.details).toEqual({ openclawSyntheticMissingToolResult: true });
     expect(stripToolResultDetails(out)).toBe(out);
   });
+
+  // Prompt-cache prefix stability: repair runs on every provider request, so a
+  // synthetic missing result must not carry the wall clock into an already-sent
+  // prefix. Otherwise the provider re-prefills the whole conversation each turn.
+  describe("append-only synthetic results", () => {
+    const assistantWithOrphanCall = () =>
+      castAgentMessages([
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "call_orphan", name: "read", arguments: {} }],
+          stopReason: "toolUse",
+          timestamp: 1_700_000_000_123,
+        },
+        { role: "user", content: "next", timestamp: 1_700_000_001_000 },
+      ]);
+
+    it("derives the synthetic result timestamp from its owning assistant turn", () => {
+      const out = sanitizeToolUseResultPairing(assistantWithOrphanCall());
+      const synthetic = out.find((message) => message.role === "toolResult") as Extract<
+        AgentMessage,
+        { role: "toolResult" }
+      >;
+
+      expect(synthetic).toBeDefined();
+      expect(synthetic.timestamp).toBe(1_700_000_000_123);
+    });
+
+    it("keeps already-sent messages byte-identical across requests", () => {
+      const history = assistantWithOrphanCall();
+      const first = sanitizeToolUseResultPairing(structuredClone(history));
+
+      // A later request arrives; the wall clock advances (mocked far ahead so a
+      // real Date.now() would be unmistakable).
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(1_800_000_000_000));
+      try {
+        const second = sanitizeToolUseResultPairing(structuredClone(history));
+        expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("leaves the direct repair call site on the wall clock", () => {
+      // repairToolUseResultPairing keeps Date.now() as its default: only replay
+      // projections opt into the stable timestamp.
+      const out = repairToolUseResultPairing(assistantWithOrphanCall()).messages;
+      const synthetic = out.find((message) => message.role === "toolResult") as Extract<
+        AgentMessage,
+        { role: "toolResult" }
+      >;
+
+      expect(synthetic).toBeDefined();
+      expect(synthetic.timestamp).not.toBe(1_700_000_000_123);
+    });
+  });
 });

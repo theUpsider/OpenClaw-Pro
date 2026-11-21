@@ -25,7 +25,7 @@ import {
 } from "../inherited-tool-deny.js";
 import { createCachedToolSchema } from "../schema/cached-schema.js";
 import { optionalStringEnum, requesterProfileSchema } from "../schema/typebox.js";
-import { resolveSenderRestrictedSpawnError } from "../spawn-requester-policy.js";
+import { resolveSpawnRequesterRefusal } from "../spawn-requester-policy.js";
 import { withParentExecutionIdentity } from "../subagents/spawn/execution-identity-spawn-context.js";
 import { resolveAcpSessionsSpawnImageAttachments } from "../subagents/spawn/subagent-attachments.js";
 import {
@@ -73,6 +73,7 @@ import {
   PlacedSessionsSpawnSchema,
   PLACED_SESSIONS_SPAWN_DESCRIPTION,
 } from "./sessions-placement-tool-contract.js";
+import { ALLOW_MESSAGING_SCHEMA, readAllowMessaging } from "./sessions-spawn-messaging.js";
 import type { SessionsSpawnToolOptions } from "./sessions-spawn-options.js";
 import { maybeSpawnVisibleSession } from "./sessions-spawn-visible.js";
 import { SESSIONS_SPAWN_SESSION_SCHEMA } from "./sessions-spawn-visible.schema.js";
@@ -232,6 +233,7 @@ function buildSessionsSpawnToolSchema(params: {
         description: "Light bootstrap; subagent only; unavailable with visible=true.",
       }),
     ),
+    allowMessaging: ALLOW_MESSAGING_SCHEMA,
     ...(params.swarmEnabled
       ? {
           collect: Type.Optional(
@@ -436,7 +438,7 @@ export function createSessionsSpawnTool(
             error: taskNameResult.error,
           });
         }
-        const taskName = taskNameResult.taskName;
+
         const label = readToolStringParam(params, "label") ?? "";
         const runtime = params.runtime === "acp" ? "acp" : "subagent";
         if (runtime === "subagent" && opts?.delegatedToolPolicyUnavailable) {
@@ -456,18 +458,21 @@ export function createSessionsSpawnTool(
         if (collect && runtime === "acp") {
           throw new ToolInputError('sessions_spawn collect=true supports runtime="subagent" only.');
         }
+        const allowMessaging = readAllowMessaging(params, runtime);
         const requestedAgentId = readToolStringParam(params, "agentId");
-        const requesterPolicyError = resolveSenderRestrictedSpawnError({
-          inheritedToolPolicySource: opts?.inheritedToolPolicySource,
+        const modelOverride = normalizeToolModelOverride(readToolStringParam(params, "model"));
+        const requesterPolicyError = resolveSpawnRequesterRefusal({
+          ...opts,
           requesterAgentId,
           targetAgentId: requestedAgentId ? normalizeAgentId(requestedAgentId) : undefined,
           visible: params.visible === true,
+          modelOverride,
+          agentRuntime: runtime, // ACP does not enforce the rules
         });
         if (requesterPolicyError) {
           return jsonResult({ status: "forbidden", error: requesterPolicyError });
         }
         const resumeSessionId = readToolStringParam(params, "resumeSessionId");
-        const modelOverride = normalizeToolModelOverride(readToolStringParam(params, "model"));
         const thinkingOverrideRaw = readToolStringParam(params, "thinking");
         const cwd = readToolStringParam(params, "cwd");
         const mode = params.mode === "run" || params.mode === "session" ? params.mode : undefined;
@@ -492,7 +497,7 @@ export function createSessionsSpawnTool(
           maybeSpawnVisibleSession({
             raw: params,
             task,
-            taskName,
+            taskName: taskNameResult.taskName,
             label,
             runtime,
             requestedAgentId,
@@ -565,7 +570,7 @@ export function createSessionsSpawnTool(
         const parentExecutionIdentityToken = getGatewayToolCallerIdentity()?.executionIdentityToken;
         const spawnParams = {
           task,
-          taskName,
+          taskName: taskNameResult.taskName,
           label: label || undefined,
           agentId: requestedAgentId,
           model: modelOverride,
@@ -672,6 +677,7 @@ export function createSessionsSpawnTool(
                 : undefined,
             context,
             lightContext,
+            allowMessaging,
             completionTarget,
             attachments,
             attachMountPath:

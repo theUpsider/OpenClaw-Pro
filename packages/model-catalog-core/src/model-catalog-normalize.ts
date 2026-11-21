@@ -330,6 +330,20 @@ function normalizeModelCatalogCompat(value: unknown): ModelCatalogCompatConfig |
     }
   }
 
+  if (isRecord(value.numericReasoningEfforts)) {
+    const numericReasoningEfforts = Object.fromEntries(
+      Object.entries(value.numericReasoningEfforts).flatMap(([rawKey, rawEffort]) => {
+        const key = rawKey.trim();
+        return key && typeof rawEffort === "number" && Number.isFinite(rawEffort)
+          ? [[key, rawEffort] as const]
+          : [];
+      }),
+    );
+    if (Object.keys(numericReasoningEfforts).length > 0) {
+      compat.numericReasoningEfforts = numericReasoningEfforts;
+    }
+  }
+
   const codeMode = normalizeOptionalString(value.codeMode) ?? "";
   if (codeMode === "preferred" || codeMode === "capable") {
     compat.codeMode = codeMode;

@@ -103,6 +103,8 @@ export type StatusScanOverviewResult = {
         | "degradedSecretOwners"
         | "degradedPlugins"
         | "startupMigrationWarning"
+        | "startupRecoveryWarning"
+        | "startupRecoveryTombstoneWarning"
         | "installationReplacementWarning"
         | "childRuntime"
         | "secretEgressProxy"
@@ -298,6 +300,9 @@ export async function collectStatusScanOverview(params: {
           degradedSecretOwners: status.degradedSecretOwners ?? [],
           degradedPlugins: status.degradedPlugins ?? [],
           startupMigrationWarning: status.startupMigrationWarning,
+          // Recovery diagnostics live in the Gateway process; the CLI's own reader is empty.
+          startupRecoveryWarning: status.startupRecoveryWarning,
+          startupRecoveryTombstoneWarning: status.startupRecoveryTombstoneWarning,
           installationReplacementWarning: status.installationReplacementWarning,
           ...(params.opts.deep && status.childRuntime ? { childRuntime: status.childRuntime } : {}),
           secretEgressProxy: status.secretEgressProxy,

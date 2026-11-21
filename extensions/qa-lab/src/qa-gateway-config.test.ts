@@ -355,6 +355,19 @@ describe("buildQaGatewayConfig", () => {
     expect(cfg.agents?.defaults?.models?.["openai/gpt-5.6-luna"]?.params?.thinking).toBe("xhigh");
   });
 
+  it("passes the ultra thinking level through to the QA gateway config unchanged", () => {
+    const cfg = buildConfig({
+      providerMode: "live-frontier",
+      primaryModel: "openai/gpt-5.6-luna",
+      alternateModel: "openai/gpt-5.6-sol",
+      thinkingDefault: "ultra",
+      ...createQaChannelTransportParams(),
+    });
+
+    expect(cfg.agents?.defaults?.thinkingDefault).toBe("ultra");
+    expect(cfg.agents?.defaults?.models?.["openai/gpt-5.6-luna"]?.params?.thinking).toBe("ultra");
+  });
+
   it("can disable control ui for suite-only gateway children", () => {
     const cfg = buildConfig({
       controlUiEnabled: false,

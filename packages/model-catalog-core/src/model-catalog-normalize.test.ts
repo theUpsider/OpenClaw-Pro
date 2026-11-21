@@ -414,4 +414,40 @@ describe("model catalog normalization", () => {
       expect(row?.contextWindowDefault).toBeUndefined();
     },
   );
+
+  it("keeps finite numeric reasoning efforts and drops non-numbers, blanks, and empty maps", () => {
+    const rows = normalizeModelCatalogProviderRows({
+      provider: "example",
+      providerCatalog: {
+        models: [
+          {
+            id: "ds41",
+            reasoning: true,
+            compat: {
+              numericReasoningEfforts: {
+                " low ": 40,
+                medium: 50,
+                high: " 70 ",
+                xhigh: Number.NaN,
+                max: Number.POSITIVE_INFINITY,
+                "  ": 60,
+              },
+            },
+          },
+          { id: "empty", reasoning: true, compat: { numericReasoningEfforts: {} } },
+          {
+            id: "non-number-only",
+            reasoning: true,
+            compat: { numericReasoningEfforts: { medium: "50" } },
+          },
+        ],
+      },
+      source: "manifest",
+    });
+
+    expect(rows[0]?.compat?.numericReasoningEfforts).toEqual({ low: 40, medium: 50 });
+    // Empty or unusable maps must not leave an empty object that would claim a numeric route.
+    expect(rows[1]?.compat?.numericReasoningEfforts).toBeUndefined();
+    expect(rows[2]?.compat?.numericReasoningEfforts).toBeUndefined();
+  });
 });

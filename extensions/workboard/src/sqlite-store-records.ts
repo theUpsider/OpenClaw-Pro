@@ -220,6 +220,7 @@ function readEvents(
       toStatus: stringValue(row, "to_status") as WorkboardEvent["toStatus"],
       sessionKey: stringValue(row, "session_key"),
       runId: stringValue(row, "run_id"),
+      agentId: stringValue(row, "agent_id"),
     });
   });
   return events.length > 0 ? events : undefined;
@@ -370,6 +371,10 @@ function readMetadata(
   const claim = parseJson(row.claim_json) as WorkboardMetadata["claim"] | undefined;
   // SAFETY: insertCard serializes WorkboardMetadata.stale unchanged.
   const stale = parseJson(row.stale_json) as WorkboardMetadata["stale"] | undefined;
+  // SAFETY: insertCard serializes WorkboardMetadata.interaction unchanged.
+  const interaction = parseJson(row.interaction_json) as
+    | WorkboardMetadata["interaction"]
+    | undefined;
   return optional(
     definedFields({
       attempts,
@@ -397,6 +402,7 @@ function readMetadata(
       templateId: stringValue(row, "template_id") as WorkboardMetadata["templateId"],
       archivedAt: numberValue(row, "archived_at"),
       stale: stale || undefined,
+      interaction: interaction || undefined,
       lifecycleStatusSourceUpdatedAt: numberValue(row, "lifecycle_status_source_updated_at"),
       failureCount: numberValue(row, "failure_count"),
     }),

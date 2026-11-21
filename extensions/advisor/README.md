@@ -14,7 +14,7 @@ Review replies must start with `NO_CHANGE` or `CORRECTION` on its own line.
 `NO_CHANGE` never starts verification or steering, even with commentary. A draft
 correction is checked against the same session by a verifier, which replies
 `APPROVE` with the final advice or `REJECT`. Only the approved body is delivered.
-Both steps share a 120-second deadline. Advice is limited to 120 words and each
+Both steps share a 240-second deadline. Advice is limited to 120 words and each
 reply to 2,000 characters. Reserved decision words are not allowed as whole tokens
 anywhere in either reply's body, including inline or next to punctuation.
 Malformed replies, verification errors, and timeouts never steer; parser failures

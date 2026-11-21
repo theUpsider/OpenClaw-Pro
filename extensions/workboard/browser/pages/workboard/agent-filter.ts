@@ -17,8 +17,13 @@ export function agentDisplayName(agent: WorkboardAgentRow | undefined, fallback:
   return agent?.name ?? agent?.identity?.name ?? agent?.id ?? fallback;
 }
 
-function cardAgentId(card: WorkboardCard, agentsList: WorkboardAgentsList | null): string {
-  return card.agentId?.trim() || agentsList?.defaultId || "";
+/** The agent that owns the card: its explicit agent, else the default agent; "" when unknown. */
+export function cardAgentId(
+  card: Pick<WorkboardCard, "agentId">,
+  agentsList: WorkboardAgentsList | null,
+  defaultAgentId?: string | null,
+): string {
+  return card.agentId?.trim() || agentsList?.defaultId || defaultAgentId || "";
 }
 
 export function findCardAgent(card: WorkboardCard, agentsList: WorkboardAgentsList | null) {

@@ -30,7 +30,7 @@ export async function createWhatsAppStatusReactionController(
       clearReaction: () => sendReactionWhatsApp(chatId, messageId, "", reactionOptions),
     },
     initialEmoji,
-    emojis: undefined,
+    presentation: "quiet",
     onError: (err) => {
       logVerbose(`WhatsApp status-reaction error for chat ${chatId}/${messageId}: ${String(err)}`);
     },

@@ -44,6 +44,7 @@ import {
   requiresRestartRecoveryMessageActionAuthority,
 } from "./main-session-restart-recovery-delivery.js";
 import {
+  DELEGATED_RECOVERY_SENDER_UNAVAILABLE_REASON,
   skippedMainSessionRecoveryDecision,
   type MainSessionRecoveryDecision,
   type MainSessionRecoverySkipReason,
@@ -555,7 +556,7 @@ export async function recoverStore(params: {
           entry,
           gatewayRuntime: params.gatewayRuntime,
           observation: recoveryView.observation,
-          reason: "delegated recovery sender authority is unavailable",
+          reason: DELEGATED_RECOVERY_SENDER_UNAVAILABLE_REASON,
         });
         if (outcome === "notice_failed") {
           result.failed++;

@@ -6,7 +6,10 @@ import {
   WORKER_PROVIDER_REPLAY_MAX_DATA_BYTES,
   WorkerTranscriptMessageSchema,
 } from "../../packages/gateway-protocol/src/index.js";
-import { WORKER_PROTOCOL_MAX_MEDIA_PAYLOAD_BYTES } from "../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
+import {
+  WORKER_PROTOCOL_MAX_MEDIA_PAYLOAD_BYTES,
+  WORKER_CONTEXT_MAX_RESIDUAL_BYTES,
+} from "../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
 import { guardSessionManager } from "../agents/session-tool-result-guard-wrapper.js";
 import { SessionManager } from "../agents/sessions/session-manager.js";
 import type { AssistantMessage, Context } from "../llm/types.js";
@@ -236,7 +239,7 @@ describe("worker transcript provider replay", () => {
     expect(
       isWorkerTranscriptMessageFrameSafe({
         ...message,
-        details: { text: "x".repeat(64 * 1024) },
+        details: { text: "x".repeat(WORKER_CONTEXT_MAX_RESIDUAL_BYTES) },
       }),
     ).toBe(false);
     const oversized = {
@@ -249,28 +252,16 @@ describe("worker transcript provider replay", () => {
       "Worker transcript message exceeds the protocol payload limit",
     );
   });
-  it.each(["unsupported"])("projects %s content with opaque replay state", (type) => {
+  it.each(["unsupported"])("rejects %s content with opaque replay state", (type) => {
     const message = assistantWithReplay();
     Object.assign(message.content[0]!, { type });
     Object.assign(message.providerReplay!, { providerScratch: "private" });
 
     const result = toWorkerTranscriptMessage(message, "transcript");
-    expect(result?.kind).toBe("complete");
-    if (!result || result.kind !== "complete" || result.message.role !== "assistant") {
-      throw new Error("expected projected assistant message");
-    }
-    const projected = result.message;
-    expect(projected.providerReplay).toEqual(providerReplay);
-    expect(JSON.stringify(projected)).not.toContain("providerScratch");
-    expect(isWorkerTranscriptMessageFrameSafe(projected)).toBe(true);
-    expect(
-      validateWorkerTranscriptCommitParams({
-        runEpoch: 1,
-        seq: 1,
-        baseLeafId: null,
-        messages: [projected],
-      }),
-    ).toBe(type === "text");
+    expect(result).toMatchObject({
+      kind: "provider-replay-unavailable",
+      details: { reason: "transcript-commit-frame-budget" },
+    });
   });
 
   it.each([
@@ -280,8 +271,11 @@ describe("worker transcript provider replay", () => {
       reason: "provider-replay-data-budget" as const,
     },
     {
-      name: "multibyte data whose complete frame is over budget",
-      replay: { ...providerReplay, data: "€".repeat(21_845) },
+      name: "escaped replay data over the wire budget",
+      replay: {
+        ...providerReplay,
+        data: "\\".repeat(WORKER_PROVIDER_REPLAY_MAX_DATA_BYTES / 2 + 1),
+      },
       reason: "transcript-commit-frame-budget" as const,
     },
   ])("degrades without ciphertext for $name", ({ replay, reason }) => {

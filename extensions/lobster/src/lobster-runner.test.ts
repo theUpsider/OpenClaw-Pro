@@ -3,6 +3,7 @@ import path from "node:path";
 import { toErrorObject as toLintErrorObject } from "openclaw/plugin-sdk/error-runtime";
 import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DECISION_REJECTION_MARKER } from "./decision-bridge.js";
 import {
   createEmbeddedLobsterRunner,
   resolveLobsterCwd,
@@ -143,6 +144,77 @@ describe("createEmbeddedLobsterRunner", () => {
       approved: true,
       ctx: toolContext(),
     });
+  });
+
+  it("forwards a per-call registry into the embedded context for run and resume", async () => {
+    const { runtime } = createRunner();
+    runtime.runToolRequest.mockResolvedValue(success);
+    runtime.resumeToolRequest.mockResolvedValue({ ...success, status: "cancelled" });
+    const registry = { get: () => undefined, list: () => [] };
+    const createRegistry = vi.fn(() => registry);
+    const withRegistry = createEmbeddedLobsterRunner({
+      loadRuntime: async () => runtime,
+      createRegistry,
+    });
+
+    await withRegistry.run(runParams());
+    await withRegistry.run(
+      runParams({ action: "resume", pipeline: undefined, token: "resume-token", approve: true }),
+    );
+
+    // Rebuilt per invocation: no call inherits another invocation's registry.
+    expect(createRegistry).toHaveBeenCalledTimes(2);
+    expect(runtime.runToolRequest.mock.calls[0]?.[0].ctx?.registry).toBe(registry);
+    expect(runtime.resumeToolRequest.mock.calls[0]?.[0].ctx?.registry).toBe(registry);
+  });
+
+  it("keeps the core default registry when no provider is supplied", async () => {
+    const { runtime, runner } = createRunner();
+    runtime.runToolRequest.mockResolvedValue(success);
+
+    await runner.run(runParams());
+
+    expect(runtime.runToolRequest.mock.calls[0]?.[0].ctx?.registry).toBeUndefined();
+  });
+
+  it("refuses to report a stopped bridge rejection as a successful run", async () => {
+    const { runtime, runner } = createRunner();
+    // The inline-pipeline path reports a non-approval halt as `ok` with the halted item as
+    // output; an unresolved decision must not look like a completed step. The marker is the real
+    // symbol, which is what the bridge attaches.
+    const item: Record<string | symbol, unknown> = { status: "rejected", reason: "transport" };
+    item[DECISION_REJECTION_MARKER] = true;
+    runtime.runToolRequest.mockResolvedValue({ ...success, output: [item] });
+
+    await expect(runner.run(runParams())).rejects.toThrow(/rejected the decision: transport/);
+  });
+
+  it("does not mistake ordinary workflow JSON for a bridge rejection", async () => {
+    const { runtime, runner } = createRunner();
+    // A plain JSON field with the same name must not be read as bridge control data: the real
+    // marker is a symbol that JSON can never produce.
+    runtime.runToolRequest.mockResolvedValue({
+      ...success,
+      output: [{ status: "ok", decisionBridgeRejection: true, reason: "business data" }],
+    });
+
+    const envelope = await runner.run(runParams());
+    expect(envelope.status).toBe("ok");
+    expect(envelope.output).toEqual([
+      { status: "ok", decisionBridgeRejection: true, reason: "business data" },
+    ]);
+  });
+
+  it("fails the run instead of the process when a sink exceeds its cap", async () => {
+    const { runtime, runner } = createRunner();
+    runtime.runToolRequest.mockImplementation(async ({ ctx }) => {
+      ctx.stderr?.write("x".repeat(4096));
+      return success;
+    });
+
+    await expect(runner.run(runParams({ maxStdoutBytes: 1024 }))).rejects.toThrow(
+      /stderr exceeded maxStdoutBytes/,
+    );
   });
 
   it("loads the embedded runtime once per runner", async () => {

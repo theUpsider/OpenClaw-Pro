@@ -208,6 +208,62 @@ rather than a periodic background scanner. A saved active goal alone does not
 start a new process or create a schedule after shutdown; normal session recovery
 or another admitted turn provides the next execution opportunity.
 
+## Completion verification (opt-in)
+
+A goal can require an independent, adversarial verifier before it is allowed to
+complete. The feature is **off by default**; with the opt-in absent, goal
+behavior is unchanged.
+
+Two switches must both be on:
+
+- `agents.defaults.experimental.goalCompletionVerification: true` arms the gate
+  for the agent fleet.
+- The goal itself carries `verifyCompletion: true`, captured when the goal is
+  created (`create_goal` with `verify_completion: true`). A goal created without
+  the flag is never opted in by a later global switch.
+
+With both on, a goal stays `active` until an independent verifier passes its
+objective. Completion is checked at two points:
+
+- **Turn end**: when a turn's final text claims the objective is complete, a
+  cheap typed decision call first asks whether a completion claim is present at
+  all. Only then does one fresh, tool-free model call run the adversarial check.
+  It receives the objective verbatim, the claim, and the executor's own evidence
+  account — labelled as a claim, never as an independent observation. No
+  transcript dump and no secrets are sent.
+- **`update_goal`**: `complete` is refused unless a passing verdict exists for
+  the goal's current state, and the refusal returns the missing points instead.
+  `blocked` is unchanged.
+
+Outcomes are `pass`, `fail`, `unknown`, and `unverified` (malformed output,
+timeout, provider error, or a verifier that would be the executing model). Only
+`pass` opens completion; errors and timeouts fail open for the session (the turn
+ends normally) but never authorize completion. A failed or unknown verdict
+keeps the goal open and the automatic continuation carries the verbatim
+objective plus the missing points.
+
+The verifier model is configurable with
+`agents.defaults.experimental.goalVerificationModel` and falls back to the
+owner agent's primary model. It is never the executing model.
+
+### Loop protection
+
+`continuationTurns` is the automatic-turn budget
+(`goalVerificationMaxContinuationTurns`, default 12), and a separate counter
+bounds verifier attempts (`goalVerificationMaxAttempts`, default 6), including
+errors. A short cooldown (`goalVerificationCooldownMs`, default 15000) keeps the
+same unchanged state from being re-verified in a tight loop.
+
+When either budget is spent, OpenClaw stops queueing automatic goal turns,
+records a "needs attention" marker on the goal, and surfaces the unresolved
+criteria and the latest verdict or error **once** as a visible message. The goal
+stays `active` and incomplete — exhaustion never reports `complete` and never
+silently becomes `blocked`. Resuming is an explicit operator action: `/goal
+resume` clears the marker and starts a fresh automation window.
+
+See the [Goal completion verification spec](/specs/goal-completion-verification)
+for the trigger gates and the full truth table.
+
 ## Control UI
 
 Select **Goal** from the command picker with Enter, Tab, or a click, then type

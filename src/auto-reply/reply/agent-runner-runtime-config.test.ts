@@ -86,9 +86,10 @@ describe("buildEmbeddedRunExecutionParams runtime config", () => {
     expect(resolved.config).toBe(resolvedRunConfig);
   });
 
-  it("carries out-of-band tool bindings into the embedded run", async () => {
+  it("carries out-of-band tool bindings and work context into the embedded run", async () => {
     const run = makeRun({});
     run.toolBindings = { browser: { kind: "tab", targetId: "target-1" } };
+    run.workContext = { page: "workboard", detail: { boardId: "ops", boardKind: "sessions" } };
 
     const resolved = await buildEmbeddedRunExecutionParams({
       run,
@@ -100,5 +101,6 @@ describe("buildEmbeddedRunExecutionParams runtime config", () => {
     });
 
     expect(resolved.toolBindings).toEqual(run.toolBindings);
+    expect(resolved.workContext).toEqual(run.workContext);
   });
 });

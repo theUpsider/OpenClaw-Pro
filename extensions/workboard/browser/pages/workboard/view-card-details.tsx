@@ -1,8 +1,14 @@
 /** @jsxImportSource @solidjs/web */
 import { For, Show, createEffect, createMemo, merge } from "solid-js";
-import { AgentAvatar, SessionSummary, Dialog } from "../../components/host-components.tsx";
+import {
+  AgentAvatar,
+  SessionSummary,
+  Dialog,
+  Markdown,
+} from "../../components/host-components.tsx";
 import { icons } from "../../components/icons.tsx";
 import { WorkboardErrorToast } from "../../components/toast.tsx";
+import { VoiceBoardControl } from "../../components/voice-board-control.tsx";
 import { t } from "../../i18n/index.ts";
 import {
   workboardCardBoardId,
@@ -14,12 +20,20 @@ import {
   getWorkboardDependencyState,
   getWorkboardLifecycle,
   getWorkboardState,
+  markWorkboardCardAcceptanceSeen,
+  workboardCardAcceptanceUnseen,
   type WorkboardCard,
   type WorkboardUiState,
 } from "../../lib/workboard/index.ts";
-import { cardAgentLabel } from "./agent-filter.ts";
+import {
+  getWorkboardWaitingReason,
+  isWorkboardDecisionCard,
+} from "../../lib/workboard/waiting-reason.ts";
+import { cardAgentId, cardAgentLabel } from "./agent-filter.ts";
 import { automationDetailFields, BoardAutomation } from "./view-automation.tsx";
 import { getCardActionState, CardAction, StartExecutionButton } from "./view-card-actions.tsx";
+import { CardArtifacts } from "./view-card-artifacts.tsx";
+import { CardDecision } from "./view-card-decision.tsx";
 import {
   DependencyDetailList,
   DetailRow,
@@ -28,8 +42,9 @@ import {
 } from "./view-card-detail-records.tsx";
 import { CardDiscardDialog } from "./view-card-modal.tsx";
 import { CardSessionHeading } from "./view-card-session-heading.tsx";
+import { CardWaitingReason } from "./view-card-waiting.tsx";
+import { EventAttributionRow } from "./view-event-attribution.tsx";
 import {
-  formatEventLabel,
   formatLifecycle,
   formatPriorityLabel,
   workboardErrorMessage,
@@ -201,12 +216,32 @@ function CardDetailsContent(props: WorkboardProps & { card: WorkboardCard }) {
   const board = () => state().boards.find((entry) => entry.id === boardId());
   const events = createMemo(() => (card().events ?? []).toReversed());
   const dependencies = createMemo(() => getWorkboardDependencyState(card(), state().cards));
+  const waitingReason = createMemo(() =>
+    getWorkboardWaitingReason(card(), state().cards, lifecycle().state),
+  );
+  // Opening an automatically completed card is the operator's "seen" signal.
+  createEffect(
+    () =>
+      action().writable && props.connected && workboardCardAcceptanceUnseen(card())
+        ? card()
+        : undefined,
+    (unseen) => {
+      if (unseen) {
+        void markWorkboardCardAcceptanceSeen({ ...workboardMutationContext(props), card: unseen });
+      }
+    },
+  );
   const technical = createMemo(() => technicalDetailsData(card(), action().linkedSessionKey));
+  // The session tab resolves the execution link first; a card without one falls back to
+  // the conversation that last edited it. Read-only: never the Stop/abort target.
+  const detailSessionTarget = createMemo(
+    () => action().sessionTarget ?? action().interactionTarget,
+  );
   const tabs = () =>
     [
       { id: "overview", label: t("workboard.detailTabOverview") },
       { id: "activity", label: t("workboard.detailTabActivity") },
-      ...(action().sessionTarget
+      ...(detailSessionTarget()
         ? [{ id: "session", label: t("workboard.detailTabSession") } as const]
         : []),
       ...(technical().hasTechnicalDetails
@@ -396,11 +431,7 @@ function CardDetailsContent(props: WorkboardProps & { card: WorkboardCard }) {
                         <strong class="workboard-detail__agent">
                           <AgentAvatar
                             {...{
-                              agentId:
-                                card().agentId?.trim() ||
-                                props.agentsList?.defaultId ||
-                                props.defaultAgentId ||
-                                "",
+                              agentId: cardAgentId(card(), props.agentsList, props.defaultAgentId),
                               label: cardAgentLabel(card(), props.agentsList),
                             }}
                           />
@@ -428,14 +459,46 @@ function CardDetailsContent(props: WorkboardProps & { card: WorkboardCard }) {
                         readOnly={!action().writable || action().archived}
                       />
                     </div>
+                    <Show when={!action().archived && props.controlUi}>
+                      {(host) => (
+                        <div class="workboard-detail__voice-row">
+                          <span>{t("workboard.voice.cardRow")}</span>
+                          <VoiceBoardControl
+                            host={host()}
+                            // The card's own board, not the filtered one: the all-boards view has none.
+                            board={board() ?? { id: boardId(), kind: "cards" }}
+                            card={card()}
+                            cardAgentId={cardAgentId(
+                              card(),
+                              props.agentsList,
+                              props.defaultAgentId,
+                            )}
+                            class="workboard-detail__voice"
+                          />
+                        </div>
+                      )}
+                    </Show>
                   </aside>
                   <div class="workboard-detail__content">
+                    <CardWaitingReason
+                      reason={waitingReason()}
+                      card={card()}
+                      agentsList={props.agentsList}
+                    />
                     <InlineText
                       owner={props}
                       card={card()}
                       field={"notes"}
                       disabled={action().busy}
                       readOnly={!action().writable || action().archived}
+                    />
+                    {isWorkboardDecisionCard(card()) && action().writable && !action().archived ? (
+                      <CardDecision workboard={props} card={card()} busy={action().busy} />
+                    ) : undefined}
+                    <CardArtifacts
+                      card={card()}
+                      onNavigate={navigateAutomation}
+                      workboard={props}
                     />
                     <section
                       class={[
@@ -528,10 +591,7 @@ function CardDetailsContent(props: WorkboardProps & { card: WorkboardCard }) {
                       <ol class="workboard-detail__list workboard-detail__events">
                         <For each={events()} keyed={(event) => event.id}>
                           {(event) => (
-                            <li>
-                              <span>{formatEventLabel(event())}</span>
-                              <time>{formatUpdatedTime(event().at)}</time>
-                            </li>
+                            <EventAttributionRow event={event()} agentsList={props.agentsList} />
                           )}
                         </For>
                       </ol>
@@ -544,7 +604,7 @@ function CardDetailsContent(props: WorkboardProps & { card: WorkboardCard }) {
                         <For each={comments()} keyed={(comment) => comment.id}>
                           {(comment) => (
                             <li>
-                              <span>{comment().body}</span>
+                              <Markdown markdown={comment().body} />
                               <time>{formatUpdatedTime(comment().createdAt)}</time>
                             </li>
                           )}
@@ -589,7 +649,7 @@ function CardDetailsContent(props: WorkboardProps & { card: WorkboardCard }) {
                 </section>
               </section>
               <TechnicalDetails data={technical()} active={state().detailTab === "details"} />
-              <Show when={action().sessionTarget}>
+              <Show when={detailSessionTarget()}>
                 {(target) => (
                   <section
                     class="workboard-detail__tabpanel workboard-detail__session-panel"

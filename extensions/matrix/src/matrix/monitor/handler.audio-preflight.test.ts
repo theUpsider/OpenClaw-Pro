@@ -122,7 +122,7 @@ describe("createMatrixRoomMessageHandler audio preflight", () => {
     expect(f.recordInboundSession).toHaveBeenCalled();
     expect(f.context()).toMatchObject({
       BodyForAgent:
-        'Voice message\n[Audio transcript (machine-generated, untrusted)]: "hello bot from fallback audio"',
+        'Voice message\n[STT generated (may contain transcription mistakes)]: "hello bot from fallback audio"',
       MediaTranscribedIndexes: [0],
     });
   });
@@ -136,7 +136,7 @@ describe("createMatrixRoomMessageHandler audio preflight", () => {
     await f.text("$text-after-unmentioned-audio", "bot what did I say before?");
     expect(f.recordInboundSession).toHaveBeenCalled();
     expect(f.context().InboundHistory?.map((entry) => entry.body)).toContain(
-      '[Audio transcript (machine-generated, untrusted)]: "hello world"',
+      '[STT generated (may contain transcription mistakes)]: "hello world"',
     );
   });
 

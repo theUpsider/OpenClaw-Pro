@@ -21,7 +21,11 @@ import {
   GatewayProtocolRequestTimeoutError,
   type GatewayProtocolRequestOptions,
 } from "./protocol-request.js";
-import { clearGatewayConnectTimeout, startGatewayConnectTimeout } from "./timeouts.js";
+import {
+  clearGatewayConnectTimeout,
+  STABLE_CONNECTION_BACKOFF_RESET_MS,
+  startGatewayConnectTimeout,
+} from "./timeouts.js";
 
 export {
   GatewayProtocolRequestError,
@@ -60,6 +64,7 @@ export class GatewayProtocolClient<TPlan> {
   private reconnectSignal: AbortSignal | null = null;
   private socketOpened = false;
   private helloReceived = false;
+  private helloAtMs: number | null = null;
   private connectFailure: GatewayProtocolCloseContext["connectFailure"];
   private connectTiming: ConnectTimingState | null = null;
   private stoppedSocket?: { socket: GatewayProtocolSocket; context: CloseSnapshot };
@@ -204,6 +209,7 @@ export class GatewayProtocolClient<TPlan> {
     this.connectSent = this.connectRequestSent = false;
     this.socketOpened = false;
     this.helloReceived = false;
+    this.helloAtMs = null;
     this.connectFailure = undefined;
     let socket: GatewayProtocolSocket;
     try {
@@ -358,7 +364,7 @@ export class GatewayProtocolClient<TPlan> {
     void this.request<HelloOk>("connect", this.opts.buildConnectParams(plan))
       .then((hello) => {
         // Closing transports remain current until their close callback runs;
-        // a late response must not publish readiness or reset reconnect backoff.
+        // a late response must not publish readiness or start the stable window.
         if (!this.isConnectCurrent(socket, generation)) {
           return;
         }
@@ -366,7 +372,8 @@ export class GatewayProtocolClient<TPlan> {
         this.requests.setSuspensionPhase(hello.snapshot?.suspension?.phase);
         this.clearHandshakeTimer();
         this.connectFailure = undefined;
-        this.reconnectSupervisor.reset();
+        // Backoff resets on close only after a stable window (see handleClose).
+        this.helloAtMs = this.nowMs();
         this.recordTiming("hello", generation, plan);
         const publishHello = () => {
           if (!this.isConnectCurrent(socket, generation)) {
@@ -575,6 +582,14 @@ export class GatewayProtocolClient<TPlan> {
         error.retryAfterMs > 0
           ? error.retryAfterMs
           : undefined;
+      // A hello alone does not reset backoff: a socket that keeps dying soon after
+      // hello (stall, sequence gap, forced reconnect) must keep growing its delay.
+      if (
+        this.helloAtMs !== null &&
+        this.nowMs() - this.helloAtMs >= STABLE_CONNECTION_BACKOFF_RESET_MS
+      ) {
+        this.reconnectSupervisor.reset();
+      }
       this.scheduleReconnect(
         decision.reconnectDelayMs ?? context.connectFailure?.reconnectDelayMs,
         retryAfterMs,

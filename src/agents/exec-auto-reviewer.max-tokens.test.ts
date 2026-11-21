@@ -82,6 +82,8 @@ describe("exec auto-reviewer automatic completion budget", () => {
     { thinking: "high", maxTokens: 32_768, expected: 17_408 },
     { thinking: "xhigh", maxTokens: 32_768, expected: 17_408 },
     { thinking: "max", maxTokens: 65_536, expected: 33_792 },
+    // ultra has no dedicated budget; it shares the max budget instead of producing NaN.
+    { thinking: "ultra", maxTokens: 65_536, expected: 33_792 },
     { maxTokens: 8_192, expected: 8_192 },
     { thinking: "low", maxTokens: 1_500.5, expected: 1_500 },
     { thinking: "low", maxTokens: Number.NaN, expected: 3_072 },
@@ -103,6 +105,20 @@ describe("exec auto-reviewer automatic completion budget", () => {
       expect(complete.mock.calls[0]?.[0].options?.maxTokens).toBe(maxTokens === 500 ? 500 : 1_024);
     },
   );
+
+  it("keeps the ultra level on the request while budgeting it as max", async () => {
+    const { decision, complete } = await review({
+      reasoning: true,
+      thinking: "ultra",
+      maxTokens: 65_536,
+    });
+    expect(decision).toMatchObject({ decision: "allow-once", risk: "low" });
+    expect(complete.mock.calls[0]?.[0].options?.maxTokens).toBe(33_792);
+    expect(complete.mock.calls[0]?.[0].options?.reasoning).toBe("ultra");
+    expect(Number.isFinite(complete.mock.calls[0]?.[0].options?.maxTokens ?? Number.NaN)).toBe(
+      true,
+    );
+  });
 
   it("defers to human approval when the model cap cannot fit thinking and a verdict", async () => {
     const { decision, complete } = await review({

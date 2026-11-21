@@ -44,6 +44,7 @@ import {
   resolveStoredSubagentInheritedToolAllowlist,
   resolveStoredSubagentInheritedToolDenylist,
   resolveStoredSubagentCapabilities,
+  resolveStoredSubagentMessageToolEnabled,
   type SessionCapabilityStore,
   type SubagentSessionRole,
 } from "./subagents/spawn/subagent-capabilities.js";
@@ -84,11 +85,18 @@ const SUBAGENT_TOOL_DENY_LEAF = [
   "sessions_spawn",
 ];
 
-function resolveSubagentDenyListForRole(role: SubagentSessionRole): string[] {
+function resolveSubagentDenyListForRole(
+  role: SubagentSessionRole,
+  messageToolEnabled: boolean,
+): string[] {
+  // A spawn-time opt-in lifts only `message`; configured subagent denies still apply after this.
+  const always = messageToolEnabled
+    ? SUBAGENT_TOOL_DENY_ALWAYS.filter((tool) => tool !== "message")
+    : SUBAGENT_TOOL_DENY_ALWAYS;
   if (role === "leaf") {
-    return [...SUBAGENT_TOOL_DENY_ALWAYS, ...SUBAGENT_TOOL_DENY_LEAF];
+    return [...always, ...SUBAGENT_TOOL_DENY_LEAF];
   }
-  return [...SUBAGENT_TOOL_DENY_ALWAYS];
+  return [...always];
 }
 
 export function resolveSubagentToolPolicyForSession(
@@ -110,7 +118,10 @@ export function resolveSubagentToolPolicyForSession(
   const allow = Array.isArray(configured?.allow) ? configured.allow : undefined;
   const alsoAllow = Array.isArray(configured?.alsoAllow) ? configured.alsoAllow : undefined;
   const deny = [
-    ...resolveSubagentDenyListForRole(capabilities.role),
+    ...resolveSubagentDenyListForRole(
+      capabilities.role,
+      resolveStoredSubagentMessageToolEnabled(sessionKey, { cfg, store }),
+    ),
     ...(Array.isArray(configured?.deny) ? configured.deny : []),
   ];
   const mergedAllow = allow && alsoAllow ? uniqueStrings([...allow, ...alsoAllow]) : allow;

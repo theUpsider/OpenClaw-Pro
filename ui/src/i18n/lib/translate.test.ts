@@ -17,9 +17,11 @@ const spanish = { common: { health: "Salud" } } satisfies TranslationMap;
 
 function createManager() {
   const loadTranslation = vi.fn<(locale: Locale) => Promise<TranslationMap | null>>();
-  const manager = createI18nManagerForTesting(loadTranslation);
+  const loadConfigHints = vi.fn<(locale: Locale) => Promise<TranslationMap | null>>();
+  const manager = createI18nManagerForTesting(loadTranslation, loadConfigHints);
   return {
     loadTranslation,
+    loadConfigHints,
     manager,
     retryPendingLocale: async () => {
       manager.retryPendingLocale();
@@ -238,5 +240,57 @@ describe("I18nManager pending locale retry", () => {
     expect(manager.getLocale()).toBe("es");
 
     expect(loadTranslation).toHaveBeenCalledTimes(3);
+  });
+
+  it("loads config hint copy on first lookup instead of with the locale catalog", async () => {
+    const { loadTranslation, loadConfigHints, manager } = createManager();
+    const hintKey = "configHints.gateway%2Eauth%2Etoken.label.v1-abc-d";
+    const hintLoad = deferred<TranslationMap | null>();
+    loadTranslation.mockResolvedValueOnce(german);
+    loadConfigHints.mockReturnValueOnce(hintLoad.promise);
+    const subscriber = vi.fn();
+    manager.subscribe(subscriber);
+
+    expect(manager.translateConfigHint(hintKey)).toBeUndefined();
+    expect(loadConfigHints).not.toHaveBeenCalled();
+    await manager.setLocale("de");
+    expect(loadConfigHints).not.toHaveBeenCalled();
+    subscriber.mockClear();
+
+    expect(manager.translateConfigHint(hintKey)).toBeUndefined();
+    expect(manager.translateConfigHint(hintKey)).toBeUndefined();
+    expect(loadConfigHints).toHaveBeenCalledExactlyOnceWith("de");
+    hintLoad.resolve({
+      configHints: { "gateway%2Eauth%2Etoken": { label: { "v1-abc-d": "Gateway-Token" } } },
+    });
+    await vi.waitFor(() => expect(subscriber).toHaveBeenCalledExactlyOnceWith("de"));
+
+    expect(manager.translateConfigHint(hintKey)).toBe("Gateway-Token");
+    expect(manager.t("common.health")).toBe("Gesundheit");
+    expect(loadConfigHints).toHaveBeenCalledOnce();
+  });
+
+  it("keeps registered catalogs complete and retries a failed hint load", async () => {
+    const { loadTranslation, loadConfigHints, manager } = createManager();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const hintKey = "configHints.cloudWorkers.label.v1-abc-d";
+    manager.registerTranslation("de", german);
+    await manager.setLocale("de");
+    expect(manager.translateConfigHint(hintKey)).toBeUndefined();
+    expect(loadConfigHints).not.toHaveBeenCalled();
+
+    loadTranslation.mockResolvedValueOnce(spanish);
+    loadConfigHints.mockRejectedValueOnce(new Error("gateway unavailable")).mockResolvedValueOnce({
+      configHints: { cloudWorkers: { label: { "v1-abc-d": "Trabajadores en la nube" } } },
+    });
+    await manager.setLocale("es");
+    expect(manager.translateConfigHint(hintKey)).toBeUndefined();
+    await vi.waitFor(() => expect(console.error).toHaveBeenCalledOnce());
+    expect(manager.translateConfigHint(hintKey)).toBeUndefined();
+    await vi.waitFor(() =>
+      expect(manager.translateConfigHint(hintKey)).toBe("Trabajadores en la nube"),
+    );
+    expect(loadConfigHints).toHaveBeenCalledTimes(2);
+    expect(manager.t("common.health")).toBe("Salud");
   });
 });

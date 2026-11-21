@@ -283,5 +283,109 @@ export function createControlUiComponents(options: {
           element.presented = next.presented ?? true;
         },
       ),
+    mountDictationControl: (container, props) =>
+      mount(
+        container,
+        props,
+        async () => {
+          await import("./control-ui-dictation.tsx");
+          return document.createElement("openclaw-plugin-dictation-control");
+        },
+        (element, next, current) => {
+          const context = current();
+          const snapshot = context.gateway.snapshot;
+          element.client = snapshot.client;
+          element.connected = snapshot.phase === "connected";
+          element.inputDeviceId = context.theme.settings.realtimeTalkInputDeviceId;
+          element.enabled = next.enabled;
+          element.disabledReason = next.disabledReason;
+          element.accessibleLabel = next.accessibleLabel;
+          element.onStart = () => {
+            current();
+            next.onStart?.();
+          };
+          element.onTranscript = (text) => {
+            current();
+            next.onTranscript(text);
+          };
+          element.onError = (message) => {
+            current();
+            next.onError(message);
+          };
+          element.onStateChange = (state) => {
+            current();
+            next.onStateChange?.(state);
+          };
+        },
+        undefined,
+        (context, refresh) => context.theme.subscribe(refresh),
+      ),
+    mountComposerSessionControls: (container, props) =>
+      mount(
+        container,
+        props,
+        async () => {
+          await import("./control-ui-composer-session-controls.tsx");
+          return document.createElement("openclaw-plugin-composer-session-controls");
+        },
+        (element, next, current) => {
+          element.context = current();
+          // Host publications re-resolve the catalog, access and defaults.
+          element.revision = {};
+          element.sessionKey = next.sessionKey;
+          element.agentId = next.agentId;
+          element.disabledReason = next.disabledReason;
+          element.onError = (message) => {
+            current();
+            next.onError?.(message);
+          };
+        },
+        undefined,
+        (context, refresh) => context.sessions.subscribe(refresh),
+      ),
+    mountComposerSendAction: (container, props) =>
+      mount(
+        container,
+        props,
+        async () => {
+          await import("./control-ui-composer-send-action.tsx");
+          return document.createElement("openclaw-plugin-composer-send-action");
+        },
+        (element, next, current) => {
+          element.context = current();
+          element.revision = {};
+          element.sessionKey = next.sessionKey;
+          element.agentId = next.agentId;
+          element.draft = next.draft;
+          element.sending = next.sending ?? false;
+          element.disabledReason = next.disabledReason;
+          element.describedBy = next.describedBy;
+          element.onSend = (followUpMode) => {
+            current();
+            next.onSend(followUpMode);
+          };
+        },
+        undefined,
+        (context, refresh) => {
+          const stops = [
+            context.sessions.subscribe(refresh),
+            context.theme.subscribe(refresh),
+            context.runtimeConfig.subscribe(refresh),
+          ];
+          return () => stops.forEach((stop) => stop());
+        },
+      ),
+    mountMarkdown: (container, props) =>
+      mount(
+        container,
+        props,
+        async () => {
+          await import("./control-ui-markdown.tsx");
+          return document.createElement("openclaw-plugin-markdown");
+        },
+        (element, next) => {
+          element.props = next;
+        },
+      ),
   };
 }

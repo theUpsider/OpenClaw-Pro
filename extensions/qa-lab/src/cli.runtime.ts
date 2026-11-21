@@ -201,7 +201,7 @@ function parseQaThinkingLevel(
   const normalized = normalizeQaThinkingLevel(value);
   if (!normalized) {
     throw new Error(
-      `${label} must be one of off, minimal, low, medium, high, xhigh, adaptive, max`,
+      `${label} must be one of off, minimal, low, medium, high, xhigh, adaptive, max, ultra`,
     );
   }
   return normalized;

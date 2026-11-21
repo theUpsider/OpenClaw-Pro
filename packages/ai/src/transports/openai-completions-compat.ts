@@ -52,9 +52,13 @@ export type ResolvedOpenAICompletionsCompat = Omit<
   | "openRouterRouting"
   | "sendSessionAffinityHeaders"
   | "reasoningEffortMap"
+  | "numericReasoningEfforts"
   | "supportedReasoningEfforts"
 > &
-  Pick<OpenAICompletionsCompat, "reasoningEffortMap" | "supportedReasoningEfforts"> & {
+  Pick<
+    OpenAICompletionsCompat,
+    "reasoningEffortMap" | "numericReasoningEfforts" | "supportedReasoningEfforts"
+  > & {
     cacheControlFormat?: OpenAICompletionsCompat["cacheControlFormat"];
     openRouterRouting?: OpenAICompletionsCompat["openRouterRouting"];
     sessionAffinity: OpenAICompletionsSessionAffinity;
@@ -330,6 +334,7 @@ export function resolveOpenAICompletionsCompat(
       configured?.supportsReasoningEffort ?? defaults.supportsReasoningEffort,
     supportedReasoningEfforts: configured?.supportedReasoningEfforts,
     reasoningEffortMap: configured?.reasoningEffortMap,
+    numericReasoningEfforts: configured?.numericReasoningEfforts,
     // Custom OpenAI routes need a declared off effort; inferred Z.AI may be always-thinking.
     // Explicit Z.AI formats and effort mappings still own their off contract.
     reasoningEffortForOff:

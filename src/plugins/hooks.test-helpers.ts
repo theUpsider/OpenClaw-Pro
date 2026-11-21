@@ -1,5 +1,6 @@
 // Provides shared helpers for plugin hook tests.
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
+import type { HookFailurePolicy } from "./hook-failure-policy.js";
 import { createEmptyPluginRegistry } from "./registry-empty.js";
 import type { PluginRegistry } from "./registry.js";
 import { createPluginRecord } from "./status.test-helpers.js";
@@ -14,6 +15,7 @@ export function createMockPluginRegistry(
     priority?: number;
     registrationId?: string;
     timeoutMs?: number;
+    failurePolicy?: HookFailurePolicy;
     eligibleTriggers?: readonly PluginHookAgentTrigger[];
     requiresToolAuthority?: true;
     conversationAccessAllowed?: true;
@@ -42,6 +44,7 @@ export function createMockPluginRegistry(
       priority: h.priority ?? 0,
       ...(h.registrationId ? { registrationId: h.registrationId } : {}),
       ...(h.timeoutMs !== undefined ? { timeoutMs: h.timeoutMs } : {}),
+      ...(h.failurePolicy !== undefined ? { failurePolicy: h.failurePolicy } : {}),
       ...(h.eligibleTriggers !== undefined ? { eligibleTriggers: h.eligibleTriggers } : {}),
       ...(h.requiresToolAuthority ? { requiresToolAuthority: true } : {}),
       ...(h.conversationAccessAllowed ? { conversationAccessAllowed: true } : {}),
@@ -58,6 +61,7 @@ export function addTestHook(params: {
   priority?: number;
   registrationId?: string;
   timeoutMs?: number;
+  failurePolicy?: HookFailurePolicy;
   eligibleTriggers?: readonly PluginHookAgentTrigger[];
   requiresToolAuthority?: true;
   conversationAccessAllowed?: true;
@@ -70,6 +74,7 @@ export function addTestHook(params: {
     priority: params.priority ?? 0,
     ...(params.registrationId ? { registrationId: params.registrationId } : {}),
     ...(params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : {}),
+    ...(params.failurePolicy !== undefined ? { failurePolicy: params.failurePolicy } : {}),
     ...(params.eligibleTriggers !== undefined ? { eligibleTriggers: params.eligibleTriggers } : {}),
     ...(params.requiresToolAuthority ? { requiresToolAuthority: true } : {}),
     ...(params.conversationAccessAllowed ? { conversationAccessAllowed: true } : {}),

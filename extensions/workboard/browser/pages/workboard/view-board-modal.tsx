@@ -11,7 +11,17 @@ import { WorkboardErrorToast, updateWorkboardToastOutcome } from "../../componen
 import { WorkboardBoardGlyph } from "../../components/workboard-board-glyph.tsx";
 import { t } from "../../i18n/index.ts";
 import { formatUiError } from "../../lib/format-error.ts";
-import type { WorkboardBoardMetadata, WorkboardBoardSummary } from "../../lib/workboard/types.ts";
+import type {
+  WorkboardBoardMetadata,
+  WorkboardBoardSummary,
+  WorkboardClassification,
+} from "../../lib/workboard/types.ts";
+import {
+  createBoardPaletteDraft,
+  readBoardPaletteDraft,
+  BoardPaletteEditor,
+  type BoardPaletteDraft,
+} from "./view-board-palette.tsx";
 import { liveInputValue } from "./view-input-value.ts";
 
 export type BoardDraft = {
@@ -22,6 +32,7 @@ export type BoardDraft = {
   kind: "cards" | "sessions";
   create?: boolean;
   sessions?: WorkboardSessionsBoardSpec;
+  palette: BoardPaletteDraft;
   saving: boolean;
   error: string | null;
 };
@@ -37,6 +48,7 @@ export function createBoardDraft(board: WorkboardBoardSummary): BoardDraft {
     ...fields,
     kind: board.kind ?? "cards",
     ...(board.sessions ? { sessions: structuredClone(board.sessions) } : {}),
+    palette: createBoardPaletteDraft(board.classifications ?? []),
     saving: false,
     error: null,
   };
@@ -52,6 +64,7 @@ export function createNewBoardDraft(): BoardDraft {
     color: "",
     kind: "cards",
     create: true,
+    palette: createBoardPaletteDraft([]),
     saving: false,
     error: null,
   };
@@ -122,6 +135,17 @@ export function BoardModal(props: {
     if (clearAppearance.length > 0) {
       input.clearAppearance = clearAppearance;
     }
+    // Sessions boards keep no palette; a cards board's list is validated before any write.
+    const paletteChange =
+      initialDraft.kind === "cards"
+        ? readBoardPaletteDraft(initialDraft.palette)
+        : { changed: false };
+    if (paletteChange.error) {
+      initialDraft.palette.error = paletteChange.error;
+      props.requestUpdate();
+      return;
+    }
+    initialDraft.palette.error = null;
     initialDraft.saving = true;
     initialDraft.error = null;
     props.requestUpdate();
@@ -145,6 +169,17 @@ export function BoardModal(props: {
           boardId: initialDraft.id,
           patch: { columns: sessions.columns },
         });
+      }
+      if (paletteChange.changed && paletteChange.palette) {
+        const result = await client.request<{ classifications: WorkboardClassification[] }>(
+          "workboard.boards.classifications",
+          { boardId: initialDraft.id, classifications: paletteChange.palette },
+        );
+        if (!isCurrent()) {
+          return;
+        }
+        // The accepted palette is the stored one now; the next save diffs against it.
+        initialDraft.palette = createBoardPaletteDraft(result.classifications);
       }
       if (isCurrent()) {
         props.onSaved(board);
@@ -260,6 +295,14 @@ export function BoardModal(props: {
             <SessionsEditor
               draft={draft()}
               canWrite={props.canWrite}
+              requestUpdate={props.requestUpdate}
+              revision={props.revision}
+            />
+          ) : draft().kind === "cards" ? (
+            <BoardPaletteEditor
+              draft={draft().palette}
+              canWrite={props.canWrite}
+              saving={draft().saving}
               requestUpdate={props.requestUpdate}
               revision={props.revision}
             />

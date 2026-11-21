@@ -6,7 +6,14 @@ import { t } from "../../i18n/index.ts";
 import { formatUiExternalText } from "../../lib/format-error.ts";
 import { formatDurationCompact } from "../../lib/format.ts";
 import { selectCardAlert, type CardAlert } from "../../lib/workboard/card-alerts.ts";
-import type { WorkboardCard, WorkboardLifecycle } from "../../lib/workboard/index.ts";
+import type { WorkboardCardClassification } from "../../lib/workboard/classification.ts";
+import {
+  getWorkboardAcceptanceMarker,
+  type WorkboardCard,
+  type WorkboardLifecycle,
+} from "../../lib/workboard/index.ts";
+import { resolveWorkboardInteraction } from "../../lib/workboard/interaction.ts";
+import { needsOperatorAttention } from "../../lib/workboard/operator-attention.ts";
 import { cardAgentLabel } from "./agent-filter.ts";
 import { RelativeTime } from "./view-card-time.tsx";
 import {
@@ -212,24 +219,121 @@ function labelOverflowRef(labels: () => readonly string[]) {
     };
   };
 }
-export function CardMeta(input: { card: WorkboardCard; archived: boolean }) {
+export function CardLabelChip(input: { label: string; color?: string; class?: string }) {
+  return (
+    <span
+      class={[
+        "workboard-chip workboard-truncate",
+        input.class ?? "",
+        input.color ? "workboard-card__label--colored" : "",
+      ]}
+      style={input.color ? { "--workboard-label-color": input.color } : undefined}
+      title={input.label}
+    >
+      {/* The colored chip is a flex row, so its text needs its own truncating box. */}
+      {input.color ? <span class="workboard-truncate">{input.label}</span> : input.label}
+    </span>
+  );
+}
+export function CardClassificationAnnouncement(input: {
+  classification: WorkboardCardClassification;
+}) {
+  return (
+    <Show when={input.classification.primary}>
+      {(primary) => (
+        <span class="sr-only">{t("workboard.cardClassification", { label: primary().label })}</span>
+      )}
+    </Show>
+  );
+}
+export function CardAcceptanceMarker(input: { card: WorkboardCard }) {
+  const marker = createMemo(() => getWorkboardAcceptanceMarker(input.card));
+  return (
+    <Show when={marker()}>
+      {(current) => (
+        <span
+          class={["workboard-card__acceptance", `workboard-card__acceptance--${current()}`]}
+          title={t(
+            current() === "awaiting"
+              ? "workboard.acceptanceAwaitingHelp"
+              : "workboard.acceptanceUnseenHelp",
+          )}
+        >
+          {t(
+            current() === "awaiting"
+              ? "workboard.acceptanceAwaiting"
+              : "workboard.acceptanceUnseen",
+          )}
+        </span>
+      )}
+    </Show>
+  );
+}
+export function CardNeedsYouMarker(input: { card: WorkboardCard }) {
+  return (
+    <Show when={needsOperatorAttention(input.card)}>
+      <span class="workboard-card__needs-you" title={t("workboard.needsYouHelp")}>
+        {t("workboard.needsYou")}
+      </span>
+    </Show>
+  );
+}
+export function CardMeta(input: {
+  card: WorkboardCard;
+  archived: boolean;
+  classification: WorkboardCardClassification;
+  /**
+   * Cap on the label chips before the `+N` chip. The default is the measured overflow (whatever
+   * fits); a card drawn next to its face caps it at three, because the face is where the operator
+   * reads now and a chip wall beside it only competes for attention.
+   */
+  maxLabels?: number;
+}) {
+  const labels = () =>
+    input.maxLabels === undefined
+      ? input.classification.orderedLabels
+      : input.classification.orderedLabels.slice(0, input.maxLabels);
+  const hiddenLabels = () => input.classification.orderedLabels.slice(labels().length);
+  // A cap is deterministic, so the measured overflow ref must stay out of it: that ref hides
+  // chips by available width and would hide the fixed `+N` chip too.
+  const overflowRef = () => (input.maxLabels === undefined ? labelOverflowRef(labels) : undefined);
   return (
     <>
-      {!input.card.labels.length && !input.archived ? null : (
+      {!input.card.labels.length &&
+      !input.archived &&
+      !getWorkboardAcceptanceMarker(input.card) &&
+      !needsOperatorAttention(input.card) ? null : (
         <div class="workboard-card__meta">
+          <CardClassificationAnnouncement classification={input.classification} />
+          <CardNeedsYouMarker card={input.card} />
+          <CardAcceptanceMarker card={input.card} />
           {input.card.labels.length ? (
-            <div class="workboard-card__labels" ref={labelOverflowRef(() => input.card.labels)}>
-              <For each={input.card.labels} keyed={(label) => label}>
+            <div class="workboard-card__labels" ref={overflowRef()}>
+              <For each={labels()} keyed={(label) => label}>
                 {(label) => (
-                  <span
-                    class="workboard-chip workboard-truncate workboard-card__label"
-                    title={label()}
-                  >
-                    {label()}
-                  </span>
+                  <CardLabelChip
+                    label={label()}
+                    color={input.classification.colors.get(label())}
+                    class="workboard-card__label"
+                  />
                 )}
               </For>
-              <span class="workboard-chip workboard-card__label-overflow" hidden />
+              {/* With a cap, the hidden labels are named in the chip itself; the measured
+                  overflow ref only manages chips that fit the available width. */}
+              {hiddenLabels().length ? (
+                <span
+                  class="workboard-chip workboard-card__label-overflow"
+                  title={hiddenLabels().join(", ")}
+                  aria-label={t("workboard.cardMoreLabels", {
+                    count: String(hiddenLabels().length),
+                    labels: hiddenLabels().join(", "),
+                  })}
+                >
+                  {`+${hiddenLabels().length}`}
+                </span>
+              ) : (
+                <span class="workboard-chip workboard-card__label-overflow" hidden />
+              )}
             </div>
           ) : null}
           {input.archived ? (
@@ -328,12 +432,20 @@ export function CardSession(input: {
   status: SessionStatusPresentation;
 }) {
   const hasSession = createMemo(() => input.lifecycle.state !== "unlinked");
+  // The dictation fallback: only a card without an execution session has one, and only
+  // a dock conversation the window still carries resolves. No session means the card
+  // renders exactly like a card without any session — no marker, no badge, no line.
+  const interaction = createMemo(() =>
+    resolveWorkboardInteraction(input.card, input.workboard.interactionSessions),
+  );
   const sessionName = createMemo(() =>
     hasSession()
       ? (input.lifecycle.session?.displayName ??
         input.lifecycle.session?.label ??
         t("workboard.fieldSession"))
-      : cardAgentLabel(input.card, input.workboard.agentsList),
+      : (interaction()?.session.displayName ??
+        interaction()?.session.label ??
+        cardAgentLabel(input.card, input.workboard.agentsList)),
   );
   return (
     <div class={`workboard-card__session workboard-card__session--${input.status.tone}`}>
@@ -350,6 +462,16 @@ export function CardSession(input: {
             title={input.status.detail}
           >
             <LifecycleIcon lifecycle={input.lifecycle} />
+          </span>
+        ) : null}
+        {!hasSession() && interaction()?.state === "live" ? (
+          <span
+            class="workboard-card__session-marker"
+            role="img"
+            aria-label={t("workboard.interactionRunning")}
+            title={t("workboard.interactionRunning")}
+          >
+            <span class="session-run-spinner" aria-hidden="true" />
           </span>
         ) : null}
         <SessionStatus

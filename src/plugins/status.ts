@@ -19,6 +19,7 @@ import {
   resolveEffectivePluginIds,
   resolveEffectivePluginIdsAsync,
 } from "./effective-plugin-ids.js";
+import type { HookFailurePolicy } from "./hook-failure-policy.js";
 import { buildPluginShapeSummary } from "./inspect-shape.js";
 import {
   acquirePluginRegistryForInspection,
@@ -112,6 +113,8 @@ export type PluginInspectReport = ReturnType<typeof buildPluginShapeSummary> & {
     allowConversationAccess?: boolean;
     hookTimeoutMs?: number;
     hookTimeouts?: Record<string, number>;
+    hookFailurePolicy?: HookFailurePolicy;
+    hookFailurePolicies?: Record<string, HookFailurePolicy>;
     allowModelOverride?: boolean;
     allowedModels: string[];
     hasAllowedModelsConfig: boolean;
@@ -575,6 +578,10 @@ function buildPluginInspectRecord(
       allowConversationAccess: policyEntry?.hooks?.allowConversationAccess,
       hookTimeoutMs: policyEntry?.hooks?.timeoutMs,
       hookTimeouts: policyEntry?.hooks?.timeouts ? { ...policyEntry.hooks.timeouts } : undefined,
+      hookFailurePolicy: policyEntry?.hooks?.failurePolicy,
+      hookFailurePolicies: policyEntry?.hooks?.failurePolicies
+        ? { ...policyEntry.hooks.failurePolicies }
+        : undefined,
       allowModelOverride: policyEntry?.subagent?.allowModelOverride,
       allowedModels: [...(policyEntry?.subagent?.allowedModels ?? [])],
       hasAllowedModelsConfig: policyEntry?.subagent?.hasAllowedModelsConfig === true,

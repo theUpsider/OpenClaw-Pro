@@ -1,0 +1,96 @@
+/* tokens.css — Workboard Talk-Gate und Wirkungs-Protokoll
+ *
+ * Zwei Schichten (Vault-Notiz §2.2): Primitive tragen die Zahlen, Semantik trägt die Bedeutung.
+ * Komponenten lesen ausschließlich semantische Namen. Diese Datei *definiert keine eigene Farbwelt*:
+ * sie bindet die Semantik an die Control-UI-Tokens, damit Talk-Gate und Board in jeder Palette
+ * (dunkel, hell, importiert) zusammenpassen. Die Hex-Werte stehen hier nur als Primitive, damit die
+ * Herkunft nachvollziehbar ist und das Kontrast-Gate eine Referenz hat.
+ */
+
+:root {
+  /* ---- Primitive: die gemessenen Control-UI-Werte (ui/src/styles/base.css) ---- */
+  --p-neutral-0: #ffffff;
+  --p-neutral-50: #faf9f7;
+  --p-neutral-100: #efebe4;
+  --p-neutral-300: #d6d0c5;
+  --p-neutral-600: #6e6960;
+  --p-neutral-700: #403c35;
+  --p-neutral-800: #211e1a;
+  --p-neutral-900: #0e1015;
+  --p-neutral-850: #191c24;
+  --p-neutral-880: #1f2330;
+  --p-neutral-830: #2e3040;
+  --p-neutral-910: #bcbcc0;
+  --p-neutral-920: #8b8b94;
+  --p-neutral-950: #f4f4f5;
+  --p-signal-500: #ff5c5c;
+  --p-signal-700: #bd4531;
+  --p-negative-500: #f87171;
+  --p-negative-700: #b91c1c;
+
+  --p-space-1: 4px;
+  --p-space-2: 8px;
+  --p-space-3: 12px;
+  --p-space-4: 16px;
+  --p-space-6: 24px;
+
+  --p-radius-sm: 6px;
+  --p-radius-md: 10px;
+  --p-radius-full: 9999px;
+
+  --p-type-sm: 13px;
+  --p-type-xs: 12px;
+  --p-leading: 1.5;
+
+  /* ---- Semantisch: was die Fläche meint. Zuerst die Host-Tokens, dann der Rückfall. ---- */
+  --surface: var(--bg, var(--p-neutral-900));
+  --surface-elevated: var(--bg-elevated, var(--p-neutral-850));
+  --surface-muted: var(--bg-hover, var(--p-neutral-880));
+
+  --text: var(--text, var(--p-neutral-910));
+  --text-strong: var(--text-strong, var(--p-neutral-950));
+  --text-muted: var(--muted, var(--p-neutral-920));
+
+  --line: var(--border, var(--p-neutral-830));
+  --line-strong: var(--border-strong, var(--p-neutral-300));
+
+  /* Der eine Akzent: die gefüllte Aktion [Absenden]. */
+  --action: var(--accent, var(--p-signal-500));
+  --action-text: var(--accent-foreground, var(--p-neutral-900));
+  --focus: var(--ring, var(--p-signal-700));
+
+  --negative: var(--danger, var(--p-negative-500));
+
+  --space-1: var(--p-space-1);
+  --space-2: var(--p-space-2);
+  --space-3: var(--p-space-3);
+  --space-4: var(--p-space-4);
+  --radius-sm: var(--p-radius-sm);
+  --radius-md: var(--p-radius-md);
+  --radius-full: var(--p-radius-full);
+  --type-sm: var(--p-type-sm);
+  --type-xs: var(--p-type-xs);
+  --leading: var(--p-leading);
+}
+
+/* ---- New-card-Dialog: Sprachentwurf (2026-11-03) ------------------------------------
+ * Keine neuen Primitive und keine neuen semantischen Namen: die Fläche liest nur, was der
+ * Dialog schon liest. Zuordnung der neuen Bausteine zu semantischen Namen:
+ *   Statuszeile/Hinweise (.workboard-draft__voice-status)  → --text-muted auf der Formularfläche
+ *     (Host --panel; gerechnet 5,63:1 dunkel / 5,18:1 hell, Gate: 0 Textknoten unter 4,5:1)
+ *   Mikrofon aktiv (Host-DictationControl)                → --action (Host-Zustand)
+ *   Fehler (vorhandener WorkboardErrorToast)               → --negative
+ *   Abstand Statuszeile                                    → --space-1 / --space-2
+ * Regel: kein Rohwert im Plugin-CSS dieser Fläche; nur Host-Variablen über diese Namen.
+ * ------------------------------------------------------------------------------------- */
+
+/* ---- Entscheidungskarte als Ask-Dialog (2026-11-03) ---------------------------------
+ * Keine neuen Primitive und keine neuen semantischen Namen. Zuordnung der Bausteine:
+ *   Option-Label (.workboard-decision__option-label)        → --text-strong auf --surface-elevated
+ *   Nummer / Badge-Text (…__option-number, …__recommended)   → --text
+ *   Beschreibung / Hinweis (…__option-description, …__hint)  → --text-muted (5,04:1 / 5,45:1; auf
+ *     --surface-muted unter der Maus 4,64:1 / 4,59:1)
+ *   Ränder von Optionszeile, Badge, Freitextfeld, Add note   → --text-muted (Nicht-Text ≥ 3:1)
+ *   Decision made (Bestand)                                  → --action
+ *   Refusal-Toast (Bestand)                                  → --negative
+ * ------------------------------------------------------------------------------------- */

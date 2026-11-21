@@ -26,6 +26,7 @@ export function retainOpenClawStateWorkerLease(
     retainOperation(store: Store, onNativeLost?: () => void): () => void | Promise<void>;
   },
   finalize?: (scope: DomainScope) => Promise<void>,
+  onNativeLost?: () => void,
 ): OpenClawStateWorkerLease {
   const maintenance = context.maintenanceScope;
   context.admission.assertCurrent();
@@ -252,6 +253,8 @@ export function retainOpenClawStateWorkerLease(
       releaseOperation = owner.retainOperation(store, () => {
         // An idle logical lease must release its hold even when it has no command to reject.
         void retire();
+        // Long-lived holders (the cron actor) otherwise learn of the loss only on their next command.
+        onNativeLost?.();
       });
       // The client scope retains native custody as a resource, never as pending
       // maintenance work that must finish before the resource phase can begin.

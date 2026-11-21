@@ -1,3 +1,4 @@
+import type { ChatWorkContext } from "../../../../packages/gateway-protocol/src/chat-work-context.js";
 import type { ReasoningStreamPayload } from "../../../auto-reply/get-reply-options.types.js";
 import type { ReplyPayload } from "../../../auto-reply/reply-payload.js";
 import type { ReasoningLevel, VerboseLevel } from "../../../auto-reply/thinking.js";
@@ -73,6 +74,8 @@ export type RunEmbeddedAgentParams = {
   sandboxAgentId?: string;
   /** Out-of-band plugin bindings attached by the run initiator. */
   toolBindings?: Readonly<Record<string, unknown>>;
+  /** Captured chat.send work context for plugin tools; quoted reference data, never authority. */
+  workContext?: ChatWorkContext;
   /** Raw peer observed by the inbound routing owner, before identity linking. */
   conversationRoutePeerId?: string;
   /** What initiated this agent run: "user", "heartbeat", "cron", "memory", "overflow", or "manual". */

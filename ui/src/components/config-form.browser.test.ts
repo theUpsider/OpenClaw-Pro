@@ -204,6 +204,32 @@ describe("config form renderer", () => {
     },
   );
 
+  it("loads hint copy for a lazily loaded locale after its first lookup", async () => {
+    const label = "Gateway Token";
+    const { default: catalog } = await import("virtual:openclaw-control-ui-locale-config-hints/de");
+    const translated = configHintTranslationKey("gateway.auth.token", "label", label)
+      .split(".")
+      .reduce<unknown>(
+        (node, part) => (node as Record<string, unknown> | undefined)?.[part],
+        catalog,
+      );
+    expect(translated).toBeTypeOf("string");
+    expect(translated).not.toBe(label);
+    onTestFinished(() => i18n.setLocale("en"));
+    await i18n.setLocale("de");
+
+    renderAnalyzedFormFixture(container, rootAnalysis, {
+      value: {},
+      onPatch,
+      uiHints: { "gateway.auth.token": { label } },
+    });
+    const fieldLabel = () =>
+      container.querySelector("input.settings-input")?.getAttribute("aria-label");
+    // The locale chunk no longer carries hint copy; the first lookup starts its load.
+    expect(fieldLabel()).toBe(label);
+    await vi.waitFor(() => expect(fieldLabel()).toBe(translated));
+  });
+
   it.each([false, true])(
     "renders section copy once, scoped to the subsection: %s",
     (subsection) => {

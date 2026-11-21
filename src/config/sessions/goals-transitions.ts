@@ -66,7 +66,7 @@ export function accountSessionGoalUsage(
 
 export function buildCreatedSessionGoal(
   entry: SessionEntry,
-  options: { objective: string; tokenBudget?: number },
+  options: { objective: string; tokenBudget?: number; verifyCompletion?: boolean },
   now: number,
 ): SessionGoal {
   const objective = options.objective;
@@ -90,7 +90,24 @@ export function buildCreatedSessionGoal(
     tokensUsed: 0,
     ...(tokenBudget ? { tokenBudget } : {}),
     continuationTurns: 0,
+    // Per-goal opt-in only; a later global switch never opts an existing goal in.
+    ...(options.verifyCompletion === true ? { verifyCompletion: true as const } : {}),
   };
+}
+
+/**
+ * Identity of the goal state a verification verdict judged.
+ *
+ * The revision moves when the pursuit itself changes: an objective edit or
+ * status transition moves `updatedAt`, and every automatic continuation turn
+ * increments `continuationTurns`. Bookkeeping writes that do not change the
+ * pursuit (recording a verdict, stamping the attention marker) preserve the
+ * revision so a passing verdict stays usable until real work follows it.
+ */
+export function resolveSessionGoalRevision(
+  goal: Pick<SessionGoal, "id" | "updatedAt" | "continuationTurns">,
+): string {
+  return `${goal.id}:${goal.updatedAt}:${goal.continuationTurns}`;
 }
 
 export function buildUpdatedSessionGoalStatus(
@@ -128,6 +145,19 @@ export function buildUpdatedSessionGoalStatus(
     ...(options.status === "blocked" ? { blockedAt: now } : {}),
     ...(options.status === "complete" ? { completedAt: accounted.completedAt ?? now } : {}),
   };
+  if (options.status === "active" && (accounted.status !== "active" || accounted.attention)) {
+    // An explicit resume starts fresh automation: no budget carry-over and no
+    // stale "needs attention" marker from the run that stopped.
+    next.continuationTurns = 0;
+    delete next.attention;
+  }
+  if (options.status === "active" && accounted.status !== "active") {
+    // An explicit resume also starts a fresh verification episode: the previous
+    // verdict judged a pursuit the operator chose to resume, and its attempt
+    // count would otherwise stop the next decision immediately. A prior pass
+    // never survives a resume.
+    delete next.verification;
+  }
   if (accounted.status === "complete" && options.status === "active") {
     // Completion belongs to the finished pursuit; a later completion needs its own timestamp.
     delete next.completedAt;

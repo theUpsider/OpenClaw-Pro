@@ -1,10 +1,12 @@
 /** Native composition entry for ordinary, restricted, and cold provider-hook loading. */
-import { setImmediate as nextTurn } from "node:timers/promises";
 import { createExternalAuthRuntime } from "../agents/auth-profiles/external-auth.js";
 import { createAuthProfileStoreRuntime } from "../agents/auth-profiles/store.js";
 import { resolveModelRuntimePolicy } from "../agents/model-runtime-policy.js";
 import { resolveDefaultModelForAgent } from "../agents/model-selection-config.js";
 import { resolveAllowedModelRefCore } from "../agents/model-selection-resolve.js";
+import { MAIN_THREAD_STALL_ATTRIBUTION_MS } from "../infra/main-thread-stall.js";
+import { createYieldBudgetStepStats, runStepsWithYieldBudget } from "../infra/yield-budget.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveCompatibleRuntimePluginRegistry } from "./active-runtime-registry.js";
 import { createPluginCapabilityCatalogContext } from "./capability-catalog-context.js";
 import { isPluginRegistryLoadInFlight } from "./loader-cache.js";
@@ -110,13 +112,20 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
 export async function loadOpenClawPluginsAsync(
   options: PluginLoadOptions = {},
 ): Promise<PluginRegistry> {
-  const steps = loadOpenClawPluginsSteps(options, loaderBindings);
-  let step = steps.next();
-  while (!step.done) {
-    await nextTurn();
-    step = steps.next();
+  const stats = createYieldBudgetStepStats();
+  try {
+    return await runStepsWithYieldBudget(loadOpenClawPluginsSteps(options, loaderBindings), {
+      stats,
+    });
+  } finally {
+    if (stats.outliers > 0) {
+      // One line per run, only when the budget could not split a step: it names the step
+      // behind a concurrent main-thread stall without adding per-step logging.
+      (options.logger ?? createSubsystemLogger("plugins")).warn(
+        `[plugins] generation run held the event loop for ${stats.outliers} step(s) >= ${MAIN_THREAD_STALL_ATTRIBUTION_MS}ms; longest ${Math.round(stats.maxStepMs)}ms at ${stats.maxStepLabel ?? "finalization"}`,
+      );
+    }
   }
-  return step.value;
 }
 
 /** Publishes synchronously, then joins every accepted health write before returning to its host. */

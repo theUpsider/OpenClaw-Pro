@@ -655,6 +655,13 @@ export interface OpenAICompletionsCompat {
   supportedReasoningEfforts?: string[];
   /** Per-level reasoning effort overrides, e.g. map "off" to "low" for models that cannot disable thinking. */
   reasoningEffortMap?: Record<string, string>;
+  /**
+   * Per-level numeric reasoning effort replacements for endpoints that accept a JSON number in
+   * `chat_template_kwargs.reasoning_effort`. When non-empty, the numbers become the route's only
+   * effort mapping (a level without an entry sends no effort) and the wire shape moves to
+   * `chat_template_kwargs`.
+   */
+  numericReasoningEfforts?: Record<string, number>;
   /** Whether the provider supports `stream_options: { include_usage: true }` for token usage in streaming responses. Default: true. */
   supportsUsageInStreaming?: boolean;
   /** Which field to use for max tokens. Default: auto-detected from URL. */

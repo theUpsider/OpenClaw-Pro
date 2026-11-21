@@ -1,3 +1,4 @@
+import { SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { ReplyPayload } from "../types.js";
 import { withAgentTurnCompletion } from "./agent-runner-completion.js";
 import { accountAgentTurn } from "./agent-runner-result-accounting.js";
@@ -68,6 +69,7 @@ export async function finalizeReplyAgentRun(
       };
     },
   );
+  let goalNotice: string | undefined;
   if (
     !context.isHeartbeat &&
     context.sessionKey &&
@@ -88,7 +90,20 @@ export async function finalizeReplyAgentRun(
       sourceRunId: context.runId,
       operation: context.replyOperation,
       runFollowup: context.runFollowupTurn,
+      onNotice: (text) => {
+        goalNotice = text;
+      },
     });
   }
-  return context.returnWithQueuedFollowupDrain(result);
+  // A stopped verification loop reports itself once, visibly (opt-in paths only).
+  if (!goalNotice) {
+    return context.returnWithQueuedFollowupDrain(result);
+  }
+  const notice: ReplyPayload = { text: goalNotice };
+  const withNotice = Array.isArray(result)
+    ? [...result, notice]
+    : result === undefined || result.text === SILENT_REPLY_TOKEN
+      ? notice
+      : [result, notice];
+  return context.returnWithQueuedFollowupDrain(withNotice);
 }

@@ -861,7 +861,7 @@ describe("WhatsAppConnectionController", () => {
     expect(connectionOwnerMocks.release).not.toHaveBeenCalled();
   });
 
-  it("retains connection ownership until queued credentials drain", async () => {
+  it("releases connection ownership after a bounded credential drain even though teardown throws", async () => {
     let closed = false;
     const sock = {
       end: vi.fn(async () => {
@@ -887,7 +887,9 @@ describe("WhatsAppConnectionController", () => {
     });
 
     await expect(controller.shutdown()).rejects.toThrow("credential persistence did not drain");
-    expect(connectionOwnerMocks.release).not.toHaveBeenCalled();
+    // The socket is confirmed closed, so the process-local owner must be reclaimed; a
+    // successor run (e.g. the supervisor auto-restart) must not be refused.
+    expect(connectionOwnerMocks.release).toHaveBeenCalledOnce();
     expect(sock.end).toHaveBeenCalledOnce();
     expect(controller.getActiveListener()).toBeNull();
     expect(controller.getCurrentSock()).toBeNull();

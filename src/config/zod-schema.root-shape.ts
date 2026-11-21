@@ -607,6 +607,30 @@ export const OpenClawSchemaShape = {
       z.string(),
       z.strictObject({
         silentReply: SilentReplyPolicyConfigSchema.optional(),
+        /** Opt-in: ask the decision model whether a group reply is needed before running the turn. */
+        replyGate: z
+          .strictObject({
+            enabled: z.boolean().optional(),
+            threshold: z.number().min(0).max(1).optional(),
+            /**
+             * Systems and jobs the assistant itself operates, as plain phrases. When set, the
+             * `needs_action` rubric additionally treats a report about one of them as an owed
+             * action, and the decision call carries rubric version 3 instead of 2. Unset keeps the
+             * shipped behaviour unchanged.
+             */
+            remit: z.array(z.string()).optional(),
+            /**
+             * Stage 2, independent of `enabled`: skip the whole turn when the model judges both
+             * that no visible reply and no action are needed. Default off.
+             */
+            skipTurn: z
+              .strictObject({
+                enabled: z.boolean().optional(),
+                actionThreshold: z.number().min(0).max(1).optional(),
+              })
+              .optional(),
+          })
+          .optional(),
       }),
     )
     .optional(),

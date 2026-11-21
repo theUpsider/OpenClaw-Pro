@@ -5,7 +5,10 @@ import type { TranslationMap } from "./types.ts";
 
 type LocaleTranslationLoader = (locale: Locale) => Promise<TranslationMap | null>;
 type TranslateTestApi = {
-  createI18nManager(loadLocaleTranslation: LocaleTranslationLoader): typeof i18n;
+  createI18nManager(
+    loadLocaleTranslation: LocaleTranslationLoader,
+    loadLocaleConfigHints?: LocaleTranslationLoader,
+  ): typeof i18n;
 };
 
 function getTestApi(): TranslateTestApi {
@@ -20,8 +23,9 @@ function getTestApi(): TranslateTestApi {
 
 export function createI18nManagerForTesting(
   loadLocaleTranslation: LocaleTranslationLoader,
+  loadLocaleConfigHints?: LocaleTranslationLoader,
 ): typeof i18n {
-  return getTestApi().createI18nManager(loadLocaleTranslation);
+  return getTestApi().createI18nManager(loadLocaleTranslation, loadLocaleConfigHints);
 }
 
 /** Restores locale, preference, and document attributes after a shared-worker test. */

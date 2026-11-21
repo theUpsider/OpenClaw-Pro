@@ -510,8 +510,10 @@ describe.skipIf(!connection)("database port command PostgreSQL conformance", () 
             readBigInts: true,
           });
           migrationTime = db
-            .prepare("SELECT applied_at FROM workboard_schema_migrations WHERE id = 'schema-3'")
-            .get()?.applied_at;
+            // The owner records the migration under its own current version, so the
+            // pin follows the descriptor instead of a hard-coded number.
+            .prepare("SELECT applied_at FROM workboard_schema_migrations WHERE id = ?")
+            .get(`schema-${metadata.version}`)?.applied_at;
         }
         return result;
       });
@@ -525,7 +527,7 @@ describe.skipIf(!connection)("database port command PostgreSQL conformance", () 
       expect(
         (
           await client.query(
-            `SELECT applied_at FROM "${engine.namespace}".workboard_schema_migrations WHERE id = 'schema-3'`,
+            `SELECT applied_at FROM "${engine.namespace}".workboard_schema_migrations WHERE id = 'schema-${metadata.version}'`,
           )
         ).rows,
       ).toEqual([{ applied_at: String(migrationTime) }]);

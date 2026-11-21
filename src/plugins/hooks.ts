@@ -28,6 +28,7 @@ import {
   type InputGateDecision,
   isHookDecision,
 } from "./hook-decision-types.js";
+import { HookFailureClosedError, resolveHookFailurePolicy } from "./hook-failure-policy.js";
 import { cloneHookIsolationValue, HookIsolationError } from "./hook-isolation.js";
 import type { GlobalHookRunnerRegistry, HookRunnerRegistry } from "./hook-registry.types.js";
 import { acceptPluginReplyPayload, toPluginReplyPayload } from "./hook-reply-payload.js";
@@ -263,8 +264,41 @@ export function createHookRunner(
   const runtimeDecisionScopeId = randomUUID();
   let runtimeDecisionOrdinal = 0;
 
-  const shouldCatchHookErrors = (hookName: PluginHookName): boolean =>
-    catchErrors && (failurePolicyByHook[hookName] ?? "fail-open") === "fail-open";
+  // The registrar folds operator config into hook.failurePolicy and leaves it
+  // unset when nothing is configured, so the Gateway default still applies.
+  const isFailClosed = (
+    hookName: PluginHookName,
+    hook?: { failurePolicy?: HookFailurePolicy },
+  ): boolean =>
+    resolveHookFailurePolicy({
+      hookName,
+      registrationPolicy: hook?.failurePolicy,
+      defaultPolicy: failurePolicyByHook[hookName],
+    }) === "fail-closed";
+
+  const shouldCatchHookErrors = (
+    hookName: PluginHookName,
+    hook?: { failurePolicy?: HookFailurePolicy },
+  ): boolean => catchErrors && !isFailClosed(hookName, hook);
+
+  // Fail-closed registrations surface a typed error so guarded callers can deny
+  // the operation instead of letting the unguarded payload through. Strict mode
+  // (catchErrors: false) rethrows fail-open errors as plain errors.
+  const toUncaughtHookError = (
+    hookName: PluginHookName,
+    hook: { pluginId: string; failurePolicy?: HookFailurePolicy },
+    msg: string,
+    cause: unknown,
+  ): Error => {
+    if (!isFailClosed(hookName, hook)) {
+      return new Error(msg, { cause });
+    }
+    if (catchErrors) {
+      // The caller turns this into a denial; keep the failure visible to operators.
+      logger?.error(`${msg} (failing closed)`);
+    }
+    return new HookFailureClosedError({ hookName, pluginId: hook.pluginId, message: msg, cause });
+  };
 
   const recordBeforeToolCallDecision = (params: {
     event: PluginHookBeforeToolCallEvent;
@@ -498,13 +532,15 @@ export function createHookRunner(
     hookName: PluginHookName;
     pluginId: string;
     error: unknown;
+    /** Registration-level override; resolved before the Gateway default. */
+    failurePolicy?: HookFailurePolicy;
   }): never | void => {
     const msg = `[hooks] ${params.hookName} handler from ${params.pluginId} failed: ${formatHookErrorForLog(params.error)}`;
-    if (shouldCatchHookErrors(params.hookName)) {
+    if (shouldCatchHookErrors(params.hookName, params)) {
       logger?.error(msg);
       return;
     }
-    throw new Error(msg, { cause: params.error });
+    throw toUncaughtHookError(params.hookName, params, msg, params.error);
   };
 
   const sanitizeHookError = (error: unknown): string => {
@@ -543,8 +579,13 @@ export function createHookRunner(
         const msg =
           `[hooks] ${hookName} handler from ${hook.pluginId} returned a Promise; ` +
           `this hook is synchronous and the result was ignored.`;
-        if (!shouldCatchHookErrors(hookName)) {
-          throw new Error(msg);
+        if (!shouldCatchHookErrors(hookName, hook)) {
+          throw toUncaughtHookError(
+            hookName,
+            hook,
+            msg,
+            new Error("synchronous hook handler returned a Promise"),
+          );
         }
         logger?.warn?.(msg);
         return undefined;
@@ -566,11 +607,14 @@ export function createHookRunner(
       return { message: nextMessage };
     } catch (err) {
       const msg = `[hooks] ${hookName} handler from ${hook.pluginId} failed: ${String(err)}`;
-      if (shouldCatchHookErrors(hookName)) {
+      if (shouldCatchHookErrors(hookName, hook)) {
         logger?.error(msg);
         return undefined;
       }
-      throw new Error(msg, { cause: err });
+      if (err instanceof HookFailureClosedError) {
+        throw err;
+      }
+      throw toUncaughtHookError(hookName, hook, msg, err);
     }
   };
 
@@ -631,7 +675,12 @@ export function createHookRunner(
           unref: optionsValue.unrefTimeout ?? true,
         });
       } catch (err) {
-        handleHookError({ hookName, pluginId: hook.pluginId, error: err });
+        handleHookError({
+          hookName,
+          pluginId: hook.pluginId,
+          error: err,
+          failurePolicy: hook.failurePolicy,
+        });
       } finally {
         projected?.dispose();
       }
@@ -757,12 +806,18 @@ export function createHookRunner(
           }
         }
       } catch (err) {
-        const failOpen = !(err instanceof HookIsolationError) && shouldCatchHookErrors(hookName);
+        const failOpen =
+          !(err instanceof HookIsolationError) && shouldCatchHookErrors(hookName, hook);
         policy.onHandlerError?.(hook, failOpen);
         if (err instanceof HookIsolationError) {
           throw err;
         }
-        handleHookError({ hookName, pluginId: hook.pluginId, error: err });
+        handleHookError({
+          hookName,
+          pluginId: hook.pluginId,
+          error: err,
+          failurePolicy: hook.failurePolicy,
+        });
       }
       policy.assertHandlerBoundaryActive?.();
       readClaimingHookAdmission(ctx)?.assertCurrent?.();
@@ -827,7 +882,12 @@ export function createHookRunner(
         handlerResult = runHandler ? await runHandler(invokeHandler) : await invokeHandler();
       } catch (err) {
         firstError ??= sanitizeHookError(err);
-        handleHookError({ hookName, pluginId: hook.pluginId, error: err });
+        handleHookError({
+          hookName,
+          pluginId: hook.pluginId,
+          error: err,
+          failurePolicy: hook.failurePolicy,
+        });
       }
       admission?.assertCurrent?.();
       if (handlerResult?.handled) {

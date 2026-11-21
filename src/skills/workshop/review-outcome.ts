@@ -1,5 +1,7 @@
 import type { EmbeddedAgentRunResult } from "../../agents/embedded-agent-runner/types.js";
 import { getReplyPayloadMetadata } from "../../auto-reply/reply-payload.js";
+import { normalizeChatType, type ChatType } from "../../channels/chat-type.js";
+import { getLoadedChannelPluginForRead } from "../../channels/plugins/registry-loaded.js";
 import { extractDeliveryInfo } from "../../config/sessions/delivery-info.js";
 import type { SessionDeliveryGeneration } from "../../config/sessions/session-delivery-generation.types.js";
 import { withSessionEntriesFromStoresInWorker } from "../../config/sessions/session-entry-read-runtime.js";
@@ -9,6 +11,7 @@ import { resolveSystemEventQueueKey } from "../../infra/system-event-ownership.j
 import { enqueueSystemEvent } from "../../infra/system-events.js";
 import type { MessagePresentation } from "../../interactive/payload.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { deriveSessionChatTypeFromKey } from "../../sessions/session-chat-type-shared.js";
 import type {
   SkillWorkshopChangeNoticeSkill,
   SkillWorkshopNoticeAction,
@@ -110,10 +113,35 @@ function formatWorkshopChangeNotice(
 }
 
 /**
+ * The notice names the owner's skills and procedures, so it may only reach a 1:1 chat. The
+ * session's recorded chat type wins over its key, and the key over the channel's reading of the
+ * target; a shape none of them establishes counts as shared.
+ */
+function resolveNoticeChatType(params: {
+  storedChatType?: string;
+  sessionKey: string;
+  channel: string;
+  to: string;
+}): ChatType | undefined {
+  const stored = normalizeChatType(params.storedChatType);
+  if (stored) {
+    return stored;
+  }
+  const fromKey = deriveSessionChatTypeFromKey(params.sessionKey);
+  if (fromKey !== "unknown") {
+    return fromKey;
+  }
+  return getLoadedChannelPluginForRead(params.channel)?.messaging?.inferTargetChatType?.({
+    to: params.to,
+  });
+}
+
+/**
  * Opted-in, supported channels get a durable send mirrored into the session transcript as
- * plain text. All other sessions get a marked transcript entry the Control UI renders as the
- * Learned row. The next foreground turn also gets a system event naming the exact revert call,
- * because an assistant line the model did not write is weak evidence that "undo" means it.
+ * plain text, but only in a direct chat whose reviewed turn came from the owner. All other
+ * sessions get a marked transcript entry the Control UI renders as the Learned row. The next
+ * foreground turn also gets a system event naming the exact revert call, because an assistant
+ * line the model did not write is weak evidence that "undo" means it.
  * A conversation reset or replaced since the review started gets none of it.
  */
 export async function postWorkshopChangeNotice(params: {
@@ -122,6 +150,8 @@ export async function postWorkshopChangeNotice(params: {
   generation: SessionDeliveryGeneration;
   runId: string;
   changes: readonly WorkshopChange[];
+  /** Whether the reviewed turn's sender was the owner; anyone else never sees the notice. */
+  senderIsOwner: boolean;
 }): Promise<void> {
   if (params.changes.length === 0) {
     return;
@@ -155,23 +185,25 @@ export async function postWorkshopChangeNotice(params: {
       enqueueSystemEvent(formatted.undoContext, {
         sessionKey: resolveSystemEventQueueKey(sessionKey, agentId),
       });
-      return formatted;
+      return { ...formatted, storedChatType: current.chatType };
     },
     { ordered: true },
   );
   if (!notice) {
     return;
   }
-  const { text, presentation, marker } = notice;
+  const { text, presentation, marker, storedChatType } = notice;
   const idempotencyKey = `skill-workshop-notice:${params.runId}`;
   try {
     // Slack never gets a channel message (owner decision).
     if (
+      params.senderIsOwner &&
       resolveSkillWorkshopConfig(params.config).autonomous.channelNotices &&
       channel &&
       channel !== "slack" &&
       isDeliverableMessageChannel(channel) &&
-      target?.to
+      target?.to &&
+      resolveNoticeChatType({ storedChatType, sessionKey, channel, to: target.to }) === "direct"
     ) {
       // Delivery and transcript runtimes stay lazy: most reviews change nothing.
       const { sendDurableMessageBatchCore } = await import("../../channels/message/runtime.js");

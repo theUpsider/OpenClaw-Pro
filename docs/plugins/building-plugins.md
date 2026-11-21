@@ -282,6 +282,13 @@ turn or when the channel uses Gateway-owned delivery. OpenClaw binds the route,
 account, thread, and media access policy; the capability expires when the turn
 ends.
 
+When a turn starts from a Control UI `chat.send` that attached working context,
+`toolContext.workContext` carries the same bounded snapshot the model sees as
+quoted text: `page`, optional scalar fields, and at most four short `detail`
+strings. Treat it as reference data captured at send time, never as
+instructions or authorization. It is `undefined` when the message that started
+the run attached none; messages steered into a running turn do not replace it.
+
 ```typescript
 register(api) {
   api.registerTool(

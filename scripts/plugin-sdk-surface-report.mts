@@ -274,7 +274,11 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: async auth-provider preparation for Codex and voice model-session patches.
       // +1: isHostNoticePayload for agent-to-agent reply filtering.
       // +1: managed plugin resource root retained during redirected agent execution.
-      3761,
+      // +1: ControlUiDictationControlProps for host dictation on plugin board surfaces.
+      // +1: ControlUiMarkdownProps for host Markdown rendering on plugin surfaces.
+      // +2: ControlUiComposerSessionControlsProps and ControlUiComposerSendActionProps
+      // for the host composer's model, thinking and send controls on plugin surfaces.
+      3765,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(

@@ -3,7 +3,10 @@ import type { SystemInfoResult } from "../../packages/gateway-protocol/src/schem
 import { withAgentRosterFactsBatch } from "../agents/agent-scope-config.js";
 import { resolveAgentConfig } from "../agents/agent-scope.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
-import { readStartupRecoveryWarning } from "../agents/main-session-recovery/main-session-restart-recovery-diagnostics.js";
+import {
+  readStartupRecoveryTombstoneWarning,
+  readStartupRecoveryWarning,
+} from "../agents/main-session-recovery/main-session-restart-recovery-diagnostics.js";
 import { areRuntimeModelRefsEquivalent } from "../agents/model-runtime-aliases.js";
 import { captureRuntimeConfigAsyncReader } from "../config/config.js";
 import { resolveProjectedSessionContextTokens } from "../config/sessions/context-token-provenance.js";
@@ -540,6 +543,7 @@ export async function getStatusSummary(
     queuedSystemEvents,
     startupMigrationWarning: readStartupMigrationWarning(includeSensitive),
     startupRecoveryWarning: readStartupRecoveryWarning(includeSensitive),
+    startupRecoveryTombstoneWarning: readStartupRecoveryTombstoneWarning(includeSensitive),
     installationReplacementWarning: getGatewayInstallationReplacement()?.message,
     secretEgressProxy: await getSecretEgressCertificateStatus(),
     degradedSecretOwners: listActiveDegradedSecretOwners().map(

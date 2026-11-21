@@ -33,6 +33,7 @@ type PersistedSessionCapabilityEntry = Pick<
   | "spawnDepth"
   | "subagentRole"
   | "subagentControlScope"
+  | "subagentMessageToolEnabled"
   | "spawnedBy"
   | "completionOwnerSessionKey"
   | "inheritedToolPolicyVersion"

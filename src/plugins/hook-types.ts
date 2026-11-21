@@ -21,6 +21,7 @@ import type {
 } from "./hook-before-agent-start.types.js";
 import type { PluginHookBeforeToolCallResult } from "./hook-before-tool-call-result.js";
 import type { InputGateDecision } from "./hook-decision-types.js";
+import type { HookFailurePolicy } from "./hook-failure-policy.js";
 import type {
   PluginHookCronChangedEvent,
   PluginHookCronReconciledContext,
@@ -189,6 +190,12 @@ export type PluginHookRegistrationOptions<K extends PluginHookName> = {
   priority?: number;
   registrationId?: string;
   timeoutMs?: number;
+  /**
+   * Failure policy for this handler when it throws or times out. Overrides the
+   * plugin-level and Gateway defaults. Use "fail-closed" for guards that must
+   * deny the operation instead of silently letting it through.
+   */
+  failurePolicy?: HookFailurePolicy;
 } & (K extends "before_agent_reply"
   ? {
       /** Host-enforced turn triggers that may invoke this reply hook. */
@@ -962,6 +969,8 @@ export type PluginHookRegistration<K extends PluginHookName = PluginHookName> = 
   eligibleTriggers?: readonly PluginHookAgentTrigger[];
   eligibleDispatchKinds?: readonly PluginHookReplyDispatchKind[];
   requiresToolAuthority?: true;
+  /** Per-handler failure policy; see PluginHookRegistrationOptions.failurePolicy. */
+  failurePolicy?: HookFailurePolicy;
   /** Host-resolved transcript authority. Never infer this again from plugin identity. */
   conversationAccessAllowed?: true;
   source: string;

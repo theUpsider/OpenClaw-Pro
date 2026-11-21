@@ -508,6 +508,8 @@ export const buildTelegramMessageContext = async ({
             },
           },
           initialEmoji: ackReaction,
+          presentation: "quiet",
+          // Quiet ignores activity emojis; done/error still map through the Telegram variants.
           emojis: resolvedStatusReactionEmojis,
           onError: (err) => {
             logVerbose(`telegram status-reaction error for chat ${chatId}: ${String(err)}`);

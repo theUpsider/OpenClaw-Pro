@@ -2,13 +2,20 @@
 import { asDateTimestampMs } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { createMemo, For } from "solid-js";
 import { icons } from "../../components/icons.tsx";
+import { workboardHost } from "../../host.ts";
 import { t } from "../../i18n/index.ts";
+import { workboardCardBoardId } from "../../lib/workboard/board-filter.ts";
 import { getCardAlerts, visibleCardAlerts } from "../../lib/workboard/card-alerts.ts";
+import {
+  boardClassifications,
+  resolveCardClassification,
+} from "../../lib/workboard/classification.ts";
 import {
   getWorkboardDependencyState,
   getWorkboardLifecycle,
   type WorkboardCard,
 } from "../../lib/workboard/index.ts";
+import { needsOperatorAttention } from "../../lib/workboard/operator-attention.ts";
 import {
   getCardActionState,
   CardAction,
@@ -17,12 +24,16 @@ import {
   StartExecutionButton,
 } from "./view-card-actions.tsx";
 import {
+  CardAcceptanceMarker,
+  CardNeedsYouMarker,
   CardAlertView,
   CardUpdatedTime,
   CardPriority,
   CardMeta,
   CardCounts,
   CardSession,
+  CardClassificationAnnouncement,
+  CardLabelChip,
 } from "./view-card-content.tsx";
 import { openCardDetails, workboardCardDetailDrawerId } from "./view-card-details.tsx";
 import type { WorkboardProps } from "./view-helpers.tsx";
@@ -34,16 +45,27 @@ function isCardActionTarget(event: Event): boolean {
     : false;
 }
 export type WorkboardCardSurface = "page" | "widget" | "list";
+/**
+ * What the card shows beside its face in the "Needs you" lens. `full` keeps every element (the
+ * board, list, widget and detail surfaces); `reduced` drops what the face already carries, so the
+ * two do not compete for attention: the counts row and the "updated N ago" line are redundant with
+ * the face's evidence line and time-in-status, the label chips stop at three, and the alert banner
+ * moves into the face's strip instead of standing beside it.
+ */
+export type WorkboardCardDetail = "full" | "reduced";
 export function WorkboardCardView(input: {
   workboard: WorkboardProps;
   card: WorkboardCard;
   surface: WorkboardCardSurface;
+  detail?: WorkboardCardDetail;
 }) {
   const action = createMemo(() => {
     void input.workboard.revision;
     return getCardActionState(input.workboard, input.card);
   });
   const widget = createMemo(() => input.surface === "widget");
+  // Beside a face the card is context, not the reading surface, so its duplicate facts drop out.
+  const reduced = createMemo(() => input.detail === "reduced");
   const dependencies = createMemo(() =>
     getWorkboardDependencyState(input.card, action().state.cards),
   );
@@ -54,6 +76,15 @@ export function WorkboardCardView(input: {
     void input.workboard.revision;
     return Date.now();
   });
+  // Read the resolver while the host is active: card updates can still land after disposal.
+  const resolveColor = workboardHost().components.resolveAppearanceColor;
+  const classification = createMemo(() =>
+    resolveCardClassification(
+      input.card.labels,
+      boardClassifications(action().state.boards, workboardCardBoardId(input.card)),
+      resolveColor,
+    ),
+  );
   const updatedAt = createMemo(() => asDateTimestampMs(input.card.updatedAt));
   const sessionStatus = createMemo(() => getSessionStatus(input.card, lifecycle(), now()));
   const alerts = createMemo(() =>
@@ -101,7 +132,8 @@ export function WorkboardCardView(input: {
   };
   const ActionsMenu = () => (
     <>
-      {!widget() && (action().writable || action().linkedSessionKey) ? (
+      {!widget() &&
+      (action().writable || action().linkedSessionKey || action().interactionTarget) ? (
         <div class="workboard-card__action-menu">
           <button
             type="button"
@@ -141,6 +173,7 @@ export function WorkboardCardView(input: {
             </div>
             {action().showStartControls ||
             action().sessionTarget ||
+            action().interactionTarget ||
             (action().writable && action().linkedSessionKey && action().live) ? (
               <div class="workboard-card__menu-group">
                 {action().showStartControls ? (
@@ -153,7 +186,7 @@ export function WorkboardCardView(input: {
                 ) : null}{" "}
                 <OpenSessionCardAction
                   workboard={input.workboard}
-                  session={action().sessionTarget}
+                  session={action().sessionTarget ?? action().interactionTarget}
                 />{" "}
                 {action().writable && action().linkedSessionKey && action().live ? (
                   <CardAction
@@ -210,20 +243,19 @@ export function WorkboardCardView(input: {
               </h3>
               {input.card.labels.length ? (
                 <div class="workboard-card__labels">
-                  <For each={input.card.labels.slice(0, 1)} keyed={(label) => label}>
+                  <CardClassificationAnnouncement classification={classification()} />
+                  <For each={classification().orderedLabels.slice(0, 1)} keyed={(label) => label}>
                     {(label) => (
-                      <span class="workboard-chip workboard-truncate" title={label()}>
-                        {label()}
-                      </span>
+                      <CardLabelChip label={label()} color={classification().colors.get(label())} />
                     )}
                   </For>
                   {input.card.labels.length > 1 ? (
                     <span
                       class="workboard-chip"
-                      title={input.card.labels.slice(1).join(", ")}
+                      title={classification().orderedLabels.slice(1).join(", ")}
                       aria-label={t("workboard.cardMoreLabels", {
                         count: String(input.card.labels.length - 1),
-                        labels: input.card.labels.slice(1).join(", "),
+                        labels: classification().orderedLabels.slice(1).join(", "),
                       })}
                     >
                       +{input.card.labels.length - 1}
@@ -234,6 +266,8 @@ export function WorkboardCardView(input: {
               {action().archived ? (
                 <span class="workboard-card__archived">{t("workboard.archived")}</span>
               ) : null}
+              <CardNeedsYouMarker card={input.card} />
+              <CardAcceptanceMarker card={input.card} />
             </div>
             <div class="workboard-list-row__context">
               {alerts().length ? (
@@ -241,7 +275,7 @@ export function WorkboardCardView(input: {
                   <CardAlertView alerts={alerts()} descriptionId={alertDescriptionId()} />
                 </div>
               ) : null}
-              <CardCounts card={input.card} />
+              {reduced() ? null : <CardCounts card={input.card} />}
             </div>
           </div>
           <div class="workboard-list-row__session">
@@ -253,7 +287,7 @@ export function WorkboardCardView(input: {
             />
           </div>
           <div class="workboard-list-row__updated">
-            <CardUpdatedTime updatedAt={updatedAt()} now={now()} />
+            {reduced() ? null : <CardUpdatedTime updatedAt={updatedAt()} now={now()} />}
           </div>
           <div class="workboard-list-row__actions">
             <ActionsMenu />
@@ -273,11 +307,18 @@ export function WorkboardCardView(input: {
         action().state.draggedCardId === input.card.id ? "workboard-card--dragging" : "",
         selected() ? "workboard-card--selected" : "",
         widget() ? "workboard-card--widget" : "workboard-card--openable",
+        classification().primary ? "workboard-card--classified" : "",
+        needsOperatorAttention(input.card) ? "workboard-card--needs-you" : "",
       ]}
+      style={
+        classification().primary
+          ? { "--workboard-card-accent": classification().primary?.color }
+          : undefined
+      }
       role={widget() ? undefined : "button"}
       tabindex={widget() ? undefined : "0"}
       aria-pressed={selectionMode() ? (selected() ? "true" : "false") : undefined}
-      aria-describedby={alerts().length ? alertDescriptionId() : undefined}
+      aria-describedby={alerts().length && !reduced() ? alertDescriptionId() : undefined}
       aria-keyshortcuts={selectable() ? "Shift+Enter Shift+Space" : undefined}
       title={
         widget() || !selectionMode()
@@ -371,12 +412,19 @@ export function WorkboardCardView(input: {
             lifecycle={lifecycle()}
             status={sessionStatus()}
           />
-          <CardMeta card={input.card} archived={action().archived} />{" "}
-          <CardAlertView alerts={alerts()} descriptionId={alertDescriptionId()} />
-          <CardCounts card={input.card} />
+          <CardMeta
+            card={input.card}
+            archived={action().archived}
+            classification={classification()}
+            {...(reduced() ? { maxLabels: 3 } : {})}
+          />{" "}
+          {reduced() ? null : (
+            <CardAlertView alerts={alerts()} descriptionId={alertDescriptionId()} />
+          )}
+          {reduced() ? null : <CardCounts card={input.card} />}
           <footer class="workboard-card__footer">
             <CardPriority card={input.card} />{" "}
-            <CardUpdatedTime updatedAt={updatedAt()} now={now()} />
+            {reduced() ? null : <CardUpdatedTime updatedAt={updatedAt()} now={now()} />}
           </footer>
           {widget() ? (
             <div class="workboard-card__actions workboard-card__actions--widget">

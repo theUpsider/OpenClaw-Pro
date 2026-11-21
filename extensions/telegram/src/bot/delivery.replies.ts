@@ -678,24 +678,36 @@ async function deliverReplyPlan(
       replyQuoteEntities: params.replyQuoteEntities,
     });
     if (hasMessageSendingHooks) {
-      const hookResult = await hookRunner?.runMessageSending(
-        {
-          to: params.chatId,
-          content: hookContent,
-          replyToId,
-          threadId: params.thread?.id,
-          metadata: {
-            channel: "telegram",
-            mediaUrls: mediaList,
+      let hookResult: Awaited<ReturnType<NonNullable<typeof hookRunner>["runMessageSending"]>>;
+      try {
+        hookResult = await hookRunner?.runMessageSending(
+          {
+            to: params.chatId,
+            content: hookContent,
+            replyToId,
             threadId: params.thread?.id,
+            metadata: {
+              channel: "telegram",
+              mediaUrls: mediaList,
+              threadId: params.thread?.id,
+            },
           },
-        },
-        {
-          channelId: "telegram",
-          accountId: params.accountId,
-          conversationId: params.chatId,
-        },
-      );
+          {
+            channelId: "telegram",
+            accountId: params.accountId,
+            conversationId: params.chatId,
+          },
+        );
+      } catch (error) {
+        // Intentionally broad: HookFailureClosedError is not part of the plugin SDK,
+        // so this catch cannot narrow to it. The runner swallows fail-open handler
+        // errors, so an escaping error is a fail-closed guard denial or a host
+        // failure; both fail closed for this reply while the rest of the batch sends.
+        params.runtime.error?.(
+          danger(`telegram reply suppressed by message_sending hook: ${formatErrorMessage(error)}`),
+        );
+        continue;
+      }
       if (hookResult?.cancel) {
         continue;
       }

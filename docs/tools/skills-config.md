@@ -375,10 +375,12 @@ different visible skill set per agent.
 </ParamField>
 
 <ParamField path="skills.workshop.autonomous.channelNotices" type="boolean" default="false">
-  When `true`, background review notices are posted to channel conversations
-  (except Slack) with an **Undo** button; the Control UI shows that message as
-  plain text. When `false`, they appear only as the **Learned** row in the
-  Control UI chat. Saying "undo" works either way.
+  When `true`, background review notices are posted with an **Undo** button
+  into direct chats whose reviewed turn came from the owner; the Control UI
+  shows that message as plain text. Slack, group and channel conversations,
+  other senders, and chats whose type cannot be established never get one.
+  When `false`, and in every excluded case, notices appear only as the
+  **Learned** row in the Control UI chat. Saying "undo" works either way.
 </ParamField>
 
 See [Self-learning](/tools/self-learning) for eligibility, privacy, cost,

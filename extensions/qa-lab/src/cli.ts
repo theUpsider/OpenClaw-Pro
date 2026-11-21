@@ -277,7 +277,7 @@ export function registerQaLabCli(program: Command) {
     .option("--fast", "Enable provider fast mode where supported")
     .option(
       "--thinking <level>",
-      "Suite thinking default: off|minimal|low|medium|high|xhigh|adaptive|max",
+      "Suite thinking default: off|minimal|low|medium|high|xhigh|adaptive|max|ultra",
     )
     .option("--image <alias>", "Multipass image alias")
     .option("--cpus <count>", "Multipass vCPU count", (value: string) =>
@@ -429,7 +429,7 @@ export function registerQaLabCli(program: Command) {
     .option("--fast", "Enable provider fast mode for all candidate runs")
     .option(
       "--thinking <level>",
-      "Candidate thinking default: off|minimal|low|medium|high|xhigh|adaptive|max",
+      "Candidate thinking default: off|minimal|low|medium|high|xhigh|adaptive|max|ultra",
     )
     .option(
       "--model-thinking <ref=level>",

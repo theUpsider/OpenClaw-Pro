@@ -4,6 +4,7 @@ import type { AnyAgentTool } from "./agent-tools.types.js";
 import type { ApplyPatchContainmentSource } from "./apply-patch-containment-hint.js";
 import { resolveImageSanitizationLimits } from "./image-sanitization.js";
 import { resolveExecToolConfig } from "./lazy-exec-tool.js";
+import { resolvePathScopePolicy } from "./path-scope-policy.js";
 import { resolveSessionPermissionCoreToolPolicy } from "./session-permission-exec-mode.js";
 import { resolveToolFsConfig } from "./tool-fs-policy.js";
 
@@ -42,9 +43,23 @@ export function prepareCoreToolPolicy(
     : sessionPolicy
       ? "session"
       : "config";
+  /** Resolved once here, because this owner already holds the effective model ref. */
+  const pathScopePolicy = resolvePathScopePolicy({
+    cfg: options.config,
+    agentId: options.agentId,
+    modelProvider: options.modelProvider,
+    modelId: options.modelId,
+  });
   return {
     workspaceOnly,
     readOnly,
+    /**
+     * Per-model path visibility rules, present only when this model has any. The key must be absent
+     * rather than empty or undefined: the worker surface schema is a closed object, so a stray key
+     * fails its check and breaks every worker turn, and an entry-less policy would still change the
+     * run's shape.
+     */
+    ...(pathScopePolicy && pathScopePolicy.entries.length > 0 ? { pathScopePolicy } : {}),
     applyPatchEnabled:
       !readOnly &&
       patch?.enabled !== false &&

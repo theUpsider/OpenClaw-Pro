@@ -117,6 +117,13 @@ interface ReadOperations {
   resolveQueueKey?: (absolutePath: string, signal?: AbortSignal) => string | Promise<string>;
   /** Resolve a user-supplied path for this read backend. */
   resolvePath?: (filePath: string, cwd: string) => string | Promise<string>;
+  /**
+   * Refuse a resolved path before it is opened.
+   *
+   * Runs on the file this backend actually resolved, not on the raw argument, so a spelling that the
+   * variant search rewrites (typographic quotes, Unicode spaces) cannot slip past a caller's guard.
+   */
+  assertAdmissible?: (absolutePath: string) => void;
   /** Decode text bytes for this backend. Custom backends default to UTF-8. */
   decodeText?: (params: { buffer: Buffer; absolutePath: string }) => string;
   readFile: (absolutePath: string, signal?: AbortSignal) => Promise<Buffer>;
@@ -147,6 +154,13 @@ export interface ReadToolOptions {
   modelBudget?: ToolResultBudget;
   /** Prepared capability for embedded calls, which carry no extension model context. */
   modelHasVision?: boolean;
+  /**
+   * Refuse a resolved path before it is opened.
+   *
+   * Supplied by the caller that owns the admission rule; it runs on the file this tool resolved, so
+   * the variant search and the suggestion list cannot route around it.
+   */
+  assertAdmissible?: (absolutePath: string) => void;
 }
 
 type ReadRenderArgs = {
@@ -241,12 +255,26 @@ async function resolveReadToolInputPath(
   return await (ops.resolvePath?.(filePath, cwd) ?? resolveToCwd(filePath, cwd));
 }
 
+/** A suggestion is offered only when the caller's guard would allow that file. */
+function isAdmissibleSuggestion(ops: ReadOperations, candidatePath: string): boolean {
+  if (!ops.assertAdmissible) {
+    return true;
+  }
+  try {
+    ops.assertAdmissible(candidatePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function resolveReadToolPathFromAbsolute(
   ops: ReadOperations,
   absolutePath: string,
 ): Promise<{ absolutePath: string; note?: string }> {
   try {
     await ops.access(absolutePath);
+    ops.assertAdmissible?.(absolutePath);
     return { absolutePath };
   } catch (error) {
     if (!hasErrnoCode(error, "ENOENT") && !hasErrnoCode(error, "ENOTDIR")) {
@@ -273,14 +301,22 @@ async function resolveReadToolPathFromAbsolute(
     }
     const match = matches[0];
     if (match !== undefined) {
+      // The variant search rewrote the spelling; admit the file it actually resolved.
+      ops.assertAdmissible?.(match);
       return {
         absolutePath: match,
         note: `[Resolved filename: ${basename(absolutePath)} -> ${basename(match)}.]`,
       };
     }
 
-    const suggestions =
-      ops === defaultReadOperations ? await suggestLocalReadPaths(absolutePath) : [];
+    // A suggestion list is only useful for the local backend; the admission rule filters it after.
+    // The check is on the local reader, not on object identity, because a caller may wrap the default
+    // operations to add a rule and the suggestions must survive that.
+    const suggestions = (
+      ops.readFile === defaultReadOperations.readFile
+        ? await suggestLocalReadPaths(absolutePath)
+        : []
+    ).filter((candidate) => isAdmissibleSuggestion(ops, candidate));
     const suggestion = suggestions.length > 0 ? ` Did you mean: ${suggestions.join(", ")}?` : "";
     throw Object.assign(
       new Error(`File not found: ${absolutePath}.${suggestion}`, { cause: error }),
@@ -359,7 +395,14 @@ export function createReadToolDefinition(
   options?: ReadToolOptions,
 ): ToolDefinition<typeof readToolInputSchema, ReadToolDetails> {
   const autoResizeImages = options?.autoResizeImages ?? true;
-  const ops = options?.operations ?? defaultReadOperations;
+  // A supplied admission rule rides on the operations object, so the variant search and the
+  // suggestion list inside this tool consult the same single hook.
+  const ops: ReadOperations = options?.assertAdmissible
+    ? {
+        ...(options?.operations ?? defaultReadOperations),
+        assertAdmissible: options.assertAdmissible,
+      }
+    : (options?.operations ?? defaultReadOperations);
   const maxBytes = options?.maxBytes ?? DEFAULT_MAX_BYTES;
   return {
     name: "read",

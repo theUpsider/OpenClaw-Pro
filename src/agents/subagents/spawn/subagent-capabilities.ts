@@ -406,6 +406,16 @@ export function resolveStoredSubagentInheritedToolDenylist(
   );
 }
 
+/** Only a stored literal `true` from spawn grants `message`; anything else fails closed. */
+export function resolveStoredSubagentMessageToolEnabled(
+  sessionKey: string | undefined | null,
+  opts?: { cfg?: OpenClawConfig; store?: SessionCapabilityStore },
+): boolean {
+  return (
+    resolveStoredSubagentToolPolicy(sessionKey, opts)?.entry?.subagentMessageToolEnabled === true
+  );
+}
+
 export function resolveStoredSubagentInheritedToolAllowlist(
   sessionKey: string | undefined | null,
   opts?: { cfg?: OpenClawConfig; store?: SessionCapabilityStore },

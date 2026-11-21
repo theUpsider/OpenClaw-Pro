@@ -5,7 +5,9 @@ import type { OpenAIModeModel } from "./openai-transport-shared.js";
 export function applyCompletionsReasoningAndRouting(
   params: Record<string, unknown>,
   model: OpenAIModeModel,
-  reasoning: ReturnType<typeof resolveOpenAIRequestReasoning> & { thinkingExplicit: boolean },
+  reasoning: ReturnType<typeof resolveOpenAIRequestReasoning> & {
+    thinkingExplicit: boolean;
+  },
   compat: ResolvedOpenAICompletionsCompat,
   mode: "direct" | "managed",
 ): void {
@@ -19,7 +21,28 @@ export function applyCompletionsReasoningAndRouting(
       !reasoning.thinkingExplicit)
   ) {
     let allowScalarEffort = true;
-    if (direct && compat.thinkingFormat === "zai") {
+    if (Object.keys(compat.numericReasoningEfforts ?? {}).length > 0) {
+      // The route declares a numeric effort map, so its wire shape is chat_template_kwargs:
+      // `thinking` is binary and the numeric effort is the only effort field the endpoint sees.
+      allowScalarEffort = false;
+      const existing = params.chat_template_kwargs;
+      const carried =
+        existing && typeof existing === "object" && !Array.isArray(existing)
+          ? { ...(existing as Record<string, unknown>) }
+          : {};
+      // Foreign keys stay, but this contract owns the thinking controls: drop a conflicting
+      // `enable_thinking` and a stale nested effort so the numeric shape cannot contradict itself.
+      delete carried.enable_thinking;
+      delete carried.reasoning_effort;
+      params.chat_template_kwargs = {
+        ...carried,
+        thinking: enabled,
+        ...(reasoning.numericEffort !== undefined
+          ? { reasoning_effort: reasoning.numericEffort }
+          : {}),
+      };
+      delete params.reasoning_effort;
+    } else if (direct && compat.thinkingFormat === "zai") {
       params.thinking = enabled ? { type: "enabled", clear_thinking: false } : { type: "disabled" };
       allowScalarEffort = false;
     } else if (compat.thinkingFormat === "qwen") {

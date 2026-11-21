@@ -1466,9 +1466,6 @@ describe("WorkboardStore", () => {
     await expect(store.move(child.id, "done", child.position)).rejects.toThrow(/dependencies/);
     await expect(store.update(child.id, { status: "ready" })).rejects.toThrow(/dependencies/);
     await expect(store.update(child.id, { status: "done" })).rejects.toThrow(/dependencies/);
-    await expect(store.complete(child.id, { summary: "Too early." })).rejects.toThrow(
-      /dependencies/,
-    );
 
     const linked = await store.update(child.id, {
       metadata: {
@@ -1491,6 +1488,9 @@ describe("WorkboardStore", () => {
     await expect(store.claim(child.id, { ownerId: "main" })).rejects.toThrow(/dependencies/);
 
     await store.complete(parent.id, { summary: "Parent done." });
+    // A worker's completion awaits acceptance, so the child keeps waiting.
+    expect((await store.dispatch()).promoted).toEqual([]);
+    await store.update(parent.id, { status: "done" });
     const dispatch = await store.dispatch();
 
     expect(dispatch.promoted).toEqual([expect.objectContaining({ id: child.id, status: "ready" })]);
@@ -1523,24 +1523,205 @@ describe("WorkboardStore", () => {
     const parent = await store.create({ title: "Parent" });
     const child = await store.create({ title: "Child", parents: [parent.id] });
     await store.complete(parent.id, { summary: "Parent done." });
+    await store.update(parent.id, { status: "done" });
     await store.claim(child.id, { ownerId: "worker" });
     await store.releaseClaim(child.id, { ownerId: "worker", status: "review" });
 
     const reviewed = await store.claim(child.id, { ownerId: "reviewer" });
     expect(reviewed.card.status).toBe("review");
+    // A reviewer's completion of a card that is not awaiting acceptance is a first
+    // report, not acceptance - only the operator or a different owner accepts.
     await expect(
       store.complete(child.id, { summary: "Accepted.", ownerId: "reviewer" }),
-    ).resolves.toMatchObject({ status: "done" });
+    ).resolves.toMatchObject({
+      status: "review",
+      metadata: { automation: { awaitingAcceptance: true, autoCompletedBy: "reviewer" } },
+    });
+    await expect(store.update(child.id, { status: "done" })).resolves.toMatchObject({
+      status: "done",
+    });
 
     const reopened = await store.create({ title: "Reopened parent" });
     const dependent = await store.create({ title: "Dependent", parents: [reopened.id] });
     await store.complete(reopened.id, { summary: "Done." });
+    await store.update(reopened.id, { status: "done" });
     await store.claim(dependent.id, { ownerId: "worker" });
     await store.releaseClaim(dependent.id, { ownerId: "worker", status: "review" });
     await store.update(reopened.id, { status: "running" });
     await expect(store.claim(dependent.id, { ownerId: "reviewer" })).rejects.toThrow(
       "card dependencies are not done.",
     );
+  });
+
+  it("records a worker's completion in review while a parent is still open", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const parent = await store.create({ title: "Parent" });
+    const child = await store.create({ title: "Child", parents: [parent.id] });
+    await store.update(parent.id, { status: "done" });
+    await store.dispatch();
+    const { token } = await store.claim(child.id, { ownerId: "worker" });
+    await store.update(parent.id, { status: "running" });
+    const subscription = await store.subscribeNotifications({ cardId: child.id });
+
+    const completed = await store.complete(child.id, {
+      ownerId: "worker",
+      token,
+      summary: "Child finished.",
+      proof: { status: "passed", command: "pnpm test" },
+    });
+
+    expect(completed).toMatchObject({
+      status: "review",
+      metadata: {
+        comments: [expect.objectContaining({ body: "Child finished." })],
+        proof: [expect.objectContaining({ status: "passed", command: "pnpm test" })],
+        notifications: [expect.objectContaining({ kind: "completed" })],
+        automation: { awaitingAcceptance: true, autoCompletedBy: "worker" },
+      },
+    });
+    expect(await store.notificationEvents({ subscriptionId: subscription.id })).toMatchObject({
+      events: [expect.objectContaining({ kind: "completed", message: "Child finished." })],
+    });
+    // Acceptance and the reviewer's claim still wait for the parent.
+    await expect(store.update(child.id, { status: "done" })).rejects.toThrow(
+      "card dependencies are not done.",
+    );
+    await expect(store.claim(child.id, { ownerId: "reviewer" })).rejects.toThrow(
+      "card dependencies are not done.",
+    );
+
+    await store.update(parent.id, { status: "done" });
+    await store.dispatch();
+    const reviewed = await store.claim(child.id, { ownerId: "reviewer" });
+    expect(reviewed.card.status).toBe("review");
+    await expect(
+      store.complete(child.id, { ownerId: "reviewer", token: reviewed.token, summary: "Ok." }),
+    ).resolves.toMatchObject({ status: "done" });
+  });
+
+  it("lets enforced moves record review, but not starts or acceptance, while a parent is open", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const parent = await store.create({ title: "Parent", status: "running" });
+    const moved = await store.create({ title: "Moved", parents: [parent.id] });
+    const updated = await store.create({ title: "Updated", parents: [parent.id] });
+
+    await expect(store.move(moved.id, "review", moved.position)).resolves.toMatchObject({
+      status: "review",
+    });
+    await expect(store.update(updated.id, { status: "review" })).resolves.toMatchObject({
+      status: "review",
+    });
+    for (const card of [moved, updated]) {
+      for (const status of ["ready", "running", "done"] as const) {
+        await expect(store.move(card.id, status, card.position)).rejects.toThrow(
+          "card dependencies are not done.",
+        );
+        await expect(store.update(card.id, { status })).rejects.toThrow(
+          "card dependencies are not done.",
+        );
+      }
+    }
+
+    // Reopening a parent never moves a review child; its acceptance waits again.
+    await store.update(parent.id, { status: "done" });
+    await store.update(parent.id, { status: "running" });
+    await store.dispatch();
+    await expect(store.get(moved.id)).resolves.toMatchObject({ status: "review" });
+    await expect(store.get(updated.id)).resolves.toMatchObject({ status: "review" });
+    await expect(store.update(moved.id, { status: "done" })).rejects.toThrow(
+      "card dependencies are not done.",
+    );
+  });
+
+  it("keeps the schedule hold on review for parented and unparented cards", async () => {
+    vi.useFakeTimers();
+    try {
+      // Link timestamps must be positive, so the clock starts after the epoch.
+      const start = 1_000_000;
+      const scheduledAt = start + 10_000;
+      vi.setSystemTime(start);
+      const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+      const parent = await store.create({ title: "Parent", status: "running" });
+      const later = await store.create({ title: "Later", scheduledAt });
+      const dependent = await store.create({
+        title: "Dependent later",
+        parents: [parent.id],
+        scheduledAt,
+      });
+      const manual = await store.create({ title: "Manual scheduled", status: "scheduled" });
+      expect(dependent.metadata?.links).toEqual([
+        expect.objectContaining({ type: "parent", targetCardId: parent.id }),
+      ]);
+
+      vi.setSystemTime(scheduledAt - 1);
+      for (const card of [later, dependent, manual]) {
+        await expect(store.move(card.id, "review", card.position)).rejects.toThrow(
+          "card is scheduled for later.",
+        );
+      }
+      await expect(store.update(dependent.id, { status: "review" })).rejects.toThrow(
+        "card is scheduled for later.",
+      );
+
+      vi.setSystemTime(scheduledAt);
+      await expect(store.move(later.id, "review", later.position)).resolves.toMatchObject({
+        status: "review",
+      });
+      await expect(store.update(dependent.id, { status: "review" })).resolves.toMatchObject({
+        status: "review",
+      });
+      await expect(store.move(manual.id, "review", manual.position)).rejects.toThrow(
+        "card is scheduled for later.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("creates parented children in review but holds requested running children in todo", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const parent = await store.create({ title: "Parent", status: "running" });
+
+    const finished = await store.create({
+      title: "Finished",
+      status: "review",
+      parents: [parent.id],
+    });
+    const started = await store.create({
+      title: "Started",
+      status: "running",
+      parents: [parent.id],
+    });
+
+    expect(finished.status).toBe("review");
+    expect(finished.metadata?.links).toEqual([
+      expect.objectContaining({ type: "parent", targetCardId: parent.id }),
+    ]);
+    expect(started.status).toBe("todo");
+    await expect(store.claim(finished.id, { ownerId: "reviewer" })).rejects.toThrow(
+      "card dependencies are not done.",
+    );
+  });
+
+  it("still refuses parents for active review children on every link path", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const lateParent = await store.create({ title: "Late parent" });
+    const review = await store.create({ title: "Review", status: "review" });
+    await expect(store.linkCards(lateParent.id, review.id)).rejects.toThrow(/active child/);
+
+    // Decomposition links idempotent matches with allowStatusOnlyActiveChild, which
+    // still refuses a claimed review card.
+    const claimed = await store.create({
+      title: "Claimed review",
+      status: "review",
+      idempotencyKey: "claimed-review",
+    });
+    await store.claim(claimed.id, { ownerId: "reviewer" });
+    await expect(
+      store.decompose(lateParent.id, {
+        children: [{ title: "Claimed review", idempotencyKey: "claimed-review" }],
+      }),
+    ).rejects.toThrow(/active child/);
   });
 
   it("resolves parent dependency status with targeted lookups instead of a full-corpus scan", async () => {
@@ -1555,6 +1736,7 @@ describe("WorkboardStore", () => {
     );
 
     await store.complete(parent.id, { summary: "Parent done." });
+    await store.update(parent.id, { status: "done" });
     entriesSpy.mockClear();
     const dispatch = await store.dispatch();
 
@@ -1669,6 +1851,89 @@ describe("WorkboardStore", () => {
     await expect(store.linkCards(second.id, first.id)).rejects.toThrow(/cycle/);
   });
 
+  it("unlinks a dependency pair on both sides without touching other links", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const parent = await store.create({ title: "Parent" });
+    const otherParent = await store.create({ title: "Other parent" });
+    const child = await store.create({ title: "Child" });
+    const otherChild = await store.create({ title: "Other child" });
+    await store.linkCards(parent.id, child.id);
+    await store.linkCards(otherParent.id, child.id);
+    await store.linkCards(parent.id, otherChild.id);
+    await store.addLink(parent.id, { type: "blocked_by", targetCardId: "card-upstream" });
+    await store.addLink(child.id, { type: "relates_to", targetCardId: "card-note" });
+
+    const unlinked = await store.unlinkCards(parent.id, child.id);
+
+    expect(unlinked.metadata?.links).toEqual([
+      expect.objectContaining({ type: "parent", targetCardId: otherParent.id }),
+      expect.objectContaining({ type: "relates_to", targetCardId: "card-note" }),
+    ]);
+    expect(unlinked.events?.at(-1)).toMatchObject({ kind: "unlinked" });
+    const updatedParent = await store.get(parent.id);
+    expect(updatedParent?.metadata?.links).toEqual([
+      expect.objectContaining({ type: "child", targetCardId: otherChild.id }),
+      expect.objectContaining({ type: "blocked_by", targetCardId: "card-upstream" }),
+    ]);
+    expect(updatedParent?.events?.at(-1)).toMatchObject({ kind: "unlinked" });
+  });
+
+  it("repeats an unlink as a no-op without an event or updatedAt bump", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const parent = await store.create({ title: "Parent" });
+    const child = await store.create({ title: "Child" });
+    await store.linkCards(parent.id, child.id);
+
+    const first = await store.unlinkCards(parent.id, child.id);
+    const childAfterFirst = await store.get(child.id);
+    const parentAfterFirst = await store.get(parent.id);
+    expect(childAfterFirst).toEqual(first);
+
+    const second = await store.unlinkCards(parent.id, child.id);
+
+    expect(second).toEqual(childAfterFirst);
+    await expect(store.get(child.id)).resolves.toEqual(childAfterFirst);
+    await expect(store.get(parent.id)).resolves.toEqual(parentAfterFirst);
+  });
+
+  it("leaves a side without the link untouched", async () => {
+    const { store, stores } = createWorkboardSqliteTestHarness({
+      createStores: createKernelStores,
+    });
+    const parent = await store.create({ title: "Parent" });
+    const child = await store.create({ title: "Child" });
+    await store.linkCards(parent.id, child.id);
+
+    // A partial state: the child side lost its parent link while the parent side
+    // still carries the child link. Only the parent side may be written.
+    const linkedChild = (await store.get(child.id))!;
+    const detachedChild = { ...linkedChild, metadata: { ...linkedChild.metadata, links: [] } };
+    await stores.cards.register(child.id, { version: 1, card: detachedChild });
+
+    const result = await store.unlinkCards(parent.id, child.id);
+
+    expect(result.updatedAt).toBe(detachedChild.updatedAt);
+    expect(result.events).toEqual(detachedChild.events);
+    const parentAfter = await store.get(parent.id);
+    expect(parentAfter?.metadata?.links).toBeUndefined();
+    expect(parentAfter?.events?.at(-1)).toMatchObject({ kind: "unlinked" });
+  });
+
+  it("lets a stuck child move to done once its stale parent link is unlinked", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const parent = await store.create({ title: "Parent", status: "blocked" });
+    const child = await store.create({ title: "Child", status: "review", parents: [parent.id] });
+
+    await expect(store.update(child.id, { status: "done" })).rejects.toThrow(
+      "card dependencies are not done.",
+    );
+
+    await store.unlinkCards(parent.id, child.id);
+    await expect(store.update(child.id, { status: "done" })).resolves.toMatchObject({
+      status: "done",
+    });
+  });
+
   it.each(["execution", "card"] as const)(
     "rejects over-limit %s run IDs at admission without changing cards",
     async (association) => {
@@ -1728,7 +1993,7 @@ describe("WorkboardStore", () => {
 
     expect(await store.get(card.id)).toMatchObject({
       title: "Resume existing work",
-      status: "done",
+      status: "review",
       runId: "replacement-run",
       events: expect.arrayContaining([expect.objectContaining({ runId: legacyRunId })]),
       metadata: {
@@ -1759,7 +2024,7 @@ describe("WorkboardStore", () => {
 
     const completed = await store.get(card.id);
     expect(completed).toMatchObject({
-      status: "done",
+      status: "review",
       execution: { runId },
       metadata: { proof: [expect.objectContaining({ status: "passed", command: "test-command" })] },
     });
@@ -1791,11 +2056,11 @@ describe("WorkboardStore", () => {
     });
 
     expect(await store.get(card.id)).toMatchObject({
-      status: "done",
-      execution: { status: "done", runId },
+      status: "review",
+      execution: { status: "review", runId },
       events: [
         ...(logged.events ?? []),
-        expect.objectContaining({ kind: "moved", toStatus: "done" }),
+        expect.objectContaining({ kind: "moved", toStatus: "review" }),
       ],
       metadata: {
         attempts: [expect.objectContaining({ status: "succeeded", runId })],
@@ -1848,14 +2113,19 @@ describe("WorkboardStore", () => {
     });
 
     expect(completed).toMatchObject({
-      status: "done",
-      execution: { status: "done" },
+      status: "review",
+      execution: { status: "review" },
       metadata: {
         attempts: [expect.objectContaining({ status: "succeeded", endedAt: expect.any(Number) })],
         comments: [expect.objectContaining({ body: "Implemented and verified." })],
         proof: [expect.objectContaining({ status: "passed" })],
         artifacts: [expect.objectContaining({ path: "/tmp/log.txt" })],
-        automation: { summary: "Implemented and verified.", createdCardIds: [child.id] },
+        automation: {
+          summary: "Implemented and verified.",
+          createdCardIds: [child.id],
+          awaitingAcceptance: true,
+          autoCompletedAt: expect.any(Number),
+        },
         notifications: [expect.objectContaining({ kind: "completed" })],
       },
     });
@@ -3120,7 +3390,7 @@ describe("WorkboardStore", () => {
         createdCardIds: result.children.map((child) => child.id),
         summary: "Children recorded.",
       }),
-    ).resolves.toMatchObject({ status: "done" });
+    ).resolves.toMatchObject({ status: "review" });
   });
 });
 
@@ -3307,6 +3577,7 @@ describe("Workboard dependency and scheduled promotion", () => {
     ).resolves.toMatchObject({ title: "Unscoped child" });
 
     await store.complete(parent.id, { summary: "Parent done." });
+    await store.update(parent.id, { status: "done" });
     const { promoted } = await store.dispatch();
 
     expect(promoted).toEqual([expect.objectContaining({ id: child.id, status: "ready" })]);
@@ -3358,6 +3629,129 @@ describe("Workboard dependency and scheduled promotion", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("WorkboardStore summary cap", () => {
+  const truncationMarker = (omitted: number): string =>
+    ` … [truncated: ${omitted} characters omitted]`;
+
+  it("caps an over-long completion summary and keeps proof, artifacts, and the status move", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const card = await store.create({ title: "Long completion", status: "running" });
+    await store.claim(card.id, { ownerId: "main", token: "token-1" });
+    const longSummary = "s".repeat(2100);
+
+    const completed = await store.complete(card.id, {
+      ownerId: "main",
+      token: "token-1",
+      summary: longSummary,
+      proof: { status: "passed", command: "pnpm test", note: "checked" },
+      artifacts: [{ label: "report", url: "https://example.com/report" }],
+    });
+
+    // The whole completion survives: status move, proof, and artifacts.
+    expect(completed.status).toBe("review");
+    expect(completed.metadata?.proof).toEqual([
+      expect.objectContaining({ status: "passed", command: "pnpm test" }),
+    ]);
+    expect(completed.metadata?.artifacts).toEqual([
+      expect.objectContaining({ url: "https://example.com/report" }),
+    ]);
+
+    // The stored summary is capped at 2000 and carries a real omitted-count marker.
+    const stored = completed.metadata?.automation?.summary ?? "";
+    expect(stored.length).toBeLessThanOrEqual(2000);
+    const match = /^(s*) … \[truncated: (\d+) characters omitted\]$/.exec(stored);
+    expect(match).not.toBeNull();
+    const kept = match?.[1]?.length ?? 0;
+    expect(Number(match?.[2])).toBe(longSummary.length - kept);
+    expect(stored).toBe(`${"s".repeat(kept)}${truncationMarker(longSummary.length - kept)}`);
+
+    // The truncation is discoverable on the card, at warning level.
+    const warning = completed.metadata?.workerLogs?.at(-1);
+    expect(warning).toMatchObject({ level: "warning" });
+    expect(warning?.message).toContain("2100");
+    expect(warning?.message).toContain("2000");
+  });
+
+  it("leaves a summary of exactly the limit unchanged and caps only an over-limit one", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const atLimit = "a".repeat(2000);
+    const card = await store.create({ title: "At limit", status: "running" });
+    await store.claim(card.id, { ownerId: "main", token: "token-1" });
+
+    const completed = await store.complete(card.id, {
+      ownerId: "main",
+      token: "token-1",
+      summary: atLimit,
+    });
+    expect(completed.metadata?.automation?.summary).toBe(atLimit);
+    expect((completed.metadata?.workerLogs ?? []).length).toBe(0);
+
+    const over = await store.create({ title: "Over limit", status: "running" });
+    await store.claim(over.id, { ownerId: "other", token: "token-2" });
+    const overCompleted = await store.complete(over.id, {
+      ownerId: "other",
+      token: "token-2",
+      summary: "b".repeat(2001),
+    });
+    const stored = overCompleted.metadata?.automation?.summary ?? "";
+    expect(stored.length).toBeLessThanOrEqual(2000);
+    expect(stored).toMatch(/ … \[truncated: \d+ characters omitted\]$/);
+    expect(overCompleted.metadata?.workerLogs?.[0]).toMatchObject({ level: "warning" });
+  });
+
+  it("caps an over-long spec summary on specify", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const card = await store.create({ title: "Spec", status: "backlog" });
+
+    const specified = await store.specify(card.id, { summary: "c".repeat(2500) });
+
+    expect(specified.status).toBe("todo");
+    const stored = specified.metadata?.automation?.summary ?? "";
+    expect(stored.length).toBeLessThanOrEqual(2000);
+    expect(stored).toMatch(/ … \[truncated: \d+ characters omitted\]$/);
+    expect(specified.metadata?.workerLogs?.at(-1)).toMatchObject({ level: "warning" });
+  });
+
+  it("caps an over-long decompose summary", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const parent = await store.create({ title: "Decompose", status: "triage" });
+
+    const result = await store.decompose(parent.id, {
+      summary: "d".repeat(2400),
+      children: [{ title: "Child" }],
+    });
+
+    expect(result.parent.status).toBe("done");
+    const stored = result.parent.metadata?.automation?.summary ?? "";
+    expect(stored.length).toBeLessThanOrEqual(2000);
+    expect(stored).toMatch(/ … \[truncated: \d+ characters omitted\]$/);
+    expect(result.parent.metadata?.workerLogs?.at(-1)).toMatchObject({ level: "warning" });
+  });
+
+  it("still refuses a genuinely invalid completion and writes nothing", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const parent = await store.create({ title: "Parent", status: "running" });
+    const unrelated = await store.create({ title: "Unrelated" });
+    const before = await store.get(parent.id);
+
+    await expect(
+      store.complete(
+        parent.id,
+        {
+          summary: "z".repeat(2100),
+          proof: { status: "passed" },
+          artifacts: [{ url: "https://example.com/report" }],
+          createdCardIds: [unrelated.id],
+        },
+        null,
+      ),
+    ).rejects.toThrow(/not linked/);
+
+    // Fail-closed is intact: no status move, proof, artifacts, summary, or log landed.
+    await expect(store.get(parent.id)).resolves.toEqual(before);
   });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

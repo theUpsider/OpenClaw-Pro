@@ -272,10 +272,30 @@ when the roster changes, and actions check the current row again when invoked.
 Actions can inspect `session.hasActiveRun`; an absent value means activity is
 not yet known.
 `host.components`
-mounts host-owned dialogs, agent pickers, searchable select pickers, and session
-dashboards from plain props and DOM content. Each component returns `update` and `dispose` methods;
+mounts host-owned dialogs, agent pickers, searchable select pickers, session
+dashboards, a dictation microphone, the composer's model and send controls, and
+Markdown from plain props and DOM content. Each component returns `update` and `dispose` methods;
 the host retains permission checks, focus handling, and dashboard provider
-ownership. Use `mountSelectPicker` for a list of `{ value, label, description? }`
+ownership. `mountDictationControl` runs the composer's dictation, including its
+device picker and unavailable reasons, and calls `onStart` when capture begins
+and `onTranscript` once with the final trimmed text. `enabled: false` renders it
+disabled with `disabledReason`. `mountComposerSessionControls` renders the
+composer's model picker and thinking selector for `sessionKey` (with an optional
+`agentId`); the host loads the catalog, checks access, and applies a choice to
+that session as the composer does, and reports a rejected change to `onError`.
+A `null` `sessionKey`, for a conversation the plugin creates on send, shows the
+agent's defaults disabled with `disabledReason`. `mountComposerSendAction`
+renders the composer's send button for a `draft` and `sessionKey`, including
+its Send, Steer, and Queue labels, tooltips, and refusals (`disabledReason`,
+`sending`, an empty draft); `describedBy` adds plugin text to its description.
+The host waits for pending model and thinking changes, then calls
+`onSend(followUpMode)`: `undefined` when the conversation is idle, otherwise
+the `chat.send` `queueMode` to pass. `mountMarkdown` renders sanitized Markdown for
+plugin-owned text from a `markdown` source string, using the host's chat renderer
+and sanitizer, and mounts a ```mermaid fence as a diagram (with the host's
+renderer fallback on failure). `inline: true` renders one line as phrasing
+content without a block wrapper, for labels inside a control such as a button or
+radio. Use `mountSelectPicker` for a list of `{ value, label, description? }`
 options, a selected `value`, an `accessibleLabel`, and an `onSelect` callback.
 With `searchable: true`, lists longer than eight options show a search field.
 The picker matches option labels, values, and descriptions.

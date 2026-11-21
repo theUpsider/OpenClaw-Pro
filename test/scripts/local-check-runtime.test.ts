@@ -6,6 +6,12 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  LOCAL_CHECK_MEMORY_CEILING_BYTES,
+  LOCAL_CHECK_MEMORY_MIN_BYTES,
+  LOCAL_CHECK_MEMORY_RESERVE_BYTES,
+  resolveLocalCheckMemoryLimit,
+} from "../../scripts/lib/local-check-memory-limit.mts";
+import {
   applyLocalOxlintPolicy,
   applyLocalTsgoPolicy,
   ensureRepoNodeModulesLink,
@@ -366,6 +372,134 @@ fs.appendFileSync(process.env.CAPTURE_PATH, JSON.stringify({ step, goEnv, args: 
       }
     },
   );
+
+  describe("local check memory limit policy", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    const HOST = {
+      totalMemoryBytes: 30 * GIB,
+      logicalCpuCount: 8,
+      memoryCapacityBytes: 27 * GIB,
+    };
+    const LIMIT_ENV = "OPENCLAW_LOCAL_CHECK_MEMORY_LIMIT_MB";
+    const NO_LIMIT_ENV = "OPENCLAW_LOCAL_CHECK_NO_MEMORY_LIMIT";
+    // The cap is opt-in through local checks; most rows start from that baseline.
+    const localEnv = (overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
+      OPENCLAW_LOCAL_CHECK: "1",
+      ...overrides,
+    });
+
+    it.each(["0", "false"])("row 1: leaves a disabled local check uncapped (%s)", (value) => {
+      const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+      expect(resolveLocalCheckMemoryLimit(HOST, { OPENCLAW_LOCAL_CHECK: value })).toBeNull();
+      // A deliberate local decision must not also emit the degradation notice.
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it.each([{ CI: "true" }, { CI: "1" }, { GITHUB_ACTIONS: "true" }, { GITHUB_ACTIONS: "yes" }])(
+      "row 2: leaves CI uncapped (%o)",
+      (ciEnv) => {
+        const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+        expect(resolveLocalCheckMemoryLimit(HOST, { ...ciEnv, [LIMIT_ENV]: "4096" })).toBeNull();
+        expect(warn).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["1", "true", "on", "yes"])("row 3: honors the explicit opt-out (%s)", (value) => {
+      const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+      expect(
+        resolveLocalCheckMemoryLimit(
+          HOST,
+          localEnv({ [NO_LIMIT_ENV]: value, [LIMIT_ENV]: "4096" }),
+        ),
+      ).toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("row 4: converts a valid override from mebibytes", () => {
+      expect(resolveLocalCheckMemoryLimit(HOST, localEnv({ [LIMIT_ENV]: "12288" }))).toEqual({
+        limitBytes: 12 * GIB,
+        source: "override",
+      });
+    });
+
+    it.each(["0", "-1", "1.5", " 12 34 ", "0x10", "1e3", "abc", "10MB"])(
+      "row 5: rejects an invalid override (%j) with actionable text",
+      (value) => {
+        const attempt = () => resolveLocalCheckMemoryLimit(HOST, localEnv({ [LIMIT_ENV]: value }));
+        expect(attempt).toThrow(LIMIT_ENV);
+        expect(attempt).toThrow(/positive whole number of mebibytes/u);
+        expect(attempt).toThrow(/Unset to fall back to the automatic host cap/u);
+      },
+    );
+
+    it("row 6: warns exactly once and stays uncapped when capacity is unknown", () => {
+      const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+      const limit = resolveLocalCheckMemoryLimit(
+        { ...HOST, memoryCapacityBytes: null },
+        localEnv(),
+      );
+      expect(limit).toBeNull();
+      expect(warn).toHaveBeenCalledTimes(1);
+      const message = String(warn.mock.calls[0]?.[0]);
+      expect(message).toContain("local memory cap unavailable");
+      expect(message).toContain("running uncapped");
+      expect(message).toContain(`${NO_LIMIT_ENV}=1 to run always uncapped`);
+    });
+
+    it("row 7: keeps a known zero capacity at the floor instead of unknown", () => {
+      const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+      // Row 6 and a numeric zero must not collapse: zero is a readable (if tiny) budget.
+      expect(resolveLocalCheckMemoryLimit({ ...HOST, memoryCapacityBytes: 0 }, localEnv())).toEqual(
+        { limitBytes: LOCAL_CHECK_MEMORY_MIN_BYTES, source: "capacity" },
+      );
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("row 7: clamps a roomy host to the ceiling and a cramped host to the floor", () => {
+      const roomy = resolveLocalCheckMemoryLimit(
+        { ...HOST, memoryCapacityBytes: 128 * GIB },
+        localEnv(),
+      );
+      expect(roomy).toEqual({
+        limitBytes: LOCAL_CHECK_MEMORY_CEILING_BYTES,
+        source: "capacity",
+      });
+      const cramped = resolveLocalCheckMemoryLimit(
+        { ...HOST, memoryCapacityBytes: 9 * GIB },
+        localEnv(),
+      );
+      expect(cramped).toEqual({
+        limitBytes: LOCAL_CHECK_MEMORY_MIN_BYTES,
+        source: "capacity",
+      });
+    });
+
+    it("row 7: subtracts the fixed host reserve inside both clamps", () => {
+      const capacityBytes = 20 * GIB;
+      const limit = resolveLocalCheckMemoryLimit(
+        { ...HOST, memoryCapacityBytes: capacityBytes },
+        localEnv(),
+      );
+      expect(limit).toEqual({
+        limitBytes: capacityBytes - LOCAL_CHECK_MEMORY_RESERVE_BYTES,
+        source: "capacity",
+      });
+      // The reserve is deliberately smaller than the ceiling gap; guard the constants.
+      expect(LOCAL_CHECK_MEMORY_RESERVE_BYTES).toBe(4 * GIB);
+      expect(LOCAL_CHECK_MEMORY_MIN_BYTES).toBe(8 * GIB);
+      expect(LOCAL_CHECK_MEMORY_CEILING_BYTES).toBe(24 * GIB);
+    });
+
+    it("row 7: sizes this host's own capacity at the observed ceiling", () => {
+      // The measured capacity here is 27 GiB, whose reserve-adjusted value is 23 GiB.
+      const capacityBytes = 27 * GIB;
+      expect(
+        resolveLocalCheckMemoryLimit({ ...HOST, memoryCapacityBytes: capacityBytes }, localEnv())
+          ?.limitBytes,
+      ).toBe(23 * GIB);
+    });
+  });
 });
 
 describe("Tooling bootstrap dependency ownership", () => {

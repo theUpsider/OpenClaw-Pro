@@ -731,6 +731,7 @@ export async function runAgentAttempt(params: AgentAttemptParams) {
     imageOrder: shouldForwardImagesToEmbedded ? params.opts.imageOrder : undefined,
     clientTools: params.opts.clientTools,
     toolBindings: params.opts.toolBindings,
+    workContext: params.opts.workContext,
     provider: embeddedAgentProvider,
     requestedRouteResolution: "resolved",
     resolvedModelSelection: params.resolvedModelSelection,

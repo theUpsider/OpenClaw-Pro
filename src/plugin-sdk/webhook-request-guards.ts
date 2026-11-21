@@ -289,14 +289,13 @@ export function beginWebhookRequestPipelineOrReject(
  * an independently owned async work scope.
  *
  * Ack-first handlers respond before processing events, so the continued work
- * outlives the HTTP request admission it inherited; once that admission is
- * released, queue enqueues from the inherited chain are refused as if the
- * gateway were draining. Call this synchronously from the request handler
- * (while the request is still admitted): it reserves an independent root that
- * keeps the detached processing accepted and lets a restart drain wait for it.
- * The callback also runs inside a fresh detached async work scope, so work
- * started here (for example deferred embedded-agent runs) keeps tracking even
- * after the caller's own scope closes.
+ * outlives the HTTP request admission it inherited. Call this synchronously
+ * from the request handler (while the request is still admitted): it reserves
+ * an independent root that keeps the detached processing drain-visible from
+ * the moment the request is accepted, instead of reaching admission only when
+ * it later spawns work. The callback also runs inside a fresh detached async
+ * work scope, so work started here (for example deferred embedded-agent runs)
+ * keeps tracking even after the caller's own scope closes.
  */
 export function runDetachedWebhookWork<T>(run: () => Promise<T>): Promise<T> {
   return runWithGatewayDetachedWorkContinuation(async () => {

@@ -400,6 +400,7 @@ export class WhatsAppConnectionController {
   private connectionSetupPromise: Promise<WhatsAppLiveConnection> | null = null;
   private pendingSocketCleanup: WhatsAppSocketCleanup | null = null;
   private shuttingDown = false;
+  private socketCloseUnconfirmed = false;
   private readonly ownerAcquireAbortController = new AbortController();
   private readonly setupAbortController = new AbortController();
   private reconnectAttempts = 0;
@@ -834,8 +835,18 @@ export class WhatsAppConnectionController {
     this.stopDisconnectRetries();
     await this.connectionSetupPromise?.catch(() => {});
     await this.connectionOwnerLeasePromise?.catch(() => {});
-    await this.closeCurrentConnection();
-    await this.finishPendingSocketCleanup();
+    // The run is ending, so a bounded teardown failure must not pin the process-local
+    // owner reservation for the lifetime of the Gateway process. A successor run would
+    // otherwise be refused with "Another process owns this WhatsApp connection" even
+    // though the File-Lock PID is our own. Release the lease whenever the Baileys socket
+    // is confirmed closed; an unconfirmed close keeps fail-closed ownership.
+    let teardownError: unknown;
+    try {
+      await this.closeCurrentConnection();
+      await this.finishPendingSocketCleanup();
+    } catch (error) {
+      teardownError = error;
+    }
     try {
       this.runtimeContextLease?.dispose();
     } finally {
@@ -844,28 +855,47 @@ export class WhatsAppConnectionController {
         this.pendingOwnerContextLease?.dispose();
       } finally {
         this.pendingOwnerContextLease = null;
-        // Contexts stay unpublished even when a retryable owner release fails.
-        // Keeping that lease reference preserves fail-closed process ownership.
-        if (this.connectionOwnerLease) {
-          await this.connectionOwnerLease.release();
-          this.connectionOwnerLease = null;
-        }
-        if (this.retainedOwnerReleaseLease) {
-          await this.retainedOwnerReleaseLease.release();
-          this.retainedOwnerReleaseLease = null;
+        if (!this.socketCloseUnconfirmed) {
+          await this.releaseConnectionOwnership();
         }
       }
+    }
+    if (teardownError !== undefined) {
+      throw teardownError;
     }
   }
 
   private async finishSocketCleanup(cleanup: WhatsAppSocketCleanup): Promise<void> {
     if (!cleanup.socketClosed) {
-      await closeWhatsAppSocketAndWait(cleanup.sock, "OpenClaw WhatsApp socket close");
+      try {
+        await closeWhatsAppSocketAndWait(cleanup.sock, "OpenClaw WhatsApp socket close");
+      } catch (error) {
+        // The Baileys transport is in an unknown state; a successor socket must not
+        // start until this is resolved, so ownership stays fail-closed.
+        this.socketCloseUnconfirmed = true;
+        throw error;
+      }
       cleanup.socketClosed = true;
     }
+    // A confirmed close in this teardown clears an earlier unconfirmed-close mark, so a
+    // later successful run can release ownership again instead of pinning it forever.
+    this.socketCloseUnconfirmed = false;
     const queueResult = await waitForCredsSaveQueueWithTimeout(this.authDir);
     if (queueResult === "timed_out") {
       throw new Error("WhatsApp credential persistence did not drain before owner release");
+    }
+  }
+
+  private async releaseConnectionOwnership(): Promise<void> {
+    // Contexts stay unpublished even when a retryable owner release fails.
+    // Keeping that lease reference preserves fail-closed process ownership.
+    if (this.connectionOwnerLease) {
+      await this.connectionOwnerLease.release();
+      this.connectionOwnerLease = null;
+    }
+    if (this.retainedOwnerReleaseLease) {
+      await this.retainedOwnerReleaseLease.release();
+      this.retainedOwnerReleaseLease = null;
     }
   }
 

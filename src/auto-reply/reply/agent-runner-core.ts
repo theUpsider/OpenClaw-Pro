@@ -60,6 +60,7 @@ import {
   isReplyOperationSuperseded,
   resolveReplyOperationAbortReason,
 } from "./reply-operation-abort.js";
+import { resolveReplyOperationRunState } from "./reply-operation-run-state.js";
 import { type ReplyOperation, runAfterReplyOperationClear } from "./reply-run-registry.js";
 import { resolveRoutedDeliveryThreadId } from "./routed-delivery-thread.js";
 import { resolveSourceReplyVisibilityPolicy } from "./source-reply-delivery-mode.js";
@@ -163,6 +164,7 @@ export function resolveSourceReplyPolicy(params: {
     ctx: params.sessionCtx,
     requested: params.opts?.sourceReplyDeliveryMode,
     sendPolicy,
+    visibleReplySuppression: resolveReplyOperationRunState(params.opts)?.visibleReplySuppression,
   });
 }
 

@@ -361,9 +361,13 @@ export async function prepareEmbeddedAttemptSessionRuntime(input: {
     ...sessionPreparation,
     activeSession,
     transcriptOwner: sessionLock.ownedTranscriptWriteContext,
+    capabilityToolNames: toolSearchRunPlan.capabilityToolNames,
     clientToolCount: preparedAgentSession.clientToolDefs.length,
     effectiveToolCount,
     localModelLeanEnabled,
+    // The post-pin session surface: the tool pin (pinTools -> prepareSessionToolSurface)
+    // already shaped activeSession, so its active names are what the session sends.
+    wireToolNames: activeSession.getActiveToolNames(),
     ...(systemPromptReport ? { systemPromptReport } : {}),
   });
   resources.trajectoryRecorder = trajectoryRecorder;

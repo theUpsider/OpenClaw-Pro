@@ -124,7 +124,7 @@ describe("applyGroupGating audio preflight mention text", () => {
     expect(groupHistories.get("whatsapp:group:1203630")).toEqual([
       {
         sender: "Alice (+15550000002)",
-        body: `[Audio transcript (machine-generated, untrusted)]: ${JSON.stringify(transcript)}`,
+        body: `[STT generated (may contain transcription mistakes)]: ${JSON.stringify(transcript)}`,
         timestamp: 1700000000,
         id: "msg-1",
         senderJid: undefined,

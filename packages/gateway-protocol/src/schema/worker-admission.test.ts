@@ -31,7 +31,10 @@ import {
   validateWorkerInferenceStartParams,
   validateWorkerInferenceTerminalFrame,
 } from "./worker-inference.js";
-import { WORKER_PROTOCOL_MAX_PAYLOAD_BYTES } from "./worker-protocol-primitives.js";
+import {
+  WORKER_CONTEXT_MAX_RESIDUAL_BYTES,
+  WORKER_PROTOCOL_MAX_PAYLOAD_BYTES,
+} from "./worker-protocol-primitives.js";
 
 const bundleHash = "a".repeat(64);
 const handshake: WorkerAdmissionHandshake = {
@@ -311,10 +314,28 @@ describe("worker protocol schemas", () => {
     // Compatible providers can encode routing state in IDs longer than internal worker IDs.
     for (const responseId of [
       "response" + "x".repeat(477),
-      "x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES),
+      "x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES - 1024),
     ]) {
       expect(accepts(responseId)).toEqual([true, true, true]);
     }
+    // Opaque IDs never borrow the text allowance: they count against the context residual.
+    expect(accepts("x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES))).toEqual([true, true, true]);
+    const withIds = (count: number) =>
+      validateWorkerInferenceStartParams({
+        ...inferenceStart,
+        context: {
+          messages: Array.from({ length: count }, () => ({
+            ...assistantMessage,
+            content: [{ type: "text" as const, text: "ok" }],
+            usage: structuredClone(assistantMessage.usage),
+            stopReason: "stop" as const,
+            responseId: "x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES),
+          })),
+        },
+      });
+    const idsPerResidual = WORKER_CONTEXT_MAX_RESIDUAL_BYTES / WORKER_PROTOCOL_MAX_PAYLOAD_BYTES;
+    expect(withIds(idsPerResidual / 2)).toBe(true);
+    expect(withIds(idsPerResidual)).toBe(false);
     for (const responseId of [
       "",
       " ",
@@ -336,7 +357,8 @@ describe("worker protocol schemas", () => {
     );
     for (const [responseId, withinBudget] of [
       ["response" + "x".repeat(477), true],
-      ["x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES), false],
+      ["x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES), true],
+      ["x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES + 1), false],
     ] as const) {
       expect(
         isWorkerTranscriptFrameWithinBudget({
@@ -606,7 +628,7 @@ describe("worker message wire boundaries", () => {
     },
     {
       content: { type: "text", text: "a".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES + 1) },
-      accepts: [false, true, false],
+      accepts: [true, true, false],
     },
   ])("retains each transport's content limits ($accepts)", ({ content, accepts }) => {
     const message = { role: "user", content: [content], timestamp: 1 };

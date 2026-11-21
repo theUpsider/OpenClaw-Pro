@@ -33,6 +33,7 @@ export type SessionEntryCurrentFacts = {
   completionOwnerSessionKey?: unknown;
   subagentRole?: unknown;
   subagentControlScope?: unknown;
+  subagentMessageToolEnabled?: unknown;
   inheritedToolPolicyVersion?: unknown;
   inheritedToolPolicySource?: unknown;
   inheritedToolAllow?: unknown;

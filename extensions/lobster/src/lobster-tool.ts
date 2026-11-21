@@ -1,15 +1,49 @@
 import { optionalPositiveIntegerSchema } from "openclaw/plugin-sdk/channel-actions";
 import { readPositiveIntegerParam } from "openclaw/plugin-sdk/param-readers";
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
+import type {
+  OpenClawPluginApi,
+  OpenClawPluginToolContext,
+} from "openclaw/plugin-sdk/plugin-entry";
 import { jsonResult } from "openclaw/plugin-sdk/tool-results";
 import { Type } from "typebox";
+import { createLobsterRegistry, type DecisionEvaluator } from "./decision-bridge.js";
 import {
   createEmbeddedLobsterRunner,
+  loadedLobsterCore,
   resolveLobsterCwd,
   type LobsterRunnerParams,
 } from "./lobster-runner.js";
-export function createLobsterTool(api: OpenClawPluginApi) {
-  const runner = createEmbeddedLobsterRunner();
+
+/**
+ * Bound evaluator for the `decision.evaluate` bridge. The host supplies its live
+ * `DecisionRuntimeV1` in-process; an absent runtime fails closed as `unavailable` rather
+ * than guessing a route.
+ */
+function resolveDecisionEvaluator(api: OpenClawPluginApi): DecisionEvaluator {
+  const decisions = api.runtime?.decisions;
+  if (decisions && typeof decisions.evaluate === "function") {
+    return (batch, options) => decisions.evaluate(batch, options);
+  }
+  return async () => ({ status: "unavailable", reason: "disabled" });
+}
+
+export function createLobsterTool(api: OpenClawPluginApi, toolContext?: OpenClawPluginToolContext) {
+  // The bridge refuses to guess an owner: an empty agent id makes the command throw.
+  const boundAgentId = typeof toolContext?.agentId === "string" ? toolContext.agentId.trim() : "";
+  const runner = createEmbeddedLobsterRunner({
+    // Rebuilt per run from the loaded core, so no invocation retains another's registry.
+    createRegistry: () => {
+      const core = loadedLobsterCore();
+      if (typeof core.createDefaultRegistry !== "function") {
+        throw new Error("lobster core runtime is missing createDefaultRegistry");
+      }
+      return createLobsterRegistry(core.createDefaultRegistry(), {
+        evaluate: resolveDecisionEvaluator(api),
+        agentId: boundAgentId,
+        purpose: "lobster.decision_bridge",
+      });
+    },
+  });
   return {
     name: "lobster",
     label: "Lobster Workflow",

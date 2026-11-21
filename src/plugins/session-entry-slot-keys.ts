@@ -72,6 +72,7 @@ const SESSION_ENTRY_RESERVED_SLOT_KEY_LIST = [
   "swarmOutputSchema",
   "subagentRole",
   "subagentControlScope",
+  "subagentMessageToolEnabled",
   "inheritedToolPolicyVersion",
   "inheritedToolPolicySource",
   "inheritedToolDeny",

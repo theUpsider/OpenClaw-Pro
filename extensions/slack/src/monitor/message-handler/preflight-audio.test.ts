@@ -78,7 +78,7 @@ describe("Slack captionless audio preflight", () => {
         rawBody: "[Slack file: voice.mp4 (fileId: F1)]",
       }),
     ).toBe(
-      '[Audio transcript (machine-generated, untrusted)]: "Bill said \\"review it\\""\n' +
+      '[STT generated (may contain transcription mistakes)]: "Bill said \\"review it\\""\n' +
         "[Slack file: voice.mp4 (fileId: F1)]",
     );
   });

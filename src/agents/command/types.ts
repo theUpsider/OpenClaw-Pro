@@ -1,4 +1,5 @@
 import type { FastMode } from "@openclaw/normalization-core/string-coerce";
+import type { ChatWorkContext } from "../../../packages/gateway-protocol/src/chat-work-context.js";
 import type { AgentInternalEvent } from "../../agents/internal-events.js";
 import type { SpawnedRunMetadata } from "../../agents/spawned-context.js";
 import type { PromptMode, SilentReplyPromptMode } from "../../agents/system-prompt.types.js";
@@ -106,6 +107,8 @@ export type AgentCommandOpts = {
   gatewayUiCommandTarget?: GatewayUiCommandTarget;
   /** Tool bindings admitted by the originating Gateway request. */
   toolBindings?: Readonly<Record<string, unknown>>;
+  /** Captured chat work context for plugin tools; quoted reference data, never authority. */
+  workContext?: ChatWorkContext;
   /** Follow-up task action sink admitted by the originating Gateway client. */
   taskSuggestionDeliveryMode?: TaskSuggestionDeliveryMode;
   /** Device-scoped operator session allowed to review approvals initiated by this run. */
@@ -271,6 +274,7 @@ export const AGENT_COMMAND_PUBLIC_INGRESS_DEFAULTS = Object.freeze({
   clientCaps: undefined,
   gatewayUiCommandTarget: undefined,
   toolBindings: undefined,
+  workContext: undefined,
   taskSuggestionDeliveryMode: undefined,
   runtimeContextFragments: undefined,
   senderIsOwner: false,

@@ -17,6 +17,11 @@ const mocks = vi.hoisted(() => ({
   sendDurableMessageBatchCore: vi.fn(async () => ({ status: "sent" })),
   appendAssistantMessageToSessionTranscript: vi.fn(async () => ({ ok: true })),
   enqueueSystemEvent: vi.fn(() => true),
+  getLoadedChannelPluginForRead: vi.fn(),
+}));
+vi.mock("../../channels/plugins/registry-loaded.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../channels/plugins/registry-loaded.js")>()),
+  getLoadedChannelPluginForRead: mocks.getLoadedChannelPluginForRead,
 }));
 vi.mock("../../config/sessions/delivery-info.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../config/sessions/delivery-info.js")>()),
@@ -104,16 +109,22 @@ describe("postWorkshopChangeNotice", () => {
     changes: WorkshopChange[],
     sessionKey = "agent:main:telegram:direct:42",
     config: OpenClawConfig = {},
+    senderIsOwner = true,
   ) =>
     postWorkshopChangeNotice({
       config,
       generation: generation(sessionKey),
       runId,
       changes,
+      senderIsOwner,
     });
+  const channelNotices: OpenClawConfig = {
+    skills: { workshop: { autonomous: { channelNotices: true } } },
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getLoadedChannelPluginForRead.mockReturnValue(undefined);
     mocks.readEntry.mockReturnValue({
       sessionId: "reviewed-session",
       lifecycleRevision: "reviewed-revision",
@@ -259,19 +270,134 @@ describe("postWorkshopChangeNotice", () => {
 
   it("delivers into the thread named by the session key", async () => {
     mocks.extractDeliveryInfo.mockReturnValue({
-      deliveryContext: { channel: "discord", to: "channel:123", accountId: "default" },
+      deliveryContext: { channel: "telegram", to: "42", accountId: "default", threadId: "7" },
       threadId: "456",
     });
-    const sessionKey = "agent:main:discord:channel:123:thread:456";
-    await post([change({})], sessionKey, {
-      skills: { workshop: { autonomous: { channelNotices: true } } },
-    });
+    const sessionKey = "agent:main:telegram:direct:42:thread:456";
+    await post([change({})], sessionKey, channelNotices);
     expect(mocks.sendDurableMessageBatchCore).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: "discord", to: "channel:123", threadId: "456" }),
+      expect.objectContaining({ channel: "telegram", to: "42", threadId: "456" }),
       undefined,
       undefined,
       generation(sessionKey),
     );
+  });
+
+  it.each([
+    {
+      shape: "a Signal group",
+      sessionKey: "agent:main:signal:group:abc123",
+      deliveryContext: { channel: "signal", to: "group:abc123" },
+    },
+    {
+      shape: "a Telegram group",
+      sessionKey: "agent:main:telegram:group:-100123",
+      deliveryContext: { channel: "telegram", to: "-100123" },
+    },
+    {
+      shape: "a Discord channel",
+      sessionKey: "agent:main:discord:channel:123",
+      deliveryContext: { channel: "discord", to: "channel:123", accountId: "default" },
+    },
+    {
+      shape: "a Discord channel thread",
+      sessionKey: "agent:main:discord:channel:123:thread:456",
+      deliveryContext: { channel: "discord", to: "channel:123", accountId: "default" },
+    },
+  ])(
+    "keeps the notice out of $shape even for the owner",
+    async ({ sessionKey, deliveryContext }) => {
+      mocks.extractDeliveryInfo.mockReturnValue({ deliveryContext, threadId: undefined });
+      await post([change({})], sessionKey, channelNotices);
+      expect(mocks.sendDurableMessageBatchCore).not.toHaveBeenCalled();
+      expect(mocks.appendAssistantMessageToSessionTranscript).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionKey,
+          deliveryMirror: expect.objectContaining({ kind: "skill-workshop-change" }),
+        }),
+      );
+      expect(mocks.enqueueSystemEvent).toHaveBeenCalledWith(
+        expect.stringContaining("If the user asks to undo or revert it, call skill_workshop"),
+        { sessionKey },
+      );
+    },
+  );
+
+  it("keeps the notice out of a direct chat whose reviewed turn was not the owner's", async () => {
+    mocks.extractDeliveryInfo.mockReturnValue({
+      deliveryContext: { channel: "telegram", to: "42" },
+      threadId: undefined,
+    });
+    await post([change({})], undefined, channelNotices, false);
+    expect(mocks.sendDurableMessageBatchCore).not.toHaveBeenCalled();
+    expect(mocks.appendAssistantMessageToSessionTranscript).toHaveBeenCalledOnce();
+    expect(mocks.enqueueSystemEvent).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
+      shape: "a Signal direct key",
+      sessionKey: "agent:main:signal:direct:+15550001",
+      to: "+15550001",
+    },
+    { shape: "a recorded direct chat type", sessionKey: "agent:main:main", chatType: "direct" },
+    { shape: "a recorded dm chat type", sessionKey: "agent:main:main", chatType: "dm" },
+    { shape: "the channel's target reading", sessionKey: "agent:main:main", inferred: "direct" },
+  ])("sends to the owner in $shape", async ({ sessionKey, to = "42", chatType, inferred }) => {
+    const channel = sessionKey.includes("signal") ? "signal" : "telegram";
+    mocks.readEntry.mockReturnValue({
+      sessionId: "reviewed-session",
+      lifecycleRevision: "reviewed-revision",
+      chatType,
+    });
+    mocks.getLoadedChannelPluginForRead.mockReturnValue(
+      inferred ? { messaging: { inferTargetChatType: () => inferred } } : undefined,
+    );
+    mocks.extractDeliveryInfo.mockReturnValue({
+      deliveryContext: { channel, to },
+      threadId: undefined,
+    });
+    await post([change({})], sessionKey, channelNotices);
+    expect(mocks.sendDurableMessageBatchCore).toHaveBeenCalledWith(
+      expect.objectContaining({ channel, to }),
+      undefined,
+      undefined,
+      generation(sessionKey),
+    );
+    expect(mocks.appendAssistantMessageToSessionTranscript).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { shape: "no chat-shape fact", chatType: undefined, inferred: undefined },
+    { shape: "an unrecognized recorded chat type", chatType: "broadcast", inferred: undefined },
+    // The recorded chat type outranks a channel's guess from the target.
+    {
+      shape: "a recorded group under a direct-looking target",
+      chatType: "group",
+      inferred: "direct",
+    },
+  ])("fails closed to the transcript for $shape", async ({ chatType, inferred }) => {
+    mocks.readEntry.mockReturnValue({
+      sessionId: "reviewed-session",
+      lifecycleRevision: "reviewed-revision",
+      chatType,
+    });
+    mocks.getLoadedChannelPluginForRead.mockReturnValue(
+      inferred ? { messaging: { inferTargetChatType: () => inferred } } : undefined,
+    );
+    mocks.extractDeliveryInfo.mockReturnValue({
+      deliveryContext: { channel: "telegram", to: "42" },
+      threadId: undefined,
+    });
+    await post([change({})], "agent:main:main", channelNotices);
+    expect(mocks.sendDurableMessageBatchCore).not.toHaveBeenCalled();
+    expect(mocks.appendAssistantMessageToSessionTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionKey: "agent:main:main",
+        deliveryMirror: expect.objectContaining({ kind: "skill-workshop-change" }),
+      }),
+    );
+    expect(mocks.enqueueSystemEvent).toHaveBeenCalledOnce();
   });
 
   it("records a Slack transcript notice even when channel notices are enabled", async () => {
@@ -407,6 +533,7 @@ describe("postWorkshopChangeNotice", () => {
           generation: currentGeneration,
           runId,
           changes: [change({})],
+          senderIsOwner: true,
         }),
       );
     try {

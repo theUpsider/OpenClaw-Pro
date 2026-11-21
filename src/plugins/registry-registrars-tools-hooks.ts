@@ -16,6 +16,7 @@ import {
 } from "./agent-tool-result-middleware.js";
 import { CODEX_APP_SERVER_EXTENSION_RUNTIME_ID } from "./codex-app-server-extension-factory.js";
 import type { CodexAppServerExtensionFactory } from "./codex-app-server-extension-types.js";
+import { resolveConfiguredHookFailurePolicy } from "./hook-failure-policy.js";
 import {
   resolveConversationAccessAllowed,
   resolvePromptInjectionAllowed,
@@ -417,6 +418,11 @@ export function createToolHookRegistrars(state: PluginRegistryState) {
       return;
     }
     const timeoutMs = resolveTypedHookTimeoutMs({ hookName, opts, policy });
+    const failurePolicy = resolveConfiguredHookFailurePolicy({
+      hookName,
+      policy,
+      registrationPolicy: opts?.failurePolicy,
+    });
     const eligibleTriggers =
       hookName === "before_agent_reply"
         ? normalizeHookEligibility(opts?.eligibleTriggers, isPluginHookAgentTrigger)
@@ -440,6 +446,7 @@ export function createToolHookRegistrars(state: PluginRegistryState) {
       handler,
       ...(matcher ? { matcher } : {}),
       priority: opts?.priority,
+      ...(failurePolicy ? { failurePolicy } : {}),
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       ...(eligibleTriggers ? { eligibleTriggers } : {}),
       ...(eligibleDispatchKinds ? { eligibleDispatchKinds } : {}),

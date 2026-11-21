@@ -10,6 +10,7 @@ import { build, createLogger, type InlineConfig } from "vite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { controlUiCodeSplitting } from "../../config/control-ui-chunking.ts";
 import controlUiViteConfig from "../../vite.config.ts";
+import { DEFAULT_THEME_TYPEFACE } from "./default-typeface.ts";
 
 function readBuiltIdentity(html: string): { buildId: string } {
   const encoded = /globalThis\.OPENCLAW_CONTROL_UI_BUILD_INFO=(.*?);<\/script>/u.exec(html)?.[1];
@@ -483,6 +484,29 @@ describe("Control UI Vite build", () => {
         ).resolves.toBeDefined();
       }
     }
+    const offlineBoot = JSON.parse(/^const OFFLINE_BOOT = (.+);$/mu.exec(serviceWorker)![1]!) as {
+      assets: Array<{ path: string }>;
+      publicAssets: string[];
+    };
+    // Install precaches the default claw face only; claw's palette is in base CSS.
+    expect(
+      offlineBoot.assets.map((asset) => asset.path).filter((asset) => !asset.startsWith("assets/")),
+    ).toEqual(
+      [
+        `fonts/${DEFAULT_THEME_TYPEFACE}-italic-latin-ext.woff2`,
+        `fonts/${DEFAULT_THEME_TYPEFACE}-italic-latin.woff2`,
+        `fonts/${DEFAULT_THEME_TYPEFACE}-latin-ext.woff2`,
+        `fonts/${DEFAULT_THEME_TYPEFACE}-latin.woff2`,
+        `fonts/${DEFAULT_THEME_TYPEFACE}.css`,
+      ].map((asset) => `${asset}?v=${encodeURIComponent(cacheId!)}`),
+    );
+    // Every other face and theme stays eligible for the worker's runtime cache.
+    expect(offlineBoot.publicAssets).toEqual(
+      expect.arrayContaining([
+        ...fonts.filter((name) => /\.(?:css|woff2)$/u.test(name)).map((name) => `fonts/${name}`),
+        "themes/dash.css",
+      ]),
+    );
     const webManifest: { start_url: string; icons: Array<{ src: string }> } = JSON.parse(
       await fs.readFile(path.join(outDir, "manifest.webmanifest"), "utf8"),
     );

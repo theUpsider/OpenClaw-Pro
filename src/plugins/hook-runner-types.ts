@@ -1,3 +1,4 @@
+import type { HookFailurePolicy } from "./hook-failure-policy.js";
 import type {
   PluginHookBeforeAgentFinalizeResult,
   PluginHookName,
@@ -10,7 +11,7 @@ type HookRunnerLogger = {
   error: (message: string) => void;
 };
 
-export type HookFailurePolicy = "fail-open" | "fail-closed";
+export type { HookFailurePolicy } from "./hook-failure-policy.js";
 
 export type VoidHookRunOptions = {
   unrefTimeout?: boolean;

@@ -1,4 +1,8 @@
 import { Type } from "typebox";
+import {
+  isGoalVerificationEnabled,
+  resolveGoalCompletionGate,
+} from "../../config/sessions/goal-verification-gate.js";
 import { SessionGoalTransitionError } from "../../config/sessions/goals-transitions.js";
 import {
   createSessionGoal,
@@ -27,16 +31,47 @@ type GoalToolOptions = {
 
 const GetGoalToolSchema = Type.Object({});
 
-const CreateGoalToolSchema = Type.Object({
-  objective: Type.String({
-    description: "Concrete objective; explicit request only.",
-  }),
-  token_budget: Type.Optional(
-    Type.Union([Type.Integer({ minimum: 1 }), Type.Null()], {
-      description: "Positive token budget. Omit or pass null unless explicitly requested.",
+/**
+ * The `create_goal` schema, including the verification opt-in. The parameter is
+ * offered only while the global verification switch is on, so with the gate off
+ * the tool surface advertises no inert parameter. Both variants are built once
+ * and reused, so tool construction stays schema-identical across turns.
+ */
+let createGoalSchemaWithVerification: ReturnType<typeof Type.Object> | undefined;
+let createGoalSchemaWithoutVerification: ReturnType<typeof Type.Object> | undefined;
+
+function resolveCreateGoalToolSchema(verificationEnabled: boolean) {
+  if (verificationEnabled) {
+    createGoalSchemaWithVerification ??= Type.Object({
+      objective: Type.String({
+        description: "Concrete objective; explicit request only.",
+      }),
+      token_budget: Type.Optional(
+        Type.Union([Type.Integer({ minimum: 1 }), Type.Null()], {
+          description: "Positive token budget. Omit or pass null unless explicitly requested.",
+        }),
+      ),
+      verify_completion: Type.Optional(
+        Type.Union([Type.Boolean(), Type.Null()], {
+          description:
+            "Opt this goal into adversarial completion verification when the operator asks for it. Omit otherwise.",
+        }),
+      ),
+    });
+    return createGoalSchemaWithVerification;
+  }
+  createGoalSchemaWithoutVerification ??= Type.Object({
+    objective: Type.String({
+      description: "Concrete objective; explicit request only.",
     }),
-  ),
-});
+    token_budget: Type.Optional(
+      Type.Union([Type.Integer({ minimum: 1 }), Type.Null()], {
+        description: "Positive token budget. Omit or pass null unless explicitly requested.",
+      }),
+    ),
+  });
+  return createGoalSchemaWithoutVerification;
+}
 
 const UpdateGoalToolSchema = Type.Object({
   status: stringEnum(MODEL_UPDATABLE_SESSION_GOAL_STATUSES, {
@@ -84,13 +119,14 @@ export function createGetGoalTool(options: GoalToolOptions): AnyAgentTool {
 }
 
 export function createCreateGoalTool(options: GoalToolOptions): AnyAgentTool {
+  const verificationEnabled = options.config ? isGoalVerificationEnabled(options.config) : false;
   return {
     label: "Create Goal",
     name: "create_goal",
     displaySummary: "Create a thread goal",
     description:
       "Create a goal only when explicitly requested by the user or system instructions. Set a positive token_budget only when a budget is explicitly requested; otherwise omit it or pass null. Fails if a goal already exists; the user must clear it before starting another.",
-    parameters: CreateGoalToolSchema,
+    parameters: resolveCreateGoalToolSchema(verificationEnabled),
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
       const objective = readToolStringParam(params, "objective", { required: true });
@@ -103,6 +139,9 @@ export function createCreateGoalTool(options: GoalToolOptions): AnyAgentTool {
         actor: { type: "agent", id: scope.sessionKey },
         objective,
         ...(tokenBudget !== undefined ? { tokenBudget } : {}),
+        // Only a literal true opts in; the flag is captured at creation and is
+        // never widened by a later global switch.
+        ...(params.verify_completion === true ? { verifyCompletion: true } : {}),
       });
       return jsonResult({ status: "created", goal });
     },
@@ -131,6 +170,27 @@ export function createUpdateGoalTool(options: GoalToolOptions): AnyAgentTool {
       const note = readToolStringParam(params, "note");
       const scope = resolveGoalSessionScope(options);
       try {
+        // The global switch is checked before the read: with the gate off this
+        // path performs no I/O at all, so the default-off behavior is unchanged.
+        if (status === "complete" && options.config && isGoalVerificationEnabled(options.config)) {
+          // Adversarial completion verification (opt-in): completion is refused
+          // unless a passing verdict exists for the goal's current state.
+          const snapshot = await getSessionGoal({ ...scope, persist: false });
+          const gate = resolveGoalCompletionGate({
+            cfg: options.config,
+            goal: snapshot.goal,
+          });
+          if (gate.refusal) {
+            return jsonResult({
+              status: "refused",
+              reason: gate.refusal.outcome,
+              missingPoints: gate.refusal.missingPoints,
+              error: gate.refusal.message,
+              nextAction:
+                "The goal stays active and incomplete. Do not retry update_goal; address the listed points or keep working, and state completion again when the verifier can pass.",
+            });
+          }
+        }
         const goal = await updateSessionGoalStatus({
           ...scope,
           actor: { type: "agent", id: scope.sessionKey },

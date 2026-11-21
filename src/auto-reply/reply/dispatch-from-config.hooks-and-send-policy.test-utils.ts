@@ -43,7 +43,10 @@ import {
 } from "./dispatch-from-config.test-support.js";
 import type { InternalGetReplyOptions } from "./get-reply.types.js";
 import { createReplyDispatcher } from "./reply-dispatcher.js";
-import { resolveReplyOperationRunState } from "./reply-operation-run-state.js";
+import {
+  resolveReplyOperationRunState,
+  suppressVisibleReply,
+} from "./reply-operation-run-state.js";
 import { buildTestCtx } from "./test-ctx.js";
 
 const NO_VISIBLE_REPLY_FALLBACK_TEXT = buildNoVisibleReplyFallbackText();
@@ -2671,6 +2674,85 @@ describe("sendPolicy deny — suppress delivery, not processing (#53328)", () =>
     if (replyDispatchCall?.[1] === undefined) {
       throw new Error("Expected reply dispatch metadata");
     }
+  });
+
+  it("runs the turn but posts nothing when the reply gate suppressed the visible reply", async () => {
+    setNoAbort();
+    sessionStoreMocks.currentEntry = sendPolicySessionEntry("allow");
+    const dispatcher = createDispatcher();
+    const callbacks = {
+      toolResult: vi.fn(),
+      typingStart: vi.fn(async () => {}),
+    };
+    // The gate verdict lands on the turn's run state before the agent run starts;
+    // the resolver sees it and emits the same visible output it normally would.
+    const replyResolver = vi.fn(async (_ctx: MsgContext, opts?: GetReplyOptions) => {
+      suppressVisibleReply(resolveReplyOperationRunState(opts));
+      await opts?.onReplyStart?.();
+      await opts?.onBlockReply?.({ text: "streaming block" });
+      await opts?.onToolResult?.({ text: "tool output" });
+      return { text: "final reply" } satisfies ReplyPayload;
+    });
+    const ctx = buildTestCtx({
+      ChatType: "group",
+      Surface: "feishu",
+      Provider: "feishu",
+      SessionKey: "agent:main:feishu:group:oc_reply_gate",
+      InboundEventKind: "user_request",
+    });
+
+    const result = await dispatchReplyFromConfig({
+      ctx,
+      cfg: emptyConfig,
+      dispatcher,
+      replyResolver,
+      replyOptions: {
+        onToolResult: callbacks.toolResult,
+        onReplyStart: callbacks.typingStart,
+      },
+    });
+
+    // The turn ran...
+    expect(replyResolver).toHaveBeenCalledTimes(1);
+    // ...and every automatic visible path stayed silent, including the
+    // no-visible-reply fallback that an ordinary empty turn would post.
+    expect(dispatcher.sendFinalReply).not.toHaveBeenCalled();
+    expect(dispatcher.sendBlockReply).not.toHaveBeenCalled();
+    expect(dispatcher.sendToolResult).not.toHaveBeenCalled();
+    expect(callbacks.toolResult).not.toHaveBeenCalled();
+    // `onReplyStart` here is the host's own callback, not the channel typing
+    // indicator; like message_tool_only, suppression is enforced by the policy
+    // (`suppressTyping`) and by the prepared turn's `never` typing mode.
+    expect(callbacks.typingStart).toHaveBeenCalledTimes(1);
+    // Deliberate gate silence is a terminal silent reply, not a dropped turn.
+    expect(result.deliberateSilentTerminalReply).toBe(true);
+    expect(result.noVisibleReplyFallbackDelivered).toBeUndefined();
+  });
+
+  it("still posts the visible reply when the gate did not suppress it", async () => {
+    setNoAbort();
+    sessionStoreMocks.currentEntry = sendPolicySessionEntry("allow");
+    const dispatcher = createDispatcher();
+    const replyResolver = vi.fn(async () => ({ text: "final reply" }) satisfies ReplyPayload);
+    const ctx = buildTestCtx({
+      ChatType: "group",
+      Surface: "feishu",
+      Provider: "feishu",
+      SessionKey: "agent:main:feishu:group:oc_reply_gate_open",
+      InboundEventKind: "user_request",
+    });
+
+    const result = await dispatchReplyFromConfig({
+      ctx,
+      cfg: emptyConfig,
+      dispatcher,
+      replyResolver,
+    });
+
+    expect(replyResolver).toHaveBeenCalledTimes(1);
+    expect(dispatcher.sendFinalReply).toHaveBeenCalledWith({ text: "final reply" });
+    expect(result.queuedFinal).toBe(true);
+    expect(result.deliberateSilentTerminalReply).toBeUndefined();
   });
 
   it("treats message-tool-only observed delivery as visible for fallback eligibility", async () => {

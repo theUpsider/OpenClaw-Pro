@@ -5,6 +5,7 @@ import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { createSignal, Show } from "solid-js";
 import { AgentPicker } from "../../components/host-components.tsx";
 import { icons } from "../../components/icons.tsx";
+import { VoiceBoardControl } from "../../components/voice-board-control.tsx";
 import { WorkboardBoardGlyph } from "../../components/workboard-board-glyph.tsx";
 import { t } from "../../i18n/index.ts";
 import { formatUiError } from "../../lib/format-error.ts";
@@ -26,7 +27,10 @@ import {
   WORKBOARD_CHANGED_EVENT,
 } from "../../lib/workboard/index.ts";
 import { invalidateWorkboardLoads } from "../../lib/workboard/runtime.ts";
-import { createWorkboardSessionResolver } from "../../lib/workboard/session-resolution.ts";
+import {
+  createWorkboardSessionResolver,
+  createWorkboardDockSessions,
+} from "../../lib/workboard/session-resolution.ts";
 import type { WorkboardBoardMetadata } from "../../lib/workboard/types.ts";
 import {
   buildAgentFilterOptions,
@@ -110,6 +114,9 @@ export function createWorkboardPage(
       });
     };
     const sessionResolver = createWorkboardSessionResolver(host, requestUpdate);
+    // Separate, dock-inclusive route for the interaction fallback; never merged into the
+    // board roster, which feeds the attention filter.
+    const dockSessions = createWorkboardDockSessions(host, requestUpdate);
     const sessionsBoard = createSessionsBoardController(host, requestUpdate);
     const stop = () => {
       // A paused page no longer owns shared loads started by session actions.
@@ -269,6 +276,16 @@ export function createWorkboardPage(
         focusedCard ? workboardCardSessionKey(focusedCard) : undefined,
         connected && context.presented,
       );
+      // Opened only while a loaded card actually carries an interaction link and owns no
+      // execution session, so a board that never used dictation reads nothing extra. One
+      // dock-inclusive read per board view serves every such card, never one per card.
+      dockSessions.sync(
+        connected &&
+          context.presented &&
+          state.cards.some(
+            (card) => Boolean(card.metadata?.interaction) && !workboardCardSessionKey(card),
+          ),
+      );
       const sessionResolution = sessionResolver.resolution;
       const sessionError =
         sessionResolution && sessionResolution.status !== "resolved"
@@ -300,6 +317,7 @@ export function createWorkboardPage(
         detailBoardAutomation: detailJobId ? automations.get(detailJobId) : undefined,
         host: workboard,
         client: connected ? client : null,
+        controlUi: host,
         connected,
         canWrite: host.connection.canWrite,
         canGrant: host.connection.canGrant,
@@ -308,6 +326,7 @@ export function createWorkboardPage(
         defaultAgentId,
         sessions,
         sessionResolution,
+        interactionSessions: dockSessions.snapshot.sessions,
         scopeAgentId: scope,
         onClearAgentScope: () => host.agents.setScope(null),
         showAgentFilter: false,
@@ -316,6 +335,7 @@ export function createWorkboardPage(
           automations.clear();
           void refreshMetadata();
           sessionResolver.refresh();
+          dockSessions.refresh();
           void refreshWorkboard({
             host: workboard,
             client: connected ? client : null,
@@ -375,6 +395,12 @@ export function createWorkboardPage(
                 {icons.penLine}
               </button>
             </Show>
+            <VoiceBoardControl
+              host={host}
+              board={board()}
+              boardAgent={(id) => sessionsBoard.voiceConversation(id)}
+              boardAgentTarget={(id) => sessionsBoard.voiceConversationTarget(id)}
+            />
           </div>
           <Show when={board()?.automationJobId}>
             {(jobId) => (
@@ -581,6 +607,7 @@ export function createWorkboardPage(
         unsubscribeCron();
         sessionsBoard.dispose();
         sessionResolver.dispose();
+        dockSessions.dispose();
         document.removeEventListener("visibilitychange", onVisibilityChange);
         stop();
         disposeRoot();

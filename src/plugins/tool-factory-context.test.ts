@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { createOperationalRunInstanceRef } from "../agents/admitted-run-context.js";
+import { resolveOpenClawPluginToolInputs } from "../agents/openclaw-tools.plugin-context.js";
 import {
   captureGatewayToolCallerAssertion,
   withGatewayToolCallerIdentity,
@@ -119,6 +120,25 @@ describe("plugin tool declaration membership", () => {
     ]);
     expect(readFactory).not.toHaveBeenCalled();
     expect(readNames).toHaveBeenCalledOnce();
+  });
+});
+
+describe("plugin tool work context", () => {
+  it.each([
+    [{ page: "workboard", detail: { boardId: "ops", boardKind: "sessions" } }, "ops"],
+    [undefined, undefined],
+  ] as const)("hands run work context %j to a registered factory", (workContext, boardId) => {
+    const seen = vi.fn();
+    const { entry, registry } = register((ctx) => {
+      seen(ctx.workContext?.detail?.boardId);
+      return null;
+    });
+    const { context } = resolveOpenClawPluginToolInputs({ options: { config: {}, workContext } });
+
+    entry.factory(createPluginToolFactoryContext({ entry, registry, context }));
+
+    expect(context.workContext).toBe(workContext);
+    expect(seen).toHaveBeenCalledWith(boardId);
   });
 });
 

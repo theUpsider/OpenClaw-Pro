@@ -1,10 +1,14 @@
 import { Type, type Static, type TProperties, type TSchema } from "typebox";
 import { Value } from "typebox/value";
+import { isWorkerTextFrameWithinBudget } from "../worker-transcript-budget.js";
 import { closedObject } from "./closed-object.js";
 import {
   LiveIntegerSchema,
   LiveSequenceSchema,
   LiveTextSchema,
+  WorkerMessageTextSchema,
+  WorkerContextTextSchema,
+  isWorkerFrameWithinBudget,
   WorkerIdentifierSchema,
   checkWorkerProtocolJson,
   workerMessageSchemas,
@@ -26,9 +30,7 @@ export const WORKER_INFERENCE_MAX_CONTEXT_MESSAGES = 1_024;
 const WORKER_INFERENCE_MAX_TOOLS = 256;
 export const WORKER_INFERENCE_MAX_OUTPUT_TOKENS = 1_000_000;
 
-const InferenceTextSchema = Type.String({
-  maxLength: WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES,
-});
+const InferenceTextSchema = WorkerMessageTextSchema;
 const OptionalInferenceTextSchema = Type.Optional(InferenceTextSchema);
 const inferenceSchemas = workerMessageSchemas(
   InferenceTextSchema,
@@ -83,7 +85,7 @@ export const WorkerInferenceModelRefSchema = closedObject({
 });
 
 const WorkerInferenceContextSchema = closedObject({
-  systemPrompt: Type.Optional(InferenceTextSchema),
+  systemPrompt: Type.Optional(WorkerContextTextSchema),
   messages: Type.Array(WorkerInferenceMessageSchema, {
     maxItems: WORKER_INFERENCE_MAX_CONTEXT_MESSAGES,
   }),
@@ -216,7 +218,7 @@ const WorkerInferenceStreamEventSchema = Type.Union([
     id: WorkerIdentifierSchema,
     toolName: WorkerIdentifierSchema,
   }),
-  inferenceContentEvent("toolcall_delta", { delta: InferenceTextSchema }),
+  inferenceContentEvent("toolcall_delta", { delta: LiveTextSchema }),
   inferenceContentEvent("toolcall_end", {}),
 ]);
 
@@ -291,23 +293,58 @@ export type WorkerInferenceTerminalOutcome = Static<typeof WorkerInferenceTermin
 export type WorkerInferenceTerminalParams = Static<typeof WorkerInferenceTerminalParamsSchema>;
 export type WorkerInferenceTerminalFrame = Static<typeof WorkerInferenceTerminalFrameSchema>;
 
-function workerInferenceValidator<const Schema extends TSchema>(schema: Schema) {
+function workerInferenceValidator<const Schema extends TSchema>(
+  schema: Schema,
+  withinBudget: (data: Static<Schema>) => boolean = (data) =>
+    isWorkerFrameWithinBudget(data, () => []),
+) {
   return (data: unknown): data is Static<Schema> =>
-    !checkWorkerProtocolJson(data) && Value.Check(schema, data);
+    !checkWorkerProtocolJson(data) && Value.Check(schema, data) && withinBudget(data);
 }
 
 export const validateWorkerInferenceStartParams = workerInferenceValidator(
   WorkerInferenceStartParamsSchema,
+  (params) => isWorkerTextFrameWithinBudget(params, { ...params.context, residual: "context" }),
+);
+export const validateWorkerInferenceStartRequestFrame = workerInferenceValidator(
+  WorkerInferenceStartRequestFrameSchema,
+  (frame) => isWorkerTextFrameWithinBudget(frame, { ...frame.params.context, residual: "context" }),
 );
 export const validateWorkerInferenceCancelParams = workerInferenceValidator(
   WorkerInferenceCancelParamsSchema,
 );
 export const validateWorkerInferenceTerminalOutcome = workerInferenceValidator(
   WorkerInferenceTerminalOutcomeSchema,
+  (outcome) =>
+    isWorkerTextFrameWithinBudget(outcome, {
+      messages: outcome.type === "done" ? [outcome.message] : [],
+      residual: "context",
+    }),
 );
 export const validateWorkerInferenceEventFrame = workerInferenceValidator(
   WorkerInferenceEventFrameSchema,
+  (frame) => {
+    const event = frame.payload.event;
+    const text: string[] = [];
+    if (event.type === "text_delta" || event.type === "thinking_delta") {
+      text.push(event.delta);
+    } else if (
+      event.type === "text_start" ||
+      event.type === "text_end" ||
+      event.type === "thinking_end"
+    ) {
+      if (event.contentSignature !== undefined) {
+        text.push(event.contentSignature);
+      }
+    }
+    return isWorkerTextFrameWithinBudget(frame, { text });
+  },
 );
 export const validateWorkerInferenceTerminalFrame = workerInferenceValidator(
   WorkerInferenceTerminalFrameSchema,
+  (frame) =>
+    isWorkerTextFrameWithinBudget(frame, {
+      messages: frame.payload.outcome.type === "done" ? [frame.payload.outcome.message] : [],
+      residual: "context",
+    }),
 );

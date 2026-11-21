@@ -319,6 +319,12 @@ async function runSkillExperienceReviewInner(candidate: ExperienceReviewCandidat
     // Each skill_workshop call commits on its own, so a failed or aborted run may have changed skills.
     const changes = await listWorkshopChanges(agentId, { runId });
     log.debug(`experience review finished: session=${sessionKey} changes=${changes.length}`);
-    await postWorkshopChangeNotice({ config, generation, runId, changes });
+    await postWorkshopChangeNotice({
+      config,
+      generation,
+      runId,
+      changes,
+      senderIsOwner: foregroundPromptContext.senderIsOwner === true,
+    });
   }
 }

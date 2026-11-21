@@ -126,6 +126,7 @@ Build a read-only profile by combining `agents.defaults.sandbox.workspaceAccess:
 
 - `tools.exec.applyPatch.workspaceOnly: true` (default): keeps `apply_patch` from writing/deleting outside the workspace directory even with sandboxing off. Set `false` only if you intentionally want `apply_patch` to touch files outside the workspace.
 - `tools.fs.workspaceOnly: true` (optional): restricts `read`/`write`/`edit`/`apply_patch` paths and native prompt image auto-load paths to the workspace directory.
+- `tools.pathScopes` (optional): hides and refuses operator-listed paths for the duration of a model or provider, per session model switch. It refuses with a missing-file shape instead of a policy message, removes concealed entries from listings, and takes `exec`/`process` off the surface by default because command text is not path-checked. See [Tool policy](/gateway/config-tools/tool-policy#tools.pathscopes).
 - Keep filesystem roots narrow - avoid broad roots like your home directory for agent/sandbox workspaces, which can expose sensitive local files (for example state/config under `~/.openclaw`) to filesystem tools.
 
 ## Per-agent access profiles (multi-agent)

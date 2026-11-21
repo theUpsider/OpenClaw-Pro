@@ -54,6 +54,7 @@ describe("WorkboardView", () => {
     state.lastDispatchSummary = {
       started: 0,
       failures: 0,
+      queued: 0,
       promoted: 0,
       blocked: 0,
       reclaimed: 0,
@@ -232,21 +233,27 @@ describe("WorkboardView", () => {
     const popup = expectDefined(editor.popover, "labels popover");
     const matches = vi.spyOn(popup, "matches").mockReturnValue(false);
     onTestFinished(() => matches.mockRestore());
+    // The input is the Create field; the card's own labels stay toggles above it.
+    const original = () =>
+      [...popup.querySelectorAll<HTMLButtonElement>(".workboard-palette__slot")].find(
+        (slot) => slot.textContent === "original",
+      );
     const input = await editor.open();
-    input.value = "original, pending";
+    expectDefined(original(), "original label toggle").click();
+    input.value = "pending";
     input.dispatchEvent(new InputEvent("input", { bubbles: true }));
     popup.dispatchEvent(new Event("toggle"));
     await waitForFast(() => expect(popup.querySelector("input")).toBeNull());
     trigger.click();
     await waitForFast(() =>
-      expect(popup.querySelector<HTMLInputElement>("input")?.value).toBe("original, pending"),
+      expect(popup.querySelector<HTMLInputElement>("input")?.value).toBe("pending"),
     );
+    expect(original()?.getAttribute("aria-pressed")).toBe("false");
     textButton(popup, "Cancel").click();
     await waitForFast(() => expect(popup.querySelector("input")).toBeNull());
     trigger.click();
-    await waitForFast(() =>
-      expect(popup.querySelector<HTMLInputElement>("input")?.value).toBe("original"),
-    );
+    await waitForFast(() => expect(popup.querySelector<HTMLInputElement>("input")?.value).toBe(""));
+    expect(original()?.getAttribute("aria-pressed")).toBe("true");
     expect(state.cards[0]?.labels).toEqual(["original"]);
   });
 
@@ -499,7 +506,12 @@ describe("WorkboardView", () => {
     input.value = " review, quality, review ";
     input.dispatchEvent(new InputEvent("input", { bubbles: true }));
     buttonByText(popup, "Save")!.click();
-    await waitForFast(() => expect(state.error).toContain("Labels unavailable"));
+    // A refused label write is reported at the field, not as a page error.
+    await waitForFast(() =>
+      expect(popup.querySelector('[role="alert"]')?.textContent).toContain("Labels unavailable"),
+    );
+    expect(state.error).toBeNull();
+    expect(input.getAttribute("aria-invalid")).toBe("true");
     expect(client.request).toHaveBeenCalledWith("workboard.cards.update", {
       id: card.id,
       expectedUpdatedAt: card.updatedAt,
@@ -564,7 +576,11 @@ describe("WorkboardView", () => {
     commentInput!.value = "Ship after CI";
     commentInput!.dispatchEvent(new InputEvent("input", { bubbles: true }));
     renderInto(container, props);
-    [...container.querySelectorAll<HTMLButtonElement>("button")]
+    [
+      ...container
+        .querySelector("[data-test-dialog]")!
+        .querySelectorAll<HTMLButtonElement>("button"),
+    ]
       .find((button) => button.textContent?.includes("Create"))
       ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await Promise.resolve();

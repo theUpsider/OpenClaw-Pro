@@ -1,19 +1,24 @@
 import { z } from "zod";
 import { definedFields } from "../../../record-fields.js";
+import { isWorkboardAskText } from "../../../src/workboard-operator-ask.ts";
 import {
   WORKBOARD_ATTEMPT_STATUSES,
   WORKBOARD_DIAGNOSTIC_KINDS,
   WORKBOARD_DIAGNOSTIC_SEVERITIES,
+  WORKBOARD_DISPATCH_MODES,
   WORKBOARD_EVENT_KINDS,
   WORKBOARD_EXECUTION_MODES,
   WORKBOARD_EXECUTION_STATUSES,
+  WORKBOARD_INTERACTION_SURFACES,
   WORKBOARD_LINK_TYPES,
   WORKBOARD_NOTIFICATION_KINDS,
+  WORKBOARD_OPERATOR_ASK_KINDS,
   WORKBOARD_PROOF_STATUSES,
   WORKBOARD_STATUSES,
   WORKBOARD_TEMPLATE_IDS,
   type WorkboardEvent,
   type WorkboardExecution,
+  type WorkboardInteraction,
   type WorkboardMetadata,
 } from "./types.ts";
 
@@ -76,10 +81,34 @@ const automationSchema = sparseObject({
     .catch(undefined),
   maxRuntimeSeconds: automationNumberSchema,
   maxRetries: automationNumberSchema,
+  parallelizable: z.boolean().optional().catch(undefined),
+  maxConcurrentPerOwner: automationNumberSchema,
+  // Placement owner; unknown values drop the field so the UI shows a plain
+  // native card instead of guessing at an unrecognized mode.
+  dispatchMode: z.enum(WORKBOARD_DISPATCH_MODES).optional().catch(undefined),
   scheduledAt: automationNumberSchema,
   summary: optionalStringSchema,
   dispatchCount: automationNumberSchema,
   lastDispatchAt: automationNumberSchema,
+  awaitingAcceptance: z.boolean().optional().catch(undefined),
+  autoCompletedAt: automationNumberSchema,
+  acceptanceSeenAt: automationNumberSchema,
+  restartTombstone: z
+    .object({ sessionKey: z.string(), detectedAt: z.number() })
+    .optional()
+    .catch(undefined),
+  decisionOptions: tolerantArray(
+    sparseObject({
+      label: trimmedRequiredStringSchema,
+      description: optionalStringSchema,
+      recommended: z.boolean().optional().catch(undefined),
+    }),
+  ),
+  // Lenient twin of the server's `ask` rule: the UI only ever displays this text, so a
+  // value the server would refuse drops instead of rendering; the server stays the
+  // single refuser. The 120-character bound comes from the shared ask module.
+  ask: optionalStringSchema.transform((value) => (isWorkboardAskText(value) ? value : undefined)),
+  askKind: z.enum(WORKBOARD_OPERATOR_ASK_KINDS).optional().catch(undefined),
 })
   .transform((value) => (Object.keys(value).length ? value : undefined))
   .optional()
@@ -126,6 +155,7 @@ const workboardEventSchema = sparseObject({
   toStatus: z.enum(WORKBOARD_STATUSES).optional().catch(undefined),
   sessionKey: optionalStringSchema,
   runId: optionalStringSchema,
+  agentId: optionalStringSchema,
 });
 const workboardEventsSchema = tolerantArray(workboardEventSchema);
 
@@ -251,6 +281,35 @@ const staleSchema = z
   .optional()
   .catch(undefined);
 
+/**
+ * The session editing the card: reference data only, never authority. Tolerant like
+ * its neighbours: a malformed field drops the whole link, an unknown surface drops
+ * the surface. A live timestamp pair is required, so a partial write shows nothing.
+ */
+const interactionSchema = z
+  .object({
+    sessionKey: trimmedRequiredStringSchema,
+    agentId: optionalStringSchema.transform((value) => value?.trim() || undefined),
+    startedAt: z
+      .number()
+      .finite()
+      .refine((value) => value !== 0),
+    updatedAt: z
+      .number()
+      .finite()
+      .refine((value) => value !== 0),
+    surface: z.enum(WORKBOARD_INTERACTION_SURFACES).optional().catch(undefined),
+  })
+  .transform((value): WorkboardInteraction => ({
+    sessionKey: value.sessionKey,
+    startedAt: value.startedAt,
+    updatedAt: Math.max(value.startedAt, value.updatedAt),
+    ...(value.agentId ? { agentId: value.agentId } : {}),
+    ...(value.surface ? { surface: value.surface } : {}),
+  }))
+  .optional()
+  .catch(undefined);
+
 const workboardMetadataSchema = z
   .object({
     attempts: tolerantArray(attemptSchema),
@@ -268,6 +327,7 @@ const workboardMetadataSchema = z
     templateId: z.enum(WORKBOARD_TEMPLATE_IDS).optional().catch(undefined),
     archivedAt: optionalNumberSchema,
     stale: staleSchema,
+    interaction: interactionSchema,
     lifecycleStatusSourceUpdatedAt: z
       .number()
       .finite()

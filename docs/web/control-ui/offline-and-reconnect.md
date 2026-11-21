@@ -122,7 +122,9 @@ Gateway-rendered private HTML, API responses, or authorization tickets are
 added to this shell cache.
 
 Reloads reuse cached build-versioned fonts, themes, and the web manifest without
-contacting the Gateway. The service worker keeps only the current build's assets.
+contacting the Gateway. Preparation includes only the default theme's typeface; other
+fonts and themes are cached when first used online, so a font or theme you have not
+used since the last update falls back to a default until the browser is online again. The service worker keeps only the current build's assets.
 After an update, open tabs reload automatically unless unsaved-work protection
 blocks recovery; then save or discard the protected work and use the **Reload**
 banner. Uploaded profile avatars use private browser caching only when the URL
@@ -205,6 +207,8 @@ embedded dashboard. Connection status does not replace the Gateway name in the a
 
 The client retries ordinary connection loss automatically with randomized backoff: the first
 retry waits 800–960 ms, and sustained failures spread retries across 12.5–15 seconds.
+Backoff restarts at the first delay only after a connection has stayed up for 60 seconds, so a
+connection that keeps dropping shortly after it is established keeps lengthening its waits.
 Server retry hints remain minimum waits and can extend beyond that normal cap, with up to
 20% additional spread. The Gateway's WebSocket ping/pong keepalive detects dead
 peers on the server, but browsers cannot observe those frames or receive a close

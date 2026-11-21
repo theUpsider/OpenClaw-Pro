@@ -176,6 +176,9 @@ export class WorkboardWidgetModel {
   get statuses() {
     return getWorkboardState(this.runtime.owner).statuses;
   }
+  get boards() {
+    return getWorkboardState(this.runtime.owner).boards;
+  }
   get loaded() {
     return getWorkboardState(this.runtime.owner).loaded;
   }

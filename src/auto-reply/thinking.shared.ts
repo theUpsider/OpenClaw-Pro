@@ -52,6 +52,8 @@ export type ThinkingCatalogEntry = {
     supportsReasoningEffort?: boolean;
     supportedReasoningEfforts?: readonly string[] | null;
     reasoningEffortMap?: Record<string, string>;
+    /** Numeric per-level efforts; their keys are mapped levels for exposure purposes. */
+    numericReasoningEfforts?: Record<string, number>;
     defaultThinkingLevel?: string;
   } | null;
 };

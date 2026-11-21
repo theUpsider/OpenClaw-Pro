@@ -183,7 +183,9 @@ export function chatSubmitState(
 }
 
 export function resolveChatPaneFollowUpMode(
-  state: Pick<ChatPageHost, "settings" | "chatEffectiveQueueMode" | "chatQueueModeOverride">,
+  state: Pick<ChatPageHost, "chatEffectiveQueueMode" | "chatQueueModeOverride"> & {
+    settings: Pick<ChatPageHost["settings"], "chatFollowUpMode">;
+  },
   session: GatewaySessionRow | undefined,
   runtimeConfig: ApplicationContext["runtimeConfig"]["state"],
 ) {

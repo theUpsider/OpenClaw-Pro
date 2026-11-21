@@ -23,6 +23,8 @@ export function buildSubagentLaunchRequest(params: {
   thinkingOverride?: string;
   runTimeoutSeconds: number;
   lightContext: boolean;
+  /** Spawn-time `message` opt-in; the child's stored flag must also lift the subagent deny. */
+  messageToolEnabled: boolean;
   requesterOrigin?: DeliveryContext;
   currentMessagingTarget?: string;
   currentChannelId?: string;
@@ -62,7 +64,7 @@ export function buildSubagentLaunchRequest(params: {
     idempotencyKey: params.childIdem,
     deliver: params.completionMode === "thread-direct",
     lane: AGENT_LANE_SUBAGENT,
-    disableMessageTool: true,
+    disableMessageTool: !params.messageToolEnabled,
     swarmCollector: collect,
     swarmOutputSchema: params.outputSchema,
     cleanupBundleMcpOnRunEnd: params.spawnMode !== "session",

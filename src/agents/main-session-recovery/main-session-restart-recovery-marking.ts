@@ -38,6 +38,7 @@ import {
 import type { MainSessionRecoveryStoreTarget } from "./main-session-recovery-store.js";
 import {
   recordStartupRecoveryStoreResult,
+  recordStartupRecoveryTombstone,
   restartRecoveryStoreTargetKey,
   type RestartRecoveryStoreTarget,
 } from "./main-session-restart-recovery-diagnostics.js";
@@ -379,7 +380,25 @@ async function markOrphanedMainSessionStore(
     const entry = await readSessionEntryReadOnlyInWorker({ ...params.target, sessionKey: key });
     sessionKeys = entry && hasOrphanedMainSessionWork(entry, key) ? [key] : [];
   } else {
-    sessionKeys = (await readSessionEntrySummariesInWorker(params.target))
+    const summaries = await readSessionEntrySummariesInWorker(params.target);
+    // Startup owns the only full scan; persisted tombstones from earlier boots
+    // would otherwise stay silent until someone runs Doctor.
+    for (const { entry, sessionKey } of summaries) {
+      const tombstone = entry.mainRestartRecovery?.tombstone;
+      if (tombstone) {
+        recordStartupRecoveryTombstone({
+          ...params.target,
+          sessionKey,
+          reason: tombstone.reason,
+          unattended:
+            entry.archivedAt === undefined &&
+            !tombstone.recoveredSessionId &&
+            !tombstone.recoveredSessionKey,
+          lifecycleGeneration: params.lifecycleGeneration,
+        });
+      }
+    }
+    sessionKeys = summaries
       .filter(({ entry, sessionKey }) => hasOrphanedMainSessionWork(entry, sessionKey))
       .map(({ sessionKey }) => sessionKey);
   }

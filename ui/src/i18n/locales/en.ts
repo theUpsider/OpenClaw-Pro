@@ -2642,6 +2642,7 @@ export const en: TranslationMap & {
     common: {
       emptyValue: "—",
       unknown: "unknown",
+      atLeast: "≥ {value}",
     },
     loading: {
       title: "Usage Overview",
@@ -2916,6 +2917,12 @@ export const en: TranslationMap & {
       stopping: "Stopping…",
       elapsed: "Elapsed time",
       duration: "Run duration",
+      facts: "Agent, model and thinking",
+      agent: "Agent",
+      fact: "{label}: {value}",
+      unknown: "unknown",
+      roleOrchestrator: "Orchestrator",
+      roleLeaf: "Leaf",
     },
     parentSession: "the parent session",
     openParentSession: "Open parent session",

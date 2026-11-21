@@ -378,6 +378,8 @@ export async function loadGatewayPlugins(params: {
   expectedSourceDigests?: Readonly<Record<string, string>>;
   /** Metadata-only replacement preflight; never executes plugin registration. */
   loadModules?: boolean;
+  /** Replacement drain: cancels the incremental load at its next step boundary. */
+  signal?: AbortSignal;
   moduleRecoveries?: ReadonlyMap<string, PluginRuntimeRecovery>;
   prepareRegistrationFailureCleanup?: PluginLoadOptions["prepareRegistrationFailureCleanup"];
   env?: NodeJS.ProcessEnv;
@@ -447,6 +449,7 @@ export async function loadGatewayPlugins(params: {
           previousRegistry: params.previousRegistry,
           replacePluginIds: params.replacePluginIds ? [...params.replacePluginIds] : undefined,
           loadModules: params.loadModules,
+          signal: params.signal,
           moduleRecoveries: params.moduleRecoveries,
           prepareRegistrationFailureCleanup: params.prepareRegistrationFailureCleanup,
           // Startup registration stays scoped; later capability loads use the complete bound generation.

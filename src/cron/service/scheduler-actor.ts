@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { BroadcastChannel } from "node:worker_threads";
 import { isAbortError } from "../../infra/abort-signal.js";
+import { SqliteWorkerError } from "../../infra/sqlite-worker-contract.js";
 import {
   beginGatewayRootWorkAdmissionWhenOpen,
   GatewayDrainingError,
@@ -39,9 +40,14 @@ type ActorConnection = {
   unregister: () => void;
   releaseRefresh: () => void;
   pending: Promise<void>;
+  /** The worker accepted this actor; earlier failures belong to the starting caller. */
+  armed: boolean;
 };
 
 const connections = new WeakMap<CronServiceState, ActorConnection>();
+
+/** Bounded backoff for replacing a scheduler connection whose worker lease died. */
+const REARM_DELAYS_MS = [1_000, 5_000, 30_000, 120_000, 600_000];
 
 async function publish(state: CronServiceState, result: CronSchedulerResult): Promise<void> {
   if (result.jobs.length > 0) {
@@ -80,9 +86,13 @@ export async function startCronScheduler(
   const channel = new BroadcastChannel(channelName);
   channel.unref();
   const context = captureOpenClawStateWorkerContext();
-  const lease = createOpenClawStateWorkerLease(context, async (scope) => {
-    await scope.execute({ type: "cron.schedulerStop", input: { storeKey, channelName } });
-  });
+  const lease = createOpenClawStateWorkerLease(
+    context,
+    async (scope) => {
+      await scope.execute({ type: "cron.schedulerStop", input: { storeKey, channelName } });
+    },
+    () => recoverLostCronSchedulerLease(state, lease),
+  );
   const connection: ActorConnection = {
     lease,
     channel,
@@ -91,6 +101,7 @@ export async function startCronScheduler(
     unregister: () => {},
     releaseRefresh: () => {},
     pending: Promise.resolve(),
+    armed: false,
   };
   connections.set(state, connection);
   connection.releaseRefresh = registerCronSchedulerRefresh(state, () =>
@@ -115,6 +126,7 @@ export async function startCronScheduler(
       await (state.deps.runSchedulerOwned ? state.deps.runSchedulerOwned(run) : run());
     }).catch((error: unknown) => {
       state.deps.log.warn({ err: String(error) }, "cron: scheduling delayed; worker will retry");
+      recoverClosedCronSchedulerLease(state, connection, error);
     });
   });
   connection.unsubscribe = sessionChanges.subscribe((change) => {
@@ -153,6 +165,7 @@ export async function startCronScheduler(
       generation,
     );
     started = true;
+    connection.armed = true;
     state.schedulerStarted = true;
     await publish(state, result);
     await locked(state, () => launchCronRunQueueResult(state, result, context));
@@ -260,7 +273,89 @@ export function refreshCronScheduler(state: CronServiceState): void {
     })
     .catch((error: unknown) => {
       state.deps.log.warn({ err: String(error) }, "cron: worker refresh delayed");
+      recoverClosedCronSchedulerLease(state, connection, error);
     });
+}
+
+function recoverClosedCronSchedulerLease(
+  state: CronServiceState,
+  connection: ActorConnection,
+  error: unknown,
+): void {
+  if (error instanceof SqliteWorkerError && error.code === "closed") {
+    recoverLostCronSchedulerLease(state, connection.lease);
+  }
+}
+
+/**
+ * A native worker loss retires the scheduler lease and takes the worker-side
+ * actor and its wake timer with it, so this connection can never tick again
+ * while schedulerStarted stays true. Drop it and start a new one through the
+ * normal start path; lifecycle stop rotates the generation and closes
+ * schedulerScope, which cancels a pending attempt.
+ */
+function recoverLostCronSchedulerLease(
+  state: CronServiceState,
+  lease: OpenClawStateWorkerLease,
+): void {
+  const connection = connections.get(state);
+  if (connection?.lease !== lease || !connection.armed || state.stopped) {
+    return;
+  }
+  const generation = state.lifecycleGeneration;
+  state.deps.log.warn({}, "cron: scheduler worker lease lost; re-arming");
+  // closeConnection unpublishes synchronously, so repeated loss signals join this recovery.
+  void stopCronScheduler(state)
+    .catch((error: unknown) => {
+      state.deps.log.warn({ err: String(error) }, "cron: lost scheduler lease cleanup failed");
+    })
+    .then(() => scheduleCronSchedulerRearm(state, generation, 0));
+}
+
+function scheduleCronSchedulerRearm(
+  state: CronServiceState,
+  generation: number,
+  attempt: number,
+): void {
+  if (state.stopped || state.lifecycleGeneration !== generation) {
+    return;
+  }
+  const delayMs = REARM_DELAYS_MS[attempt];
+  if (delayMs === undefined) {
+    state.deps.log.error(
+      { attempts: attempt },
+      "cron: scheduler could not re-arm after losing its worker lease; restart the gateway",
+    );
+    return;
+  }
+  const current = () => !state.stopped && state.lifecycleGeneration === generation;
+  state.schedulerScope.schedule({
+    id: `cron:scheduler-rearm:${cronStoreKey(state.deps.storePath)}`,
+    delayMs,
+    run: async () => {
+      if (!current() || connections.has(state)) {
+        return;
+      }
+      // Live host runs stay in the request list the worker receives; boot-only
+      // interrupted-run recovery does not apply to this process.
+      const start = () => startCronScheduler(state, new Set());
+      try {
+        await (state.deps.runSchedulerOwned ? state.deps.runSchedulerOwned(start) : start());
+      } catch (error) {
+        state.deps.log.warn(
+          { err: String(error), attempt: attempt + 1 },
+          "cron: scheduler re-arm attempt failed",
+        );
+      }
+      if (!current()) {
+        await stopCronScheduler(state);
+      } else if (connections.has(state)) {
+        state.deps.log.info({ attempt: attempt + 1 }, "cron: scheduler re-armed");
+      } else {
+        scheduleCronSchedulerRearm(state, generation, attempt + 1);
+      }
+    },
+  });
 }
 
 export async function stopCronScheduler(state: CronServiceState): Promise<void> {

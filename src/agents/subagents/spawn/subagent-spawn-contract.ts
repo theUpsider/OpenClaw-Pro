@@ -34,6 +34,8 @@ export type SpawnSubagentParams = {
   sandbox?: SpawnSubagentSandboxMode;
   context?: SpawnSubagentContextMode;
   lightContext?: boolean;
+  /** Explicit per-child `message` opt-in; omitted falls back to config, which defaults to off. */
+  allowMessaging?: boolean;
   expectsCompletionMessage?: boolean;
   completionTarget?: "parent";
   attachments?: Array<{

@@ -279,8 +279,8 @@ describe("plugins cli policy mutations", () => {
           restartRequired
             ? 'Reloaded registrations for plugin "alpha" (generation 2). Gateway restart required to load edited code.'
             : ids.length === 1
-              ? 'Reloaded plugin "alpha" (generation 2).'
-              : 'Reloaded plugins "alpha", "beta" (generation 2).',
+              ? 'Reloaded plugin "alpha" (generation 2). New dispatches use the reloaded code; calls already accepted before the reload keep their previous generation\'s code until they finish.'
+              : 'Reloaded plugins "alpha", "beta" (generation 2). New dispatches use the reloaded code; calls already accepted before the reload keep their previous generation\'s code until they finish.',
         );
       }
       expect(configWriteMock).not.toHaveBeenCalled();

@@ -229,10 +229,110 @@ openclaw.invoke --tool llm-task --action json --args-json '{
 If you are using the embedded Lobster plugin today, prefer either:
 
 - a direct `llm-task` tool call outside Lobster, or
-- non-`openclaw.invoke` steps inside the Lobster pipeline until a supported
-  embedded bridge is added.
+- non-`openclaw.invoke` steps inside the Lobster pipeline. For a **typed decision**, use the
+  embedded `decision.evaluate` bridge below rather than an LLM step.
 
 See [LLM Task](/tools/llm-task) for details and configuration options.
+
+## Decision-layer steps (decision.evaluate)
+
+The embedded Lobster plugin injects one extra command, `decision.evaluate`, which asks the
+agent's selected **decision model** a typed question and resolves a **route** a workflow can
+branch on. It runs the decision layer **in-process** through the host's bound runtime: no
+`openclaw.invoke`, no gateway URL, no LLM envelope. A decision is not a completion, so the
+answer is never a free-text string the workflow has to parse.
+
+The command emits **exactly one item**, so `$step.json.route` resolves:
+
+```json
+{
+  "status": "ok",
+  "type": "choice",
+  "question": "route",
+  "route": "A",
+  "answer": { "type": "choice", "choice": "A", "probabilities": { "A": 0.83, "B": 0.17 } },
+  "policy": { "minConfidence": 0.5 },
+  "model": "kev-latest",
+  "provenance": {
+    "providerId": "typesafe",
+    "rubricVersion": "lobster-bridge-v1-...",
+    "runtimeGeneration": "..."
+  }
+}
+```
+
+`route` is always a string: a choice label, `"true"`/`"false"` for a boolean question, or the
+decimal level index for a score question. A workflow branches on it with the symbolic
+operators (`==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`, `!` — word operators such as `gt` are
+rejected):
+
+```yaml
+name: route-a-or-b
+args:
+  evidence:
+    default: "a routine dependency bump with green CI"
+steps:
+  - id: route
+    pipeline: 'decision.evaluate --questions-json ''{"route":{"type":"choice","criteria":{"A":"safe to proceed automatically","B":"needs human review"}}}'' --state-json ''{"evidence":"a routine dependency bump with green CI"}'' --min-confidence 0.5'
+  - id: proceed
+    command: "deploy --lane auto"
+    condition: $route.json.route == 'A'
+  - id: review
+    command: "open-review"
+    condition: $route.json.route == 'B'
+```
+
+### Arguments
+
+| Flag                      | Meaning                                                                                                                                 |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `--questions-json <json>` | Required. Non-empty map of `boolean`, `choice`, or `score` questions (the host decision contract).                                      |
+| `--state-json <json>`     | The state to evaluate. Omitted: the command consumes the pipeline input instead (one item becomes the state, several become the array). |
+| `--question <id>`         | Required when the map has more than one entry; must be a key of the map.                                                                |
+| `--min-confidence <n>`    | Acceptance floor in `[0, 1]` for the answer's provider-reported confidence.                                                             |
+| `--min-probability <n>`   | Boolean questions only, in `(0.5, 1]`.                                                                                                  |
+| `--min-margin <n>`        | Minimum top-two probability gap in `[0, 1)`.                                                                                            |
+| `--timeout-ms <n>`        | Host evaluation timeout; bounded to the plugin's maximum.                                                                               |
+
+At least one acceptance flag is required, and a route is only resolved when it is **declared**:
+a route with no threshold would be a guess. `--min-confidence` and `--min-margin` apply to choice
+and score questions; a boolean question takes `--min-probability` only, and an unsupported flag for
+the question type is refused rather than silently ignored. The command requires a bound agent
+identity; a run without one fails instead of borrowing another agent's decision model.
+
+### Fail-closed semantics
+
+The bridge never guesses a route. Each case below **stops the workflow terminally**, so **no branch
+runs**:
+
+- the decision layer is unreachable, unavailable, or returns a malformed/unexpected result;
+- the selected answer is missing, or its type does not match the declared question;
+- no acceptance flag was supplied, or a flag is outside its bounds;
+- **choice**: the provider label is not a key of `probabilities`, a required confidence is
+  missing or below `--min-confidence`, the label is not the distribution's unique strict argmax
+  (a tie, or a label that disagrees with the argmax), or the margin is below `--min-margin`;
+- **boolean**: `probabilityTrue` falls in the ambiguous middle band (above `1 - min` and below
+  `min`), `--min-probability` was not supplied, or an unsupported `--min-confidence`/`--min-margin`
+  was declared for the boolean question;
+- **score**: a required confidence is missing/low, the probability array length disagrees with
+  the rubric, there is no unique strict argmax level, or the margin is below `--min-margin`.
+
+The rejection is returned as a **halted pipeline stage**, not as an ordinary error. That matters:
+the run engine rethrows a halted stage _before_ a step's own `on_error`/`retry` handling, so a
+workflow cannot recover a route it never resolved. With a plain error, `on_error: continue` would
+swallow the rejection and a later negated condition (`$route.json.route != 'A'`) could run anyway.
+The embedded runner additionally refuses to report a stopped decision as a successful run: a
+rejected pipeline fails even though the engine treats the halt as a normal end. A genuine caller
+cancellation or step timeout is rethrown as a cancellation, not reported as a rejected decision.
+
+Two rules are **bridge policy**, not provider semantics, and are named as such in the code: the
+choice route follows the label only when the label is also the unique argmax (the host contract
+explicitly allows a provider label that differs from the rounded distribution's argmax, and the
+bridge refuses to silently prefer one over the other), and the score route is the argmax level
+index while the provider's fractional `score` is passed through unchanged and never rounded.
+
+Because results never authorize actions, the branch bodies remain an ordinary, separately
+authorised step: the bridge decides _which_ branch, not _whether_ the action is permitted.
 
 ## Workflow files (.lobster)
 

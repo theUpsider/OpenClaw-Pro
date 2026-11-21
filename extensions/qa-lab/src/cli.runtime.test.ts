@@ -863,6 +863,36 @@ describe("qa cli", () => {
     });
   });
 
+  it("accepts the ultra thinking level for suite runs", async () => {
+    await parseQa(["suite"], {
+      "repo-root": "/tmp/openclaw-repo",
+      "provider-mode": "live-frontier",
+      model: "openai/gpt-5.6-luna",
+      thinking: "ultra",
+      scenario: ["approval-turn-tool-followthrough"],
+    });
+
+    const suiteArgs = mockFirstObjectArg(runQaSuite);
+    expectFields(suiteArgs, {
+      repoRoot: path.resolve("/tmp/openclaw-repo"),
+      thinkingDefault: "ultra",
+    });
+  });
+
+  it("rejects a near-miss suite thinking level through the CLI error path", async () => {
+    await parseQa(["suite"], {
+      "repo-root": "/tmp/openclaw-repo",
+      "provider-mode": "live-frontier",
+      model: "openai/gpt-5.6-luna",
+      thinking: "ultraa",
+      scenario: ["approval-turn-tool-followthrough"],
+    });
+
+    expect(process.exitCode).toBe(1);
+    expectWriteContains(stderrWrite, "--thinking must be one of");
+    expect(runQaSuite).not.toHaveBeenCalled();
+  });
+
   it.each([
     { isolatesInstances: undefined, requested: 8, expected: 1 },
     { isolatesInstances: true, requested: undefined, expected: 4 },
@@ -1503,6 +1533,23 @@ describe("qa cli", () => {
     });
   });
 
+  it("accepts the ultra thinking level for character eval runs", async () => {
+    await parseQa(["character-eval"], {
+      "repo-root": "/tmp/openclaw-repo",
+      model: ["openai/gpt-5.6-luna,thinking=ultra"],
+      thinking: "ultra",
+    });
+
+    const characterEvalArgs = mockFirstObjectArg(runQaCharacterEval);
+    expectFields(characterEvalArgs, {
+      repoRoot: path.resolve("/tmp/openclaw-repo"),
+      candidateThinkingDefault: "ultra",
+    });
+    expect(characterEvalArgs.candidateModelOptions).toEqual({
+      "openai/gpt-5.6-luna": { thinkingDefault: "ultra" },
+    });
+  });
+
   it.each([
     {
       label: "judge failure",
@@ -1542,6 +1589,27 @@ describe("qa cli", () => {
       { modelThinking: ["openai/gpt-5.6-luna"] },
       "--model-thinking must use provider/model=level",
     );
+  });
+
+  it("rejects near-miss ultra spellings with a message that names ultra", async () => {
+    async function captureFailure(run: Promise<unknown>) {
+      try {
+        await run;
+      } catch (error) {
+        return error as Error;
+      }
+      throw new Error("expected character eval to reject");
+    }
+
+    const thinkingFailure = await captureFailure(runQaCharacterEvalCommand({ thinking: "ultraa" }));
+    expect(thinkingFailure.message).toContain("must be one of");
+    expect(thinkingFailure.message).toMatch(/adaptive, max, ultra$/);
+
+    const modelFailure = await captureFailure(
+      runQaCharacterEvalCommand({ model: ["openai/gpt-5.6-luna,thinking=ultraa"] }),
+    );
+    expect(modelFailure.message).toContain("must be one of");
+    expect(modelFailure.message).toMatch(/adaptive, max, ultra$/);
   });
 
   it("passes the explicit repo root into manual runs", async () => {

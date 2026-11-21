@@ -45,7 +45,11 @@ tools the main agent should coordinate). This hard-deny layer is derived from
 the persisted sub-agent session envelope on every turn, including resumed and
 visible dashboard sessions; ordinary `allow`/`alsoAllow` entries cannot override
 it. Hidden launches also disable `message` before tool construction as defense in
-depth. Sub-agents at the configured depth cap additionally
+depth. The one exception is an explicit per-child opt-in: a hidden native child spawned
+with `allowMessaging: true` (or under `subagents.messageTool.enabled`) gets `message` back,
+recorded on its session so resumed turns keep it. Every other hard-denied tool stays
+denied, and `tools.subagents.tools.deny` containing `message` or `*` still wins.
+Sub-agents at the configured depth cap additionally
 lose `subagents`, `sessions_list`, `sessions_history`, and `sessions_spawn`, so
 their communication stays on the announce chain.
 

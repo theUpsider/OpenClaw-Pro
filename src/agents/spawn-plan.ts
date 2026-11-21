@@ -276,6 +276,8 @@ export function resolveSpawnAdmission(params: {
   additionalActiveChildren?: number;
   callerDepth?: number;
   countActiveRuns?: typeof countActiveRunsForSession;
+  /** Resolved native `message` grant; ACP children never carry it. */
+  messageToolEnabled?: boolean;
 }):
   | {
       ok: true;
@@ -284,6 +286,7 @@ export function resolveSpawnAdmission(params: {
         spawnDepth: number;
         subagentRole: "orchestrator" | "leaf" | null;
         subagentControlScope: "children" | "none";
+        subagentMessageToolEnabled?: true;
       };
     }
   | { ok: false; governingCap?: ChildAdmissionCap; error: string } {
@@ -368,6 +371,7 @@ export function resolveSpawnAdmission(params: {
       spawnDepth: capabilities.depth,
       subagentRole: capabilities.role === "main" ? null : capabilities.role,
       subagentControlScope: capabilities.controlScope,
+      ...(params.messageToolEnabled ? { subagentMessageToolEnabled: true as const } : {}),
     },
   };
 }

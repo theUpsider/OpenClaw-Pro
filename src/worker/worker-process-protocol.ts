@@ -1,8 +1,16 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { z } from "zod";
 import { WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES } from "../../packages/gateway-protocol/src/schema/worker-inference.js";
-import { WORKER_PROTOCOL_MAX_IDENTIFIER_LENGTH } from "../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
-import { parseWorkerLaunchDescriptor, type WorkerLaunchPlan } from "./launch-descriptor.js";
+import {
+  WORKER_PROTOCOL_MAX_IDENTIFIER_LENGTH,
+  WORKER_PROTOCOL_MAX_PAYLOAD_BYTES,
+  isWorkerFrameWithinBudget,
+} from "../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
+import {
+  parseWorkerLaunchDescriptor,
+  isWorkerLaunchPlanWithinBudget,
+  type WorkerLaunchPlan,
+} from "./launch-descriptor.js";
 import { hasExactOwnKeys, workerProtocolObject } from "./protocol-record.js";
 import { WorkerAdmissionDeadlineResultSchema } from "./worker-connection-contract.js";
 import { WORKER_CONNECTION_ENDPOINT_MAX_JSON_BYTES } from "./worker-connection-endpoint.js";
@@ -47,7 +55,12 @@ export function measureWorkerProcessTurnBytes(
 
 export function serializeWorkerProcessInput(message: WorkerProcessInput): string {
   const json = JSON.stringify(message);
-  if (Buffer.byteLength(json, "utf8") > WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES) {
+  if (
+    Buffer.byteLength(json, "utf8") > WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES ||
+    (message.type === "turn"
+      ? !isWorkerLaunchPlanWithinBudget(message.descriptor, message)
+      : Buffer.byteLength(json, "utf8") > WORKER_PROTOCOL_MAX_PAYLOAD_BYTES)
+  ) {
     throw new Error("managed worker request exceeds the protocol payload limit");
   }
   return `${json}\n`;
@@ -102,6 +115,11 @@ export type WorkerProcessResult = z.infer<typeof ProcessResultSchema>;
 export type WorkerProcessMessage = z.infer<typeof ProcessMessageSchema>;
 
 export function parseWorkerProcessRequest(value: unknown) {
+  // Raw JSONL framing is capped at the media ceiling before parsing. Only a
+  // schema-selected turn may use the data plane; controls keep the small cap.
+  if (!(isRecord(value) && value.type === "turn") && !isWorkerFrameWithinBudget(value, () => [])) {
+    throw new Error("managed worker request exceeds the protocol payload limit");
+  }
   const observation = WorkerProcessObservationRequestSchema.safeParse(value);
   if (observation.success) {
     return observation.data;
@@ -128,6 +146,9 @@ export function parseWorkerProcessRequest(value: unknown) {
     (value.canonicalWorkspace === undefined || value.canonicalWorkspace === true)
   ) {
     const descriptor = parseWorkerLaunchDescriptor(value.descriptor);
+    if (!isWorkerLaunchPlanWithinBudget(descriptor, value)) {
+      throw new Error("managed worker request exceeds the protocol payload limit");
+    }
     if (descriptor.assignment.turnId !== value.turnId) {
       throw new Error("managed worker request disagrees with its assigned turn");
     }

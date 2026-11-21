@@ -1,4 +1,5 @@
 import type { GatewaySessionRow } from "../../api/types.ts";
+import { matchesLabelFilter } from "./label-filter.ts";
 import { getWorkboardLifecycle } from "./lifecycle.ts";
 import type {
   WorkboardCard,
@@ -46,13 +47,13 @@ export function filterWorkboardCards(params: {
   cards: readonly WorkboardCard[];
   filters: Pick<
     WorkboardUiState,
-    "statusFilter" | "priorityFilter" | "attentionFilter" | "donePeriod"
+    "statusFilter" | "priorityFilter" | "attentionFilter" | "labelFilter" | "donePeriod"
   >;
   sessions: readonly GatewaySessionRow[];
   now: number;
-  ignore?: "status" | "priority" | "attention";
+  ignore?: "status" | "priority" | "attention" | "label";
 }): WorkboardCard[] {
-  const { statusFilter, priorityFilter, attentionFilter, donePeriod } = params.filters;
+  const { statusFilter, priorityFilter, attentionFilter, labelFilter, donePeriod } = params.filters;
   return params.cards.filter((card) => {
     if (params.ignore !== "status" && statusFilter.size && !statusFilter.has(card.status)) {
       return false;
@@ -65,6 +66,9 @@ export function filterWorkboardCards(params: {
       attentionFilter.size &&
       ![...attentionFilter].some((key) => workboardCardMatchesHealthKey(card, key, params.sessions))
     ) {
+      return false;
+    }
+    if (params.ignore !== "label" && !matchesLabelFilter(card, labelFilter)) {
       return false;
     }
     // The completion window trims history without hiding unfinished work.

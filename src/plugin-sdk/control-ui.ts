@@ -11,8 +11,12 @@ export type {
   ControlUiAgentPickerProps,
   ControlUiComponentHandle,
   ControlUiComponents,
+  ControlUiComposerSendActionProps,
+  ControlUiComposerSessionControlsProps,
   ControlUiDashboardProps,
   ControlUiDialogProps,
+  ControlUiDictationControlProps,
+  ControlUiMarkdownProps,
 } from "./control-ui-components.js";
 export type ControlUiDisposer = () => void;
 

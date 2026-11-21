@@ -111,11 +111,16 @@ export function getSessionSafeDefaultMediaLocalRoots(
  * Callers that need to send media from a sandbox must pass the authoritative active
  * session workspace, not a path derived from the requested media source. Omitting that
  * context intentionally denies sandbox files under workspace-only filesystem policy.
+ *
+ * A session workspace replaces the agent workspace root. Only a caller that has resolved the
+ * read as unconfined (`workspaceOnly: false`, not sandboxed) keeps the agent workspace as well;
+ * an omitted flag keeps the confined replace semantics.
  */
 export function getAgentScopedMediaLocalRoots(
   cfg: OpenClawConfig,
   agentId?: string,
   sessionWorkspaceDir?: string,
+  options?: { workspaceOnly?: boolean },
 ): readonly string[] {
   const stateDir = resolveStateDir();
   const resolvedStateDir = path.resolve(stateDir);
@@ -124,18 +129,20 @@ export function getAgentScopedMediaLocalRoots(
     sessionWorkspaceDir,
   });
   const normalizedAgentId = normalizeOptionalString(agentId);
-  const workspaceDir =
-    normalizeOptionalString(sessionWorkspaceDir) ??
-    (normalizedAgentId ? resolveAgentWorkspaceDir(cfg, normalizedAgentId) : undefined);
-  if (!workspaceDir) {
-    return roots;
-  }
-  const normalizedWorkspaceDir = resolveCanonicalRoot(workspaceDir);
-  if (normalizedWorkspaceDir === resolveCanonicalRoot(path.join(resolvedStateDir, "sandboxes"))) {
-    return roots;
-  }
-  if (!roots.includes(normalizedWorkspaceDir)) {
-    roots.push(normalizedWorkspaceDir);
+  const normalizedSessionWorkspaceDir = normalizeOptionalString(sessionWorkspaceDir);
+  const includeAgentWorkspace =
+    normalizedAgentId !== undefined &&
+    (!normalizedSessionWorkspaceDir || options?.workspaceOnly === false);
+  const workspaceDirs = [
+    ...(normalizedSessionWorkspaceDir ? [normalizedSessionWorkspaceDir] : []),
+    ...(includeAgentWorkspace ? [resolveAgentWorkspaceDir(cfg, normalizedAgentId)] : []),
+  ];
+  const sandboxesDir = resolveCanonicalRoot(path.join(resolvedStateDir, "sandboxes"));
+  for (const workspaceDir of workspaceDirs) {
+    const normalizedWorkspaceDir = resolveCanonicalRoot(workspaceDir);
+    if (normalizedWorkspaceDir !== sandboxesDir && !roots.includes(normalizedWorkspaceDir)) {
+      roots.push(normalizedWorkspaceDir);
+    }
   }
   return roots;
 }

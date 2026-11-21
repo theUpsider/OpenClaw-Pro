@@ -10,7 +10,10 @@ import {
 import { parseStrictPositiveInteger } from "openclaw/plugin-sdk/number-runtime";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { resolveWorkboardCardByIdOrPrefix } from "./card-lookup.js";
+import { buildWorkboardParallelismPatch, isWorkboardOwnerSlotCeiling } from "./card-parallelism.js";
 import { redactClaimToken, redactDispatchResult } from "./card-redaction.js";
+import { buildWorkboardCardUpdatePatch } from "./card-update.js";
+import { MAX_WORKBOARD_OWNER_SLOT_LIMIT } from "./store-constants.js";
 import type { WorkboardStore } from "./store.js";
 
 type JsonOptions = {
@@ -32,16 +35,56 @@ type DispatchOptions = GatewayOptions & {
   maxStarts?: number;
 };
 
+function invalidArgument(message: string): Error {
+  return Object.assign(new Error(message), {
+    name: "InvalidArgumentError",
+    code: "commander.invalidArgument",
+    exitCode: 1,
+  });
+}
+
 function parseMaxStarts(value: string): number {
   const parsed = parseStrictPositiveInteger(value);
   if (parsed === undefined) {
-    throw Object.assign(new Error("--max-starts must be a positive integer."), {
-      name: "InvalidArgumentError",
-      code: "commander.invalidArgument",
-      exitCode: 1,
-    });
+    throw invalidArgument("--max-starts must be a positive integer.");
   }
   return parsed;
+}
+
+function parseParallelizable(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes"].includes(normalized)) {
+    return true;
+  }
+  if (["false", "0", "no"].includes(normalized)) {
+    return false;
+  }
+  throw invalidArgument(
+    "--parallelizable must be true/1/yes or false/0/no. Pass the card id before the flags.",
+  );
+}
+
+/**
+ * 1..16 sets the ceiling; `0` means clear and is sent as null by the action,
+ * because commander replaces a null parser result with "".
+ */
+function parseOwnerSlotCeiling(value: string): number {
+  const parsed = /^\d+$/.test(value.trim()) ? Number(value) : Number.NaN;
+  if (parsed !== 0 && !isWorkboardOwnerSlotCeiling(parsed)) {
+    throw invalidArgument(
+      `--max-concurrent-per-owner must be an integer from 1 to ${MAX_WORKBOARD_OWNER_SLOT_LIMIT}, or 0 to clear it.`,
+    );
+  }
+  return parsed;
+}
+
+/** `native` is the local dispatcher; `external` hands placement to another controller. */
+function parseDispatchMode(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "native" || normalized === "external") {
+    return normalized;
+  }
+  throw invalidArgument("--dispatch-mode must be native or external.");
 }
 
 function writeJson(value: unknown): void {
@@ -50,6 +93,14 @@ function writeJson(value: unknown): void {
 
 function writeLine(value: string): void {
   process.stdout.write(`${value}\n`);
+}
+
+/** Comma-separated labels for the label-editing flags; trims and drops empties. */
+function parseLabelItems(value: string): string[] {
+  return value
+    .split(",")
+    .map((label) => label.trim())
+    .filter(Boolean);
 }
 
 function formatCardLine(card: WorkboardCard): string {
@@ -152,6 +203,24 @@ export function registerWorkboardCli(params: {
     .option("--agent <id>", "Assigned agent id")
     .option("--board <id>", "Board id")
     .option("--labels <items>", "Comma-separated labels")
+    .option(
+      "--replaces <name>",
+      "Classification a new label overwrites when the board already has 10",
+    )
+    .option(
+      "--parallelizable",
+      "Run beside other cards of the same owner (needs --max-concurrent-per-owner)",
+      false,
+    )
+    .option(
+      "--max-concurrent-per-owner <count>",
+      "Owner slot ceiling for parallelizable cards (default 1, max 16)",
+    )
+    .option(
+      "--dispatch-mode <mode>",
+      "Who places and starts this card: native (default, local dispatcher) or external",
+      parseDispatchMode,
+    )
     .option("--json", "Print JSON", false)
     .action(
       async (
@@ -163,8 +232,18 @@ export function registerWorkboardCli(params: {
           agent?: string;
           board?: string;
           labels?: string;
+          replaces?: string;
+          parallelizable?: boolean;
+          maxConcurrentPerOwner?: string;
+          dispatchMode?: string;
         },
       ) => {
+        const maxConcurrentPerOwner = options.maxConcurrentPerOwner?.trim()
+          ? Number(options.maxConcurrentPerOwner)
+          : undefined;
+        const labels = [options.labels, options.parallelizable === true ? "parallelizable" : ""]
+          .filter(Boolean)
+          .join(",");
         const input = {
           title: title.join(" "),
           notes: options.notes,
@@ -172,7 +251,12 @@ export function registerWorkboardCli(params: {
           priority: options.priority,
           agentId: options.agent,
           boardId: options.board,
-          labels: options.labels,
+          labels,
+          ...(options.replaces ? { replaces: options.replaces } : {}),
+          ...(options.dispatchMode ? { dispatchMode: options.dispatchMode } : {}),
+          ...(maxConcurrentPerOwner !== undefined && Number.isFinite(maxConcurrentPerOwner)
+            ? { maxConcurrentPerOwner }
+            : {}),
         };
         const { card } = await local(
           "workboard.cards.create",
@@ -235,6 +319,103 @@ export function registerWorkboardCli(params: {
       writeCard(updated, options);
     });
 
+  workboard
+    .command("update")
+    .argument("<id>", "Card id or prefix")
+    .description("Edit a card's labels by name, or set its dispatch mode or parallel owner slots")
+    .option("--labels-add <items>", "Comma-separated labels to add when absent")
+    .option("--labels-remove <items>", "Comma-separated labels to remove, case-insensitive")
+    .option(
+      "--replaces <name>",
+      "Classification a new label overwrites when the board palette is full (10)",
+    )
+    .option(
+      "--parallelizable [value]",
+      "Run beside other cards of the same owner (true/false; off also removes the label)",
+      parseParallelizable,
+    )
+    .option(
+      "--max-concurrent-per-owner <count>",
+      `Owner slot ceiling, 1-${MAX_WORKBOARD_OWNER_SLOT_LIMIT}; 0 clears it`,
+      parseOwnerSlotCeiling,
+    )
+    .option(
+      "--dispatch-mode <mode>",
+      "Who places and starts the card: native (default, local dispatcher) or external",
+      parseDispatchMode,
+    )
+    .option("--json", "Print JSON", false)
+    .action(
+      async (
+        id: string,
+        options: JsonOptions & {
+          labelsAdd?: string;
+          labelsRemove?: string;
+          replaces?: string;
+          parallelizable?: boolean;
+          maxConcurrentPerOwner?: number;
+          dispatchMode?: string;
+        },
+      ) => {
+        const addingLabels = options.labelsAdd !== undefined;
+        const editingLabels = addingLabels || options.labelsRemove !== undefined;
+        const editingParallelism =
+          options.parallelizable !== undefined || options.maxConcurrentPerOwner !== undefined;
+        if (options.replaces !== undefined && !addingLabels) {
+          throw new Error("--replaces only applies when --labels-add introduces a new label.");
+        }
+        if (!editingLabels && !editingParallelism && options.dispatchMode === undefined) {
+          throw new Error(
+            "Pass --labels-add, --labels-remove, --parallelizable, --max-concurrent-per-owner, or --dispatch-mode.",
+          );
+        }
+        const cards = (await list()).cards;
+        const { card, error } = resolveWorkboardCardByIdOrPrefix(cards, id);
+        if (!card) {
+          throw new Error(error);
+        }
+        // Label edits are computed against the card that was read; the store's
+        // one palette gate serves both this command and the agent tool.
+        const labelPatch = editingLabels
+          ? buildWorkboardCardUpdatePatch(card, {
+              labelsAdd:
+                options.labelsAdd === undefined ? undefined : parseLabelItems(options.labelsAdd),
+              labelsRemove:
+                options.labelsRemove === undefined
+                  ? undefined
+                  : parseLabelItems(options.labelsRemove),
+            })
+          : {};
+        const parallelPatch = editingParallelism
+          ? buildWorkboardParallelismPatch(
+              { labels: labelPatch.labels ?? card.labels },
+              {
+                parallelizable: options.parallelizable,
+                maxConcurrentPerOwner:
+                  options.maxConcurrentPerOwner === 0 ? null : options.maxConcurrentPerOwner,
+              },
+            )
+          : {};
+        const patch = {
+          ...labelPatch,
+          ...parallelPatch,
+          ...(options.dispatchMode === undefined ? {} : { dispatchMode: options.dispatchMode }),
+          ...(options.replaces === undefined ? {} : { replaces: options.replaces }),
+        };
+        const input = { id: card.id, patch, expectedUpdatedAt: card.updatedAt };
+        // An empty patch (a removal that matched nothing) skips the write entirely,
+        // like workboard_update: no spurious edit event for a no-op.
+        if (Object.keys(patch).length === 0) {
+          writeCard(card, options);
+          return;
+        }
+        const { card: updated } = await local("workboard.cards.update", input, async (store) => ({
+          card: await store.update(card.id, patch, { expectedUpdatedAt: card.updatedAt }),
+        }));
+        writeCard(updated, options);
+      },
+    );
+
   addGatewayClientOptions(
     workboard
       .command("dispatch")
@@ -272,6 +453,7 @@ export function registerWorkboardCli(params: {
             gatewayUnavailable: true,
             started: [],
             startFailures: [],
+            skipped: [],
           }),
           {
             scopes,

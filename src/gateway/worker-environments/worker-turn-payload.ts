@@ -50,7 +50,10 @@ import { runWithoutOwnedSessionTranscriptWrites } from "../../config/sessions/tr
 import { withSessionTranscriptWriteAssertion } from "../../config/sessions/transcript-write-context.js";
 import { emitTrustedDiagnosticEvent, isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
 import { redactSensitiveText } from "../../logging/redact.js";
-import type { WorkerLaunchPlan } from "../../worker/launch-descriptor.js";
+import {
+  isWorkerLaunchPlanWithinBudget,
+  type WorkerLaunchPlan,
+} from "../../worker/launch-descriptor.js";
 import {
   windowWorkerReplayMessages,
   fitWorkerReplayImages,
@@ -60,8 +63,12 @@ import {
   toWorkerTranscriptMessage,
   type WorkerProviderReplayUnavailable,
 } from "../../worker/transcript-message.js";
+import { WORKER_CONNECTION_ENDPOINT_MAX_JSON_BYTES } from "../../worker/worker-connection-endpoint.js";
 import { WorkerNodeLostError } from "../../worker/worker-node-loss.js";
-import { parseWorkerRuntimeResult } from "../../worker/worker-process-protocol.js";
+import {
+  parseWorkerRuntimeResult,
+  buildWorkerProcessTurn,
+} from "../../worker/worker-process-protocol.js";
 import {
   measureAgentRuntimeIdentityTokenBytes,
   mintAgentRuntimeIdentityToken,
@@ -303,7 +310,14 @@ function fitLaunchDescriptor(
   while (true) {
     const plan = build(initialMessages);
     const bytes = measure(plan);
-    if (bytes <= WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES) {
+    if (
+      bytes <= WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES &&
+      isWorkerLaunchPlanWithinBudget(
+        plan,
+        buildWorkerProcessTurn({ ...plan, connectionEndpoint: null }, true, true),
+        WORKER_CONNECTION_ENDPOINT_MAX_JSON_BYTES,
+      )
+    ) {
       return { kind: "launch", plan };
     }
     const replayIndex = initialMessages.findLastIndex(

@@ -588,3 +588,48 @@ describe("resolveSourceReplyVisibilityPolicy", () => {
     );
   });
 });
+
+describe("reply gate visible reply suppression", () => {
+  const base = {
+    cfg: automaticGroupReplyConfig as OpenClawConfig,
+    ctx: { ChatType: "group", Provider: "slack", Surface: "slack" },
+    sendPolicy: "allow" as const,
+  };
+
+  it("adds suppression and typing suppression without changing the delivery mode", () => {
+    const open = resolveSourceReplyVisibilityPolicy(base);
+    expect(open.suppressDelivery).toBe(false);
+    const gated = resolveSourceReplyVisibilityPolicy({
+      ...base,
+      visibleReplySuppression: "reply-gate",
+    });
+    expectPolicyFields(gated, {
+      suppressDelivery: true,
+      suppressAutomaticSourceDelivery: true,
+      suppressTyping: true,
+      sourceReplyDeliveryMode: open.sourceReplyDeliveryMode,
+    });
+  });
+
+  it("never lifts another suppression reason and keeps its reason text", () => {
+    const denied = resolveSourceReplyVisibilityPolicy({
+      ...base,
+      sendPolicy: "deny",
+      visibleReplySuppression: "reply-gate",
+    });
+    expectPolicyFields(denied, {
+      suppressDelivery: true,
+      sendPolicyDenied: true,
+      deliverySuppressionReason: "sendPolicy: deny",
+    });
+    const toolOnly = resolveSourceReplyVisibilityPolicy({
+      ...base,
+      requested: "message_tool_only",
+      visibleReplySuppression: "reply-gate",
+    });
+    expectPolicyFields(toolOnly, {
+      suppressDelivery: true,
+      deliverySuppressionReason: "sourceReplyDeliveryMode: message_tool_only",
+    });
+  });
+});

@@ -20,8 +20,19 @@ import {
   type ResolveAgentWorkspaceRuntime,
 } from "./dispatcher-workspace.js";
 import { workboardSessionKeyForCard } from "./session-link.js";
-import { cardBoardId } from "./store-card-helpers.js";
-import { workboardCardConsumesOwnerSlot, workboardCardSlotOwner } from "./store-constants.js";
+import { cardBoardId, latestRunningAttempt } from "./store-card-helpers.js";
+import {
+  addWorkboardOwnerSlot,
+  cloneWorkboardOwnerSlotUsage,
+  collectWorkboardOwnerSlotUsage,
+  compareWorkboardReadyCards,
+  workboardCardConsumesOwnerSlot,
+  workboardCardIsExternallyDispatched,
+  workboardCardSlotOwner,
+  workboardOwnerSlotAdmitsCard,
+  workboardOwnerSlotLimit,
+} from "./store-constants.js";
+import type { WorkboardDispatchSkip } from "./store-inputs.js";
 import { WorkboardStore, type WorkboardDispatchResult } from "./store.js";
 import {
   assertCanonicalWorkboardRootAccess,
@@ -32,6 +43,15 @@ import {
 } from "./workspace-access.js";
 
 const DEFAULT_DISPATCH_MAX_STARTS = 3;
+
+/**
+ * Refusal for a scheduled or explicitly targeted start of an external card. The
+ * mission is still the board's authoritative task, so the message names the mode
+ * and the flow that remains available instead of offering a local fallback.
+ */
+const WORKBOARD_EXTERNAL_DISPATCH_REFUSAL =
+  "Card is placed by an external controller (dispatchMode: external); the local dispatcher does not claim or start it. " +
+  "The external controller claims, heartbeats, and completes it through the normal Workboard claim flow.";
 
 type WorkboardSubagentRuntime = Pick<PluginRuntime["subagent"], "run">;
 type WorkboardWorktreeRuntime = PluginRuntime["worktrees"];
@@ -68,6 +88,7 @@ type WorkboardStartFailure = {
 type WorkboardDispatchAndStartResult = WorkboardDispatchResult & {
   started: WorkboardStartedRun[];
   startFailures: WorkboardStartFailure[];
+  skipped: WorkboardDispatchSkip[];
 };
 
 type WorkboardPreparedLaunch = Extract<WorkboardLaunchState, { phase: "prepared" }>;
@@ -162,20 +183,6 @@ async function materializeWorkspace(params: {
   };
 }
 
-function sortReadyCards(a: WorkboardCard, b: WorkboardCard): number {
-  const priorityRank: Record<WorkboardCard["priority"], number> = {
-    urgent: 0,
-    high: 1,
-    normal: 2,
-    low: 3,
-  };
-  return (
-    priorityRank[a.priority] - priorityRank[b.priority] ||
-    a.position - b.position ||
-    a.createdAt - b.createdAt
-  );
-}
-
 function selectStartableCards(
   cards: WorkboardCard[],
   limit: number,
@@ -183,37 +190,54 @@ function selectStartableCards(
   ownerOverride: string | undefined,
   now: number,
   mode: "scheduled" | "exact",
-): { cards: WorkboardCard[]; rejection?: WorkboardStartFailure } {
+): { cards: WorkboardCard[]; rejection?: WorkboardStartFailure; queued?: WorkboardDispatchSkip } {
   if (limit <= 0) {
     return { cards: [] };
   }
-  const runningOwners = new Set<string>();
-  for (const card of cards) {
-    if (!workboardCardConsumesOwnerSlot(card, now)) {
-      continue;
-    }
-    runningOwners.add(workboardCardSlotOwner(card));
-  }
+  const runningOwners = collectWorkboardOwnerSlotUsage(cards, now, workboardOwnerSlotLimit);
   const selected: WorkboardCard[] = [];
   const fallback: WorkboardCard[] = [];
-  const selectedOwners = new Set<string>();
-  const ordered = mode === "scheduled" ? candidates.toSorted(sortReadyCards) : candidates;
+  // Seed the per-pass counter with the running snapshot so a single admission
+  // check covers both. Counting them separately admitted one card too many and
+  // turned a normal capacity wait into a bogus start failure.
+  const selectedOwners = cloneWorkboardOwnerSlotUsage(runningOwners);
+  const ordered =
+    mode === "scheduled" ? candidates.toSorted(compareWorkboardReadyCards) : candidates;
   for (const card of ordered) {
     const owner = ownerOverride || workboardCardSlotOwner(card, now);
+    const cardLimit = workboardOwnerSlotLimit(card);
+    // Selection mirrors the DB claim gate: reject only once the owner is full
+    // under the tightest declared ceiling, counting running plus this pass.
+    const ownerAdmits = workboardOwnerSlotAdmitsCard(runningOwners, owner, cardLimit);
+    const selectionAdmits = workboardOwnerSlotAdmitsCard(selectedOwners, owner, cardLimit);
     const rejection = card.metadata?.archivedAt
       ? "Card is archived; restore it before starting."
-      : cardHasActiveClaim(card, now)
-        ? `Card is already claimed by ${card.metadata?.claim?.ownerId ?? "another worker"}.`
-        : mode === "scheduled" && card.status !== "ready"
-          ? ""
-          : mode === "exact" &&
-              card.status !== "backlog" &&
-              card.status !== "todo" &&
-              card.status !== "ready"
-            ? `Card cannot start from ${card.status}; move it to backlog, todo, or ready first.`
-            : runningOwners.has(owner)
-              ? `Owner ${owner} already has active Workboard work; complete or stop it before starting another card.`
-              : undefined;
+      : // External placement owns claim and launch; the local dispatcher only ever
+        // promotes and cleans up these cards, so it refuses before any claim.
+        workboardCardIsExternallyDispatched(card)
+        ? WORKBOARD_EXTERNAL_DISPATCH_REFUSAL
+        : cardHasActiveClaim(card, now)
+          ? `Card is already claimed by ${card.metadata?.claim?.ownerId ?? "another worker"}.`
+          : mode === "scheduled" && card.status !== "ready"
+            ? ""
+            : mode === "exact" &&
+                card.status !== "backlog" &&
+                card.status !== "todo" &&
+                card.status !== "ready"
+              ? `Card cannot start from ${card.status}; move it to backlog, todo, or ready first.`
+              : latestRunningAttempt(card)
+                ? "Card still has a running attempt; complete, block, or reclaim it first."
+                : undefined;
+    if (rejection === undefined && !ownerAdmits) {
+      // A full owner slot is a queue position, not a failure: the claim gate would refuse it.
+      if (mode === "exact") {
+        return {
+          cards: [],
+          queued: { cardId: card.id, title: card.title, ownerId: owner, reason: "owner_busy" },
+        };
+      }
+      continue;
+    }
     if (rejection !== undefined) {
       if (mode === "exact") {
         return {
@@ -223,11 +247,11 @@ function selectStartableCards(
       }
       continue;
     }
-    if (selectedOwners.has(owner)) {
+    if (!selectionAdmits) {
       fallback.push(card);
       continue;
     }
-    selectedOwners.add(owner);
+    addWorkboardOwnerSlot(selectedOwners, owner, cardLimit);
     selected.push(card);
   }
   // Try each owner before a failed owner's extra cards consume the outage budget.
@@ -276,10 +300,11 @@ async function runWorkboardDispatch(
   );
   const started: WorkboardStartedRun[] = [];
   const startFailures: WorkboardStartFailure[] = [];
+  const skipped: WorkboardDispatchSkip[] = [];
   const cards = await params.store.list();
   const candidates = directCard ? [directCard] : await params.store.list({ boardId });
   const ownerOverride = params.options?.ownerId?.trim() || undefined;
-  const startedOwners = new Set<string>();
+  const startedOwners = collectWorkboardOwnerSlotUsage(cards, now, workboardOwnerSlotLimit);
   // Allow one fallback per worker slot without draining the queue during an outage.
   const maxAttempts = maxStarts * 2;
   let attemptedStarts = 0;
@@ -295,12 +320,15 @@ async function runWorkboardDispatch(
   if (selection.rejection) {
     startFailures.push(selection.rejection);
   }
+  if (selection.queued) {
+    skipped.push(selection.queued);
+  }
   for (const card of selection.cards) {
     const ownerId = ownerOverride || workboardCardSlotOwner(card, now);
     if (started.length >= maxStarts || attemptedStarts >= maxAttempts) {
       break;
     }
-    if (startedOwners.has(ownerId)) {
+    if (!workboardOwnerSlotAdmitsCard(startedOwners, ownerId, workboardOwnerSlotLimit(card))) {
       continue;
     }
     const sessionKey = workboardSessionKeyForCard(card);
@@ -389,6 +417,9 @@ async function runWorkboardDispatch(
             boardId: cardBoardId(card),
             status: card.status,
             agentId: card.agentId,
+            // Re-read at the claim gate: an edit to external placement between
+            // selection and claim must refuse the native start instead of racing it.
+            externallyDispatched: workboardCardIsExternallyDispatched(card),
             workspace: card.metadata?.automation?.workspace,
             workspaceAccess: card.metadata?.automation?.workspaceAccess,
           },
@@ -412,26 +443,17 @@ async function runWorkboardDispatch(
       if (runCwd && !workspaceAccess.unrestricted) {
         await assertRestrictedTarget(runCwd);
       }
-      const materializedWorkspace = materialized.workspace;
-      if (materializedWorkspace) {
-        const workspaceBase = await params.store.get(card.id);
-        if (!workspaceBase) {
-          throw new Error(`card not found: ${card.id}`);
-        }
-        const materializedCard = await params.store.update(
-          card.id,
-          { workspace: materializedWorkspace, workspaceAccess },
-          { expectedUpdatedAt: workspaceBase.updatedAt },
-        );
-        workspaceMutation = { before: workspaceBase, after: materializedCard };
-      }
+      // Persist the workspace only inside the same claim-checked mutation that
+      // prepares launch. A materialization await can outlive a claim handoff.
       const prepared = await params.store.prepareExecutionLaunch(card.id, {
         requestedSessionKey: sessionKey,
         now,
         scope: { ownerId, token: claimValue },
+        ...(materialized.workspace ? { workspace: materialized.workspace, workspaceAccess } : {}),
         assertOwnerCurrent,
       });
       const launched = prepared.card;
+      workspaceMutation = prepared.workspaceMutation;
       preparedLaunch = prepared.launch;
       const runId = prepared.launch.provisionalRunId;
       assertOwnerCurrent?.();
@@ -498,7 +520,7 @@ async function runWorkboardDispatch(
             execution: acceptedExecution,
           })
           .catch(() => undefined)) ?? acceptedCard;
-      startedOwners.add(ownerId);
+      addWorkboardOwnerSlot(startedOwners, ownerId, workboardOwnerSlotLimit(card));
       started.push({
         cardId: updated.id,
         title: updated.title,
@@ -527,6 +549,12 @@ async function runWorkboardDispatch(
         continue;
       }
       try {
+        // Reclaim hands the card to another attempt/controller. A failed old
+        // preparation must not block or clean up the new owner's work.
+        const current = await params.store.get(card.id);
+        if (current?.metadata?.claim?.token !== claimValue) {
+          continue;
+        }
         const reason = `Dispatcher could not start worker: ${message}`;
         if (preparedLaunch) {
           await params.store.failPreparedLaunch(card.id, {
@@ -558,10 +586,30 @@ async function runWorkboardDispatch(
     }
   }
 
+  if (!directCardId) {
+    // Report every Ready card still behind a full owner slot, whether the slot was
+    // busy before this pass or taken by a card this pass started.
+    const attempted = new Set([...started, ...startFailures].map((entry) => entry.cardId));
+    for (const card of candidates.toSorted(compareWorkboardReadyCards)) {
+      const ownerId = ownerOverride || workboardCardSlotOwner(card, now);
+      if (
+        card.status === "ready" &&
+        !card.metadata?.archivedAt &&
+        !workboardCardIsExternallyDispatched(card) &&
+        !attempted.has(card.id) &&
+        !workboardCardConsumesOwnerSlot(card, now) &&
+        !workboardOwnerSlotAdmitsCard(startedOwners, ownerId, workboardOwnerSlotLimit(card))
+      ) {
+        skipped.push({ cardId: card.id, title: card.title, ownerId, reason: "owner_busy" });
+      }
+    }
+  }
+
   return {
     ...dispatch,
     started,
     startFailures,
+    skipped,
     count: dispatch.count + started.length + startFailures.length,
   };
 }

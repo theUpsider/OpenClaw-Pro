@@ -648,6 +648,18 @@ describe("runPreparedReply media-only handling", () => {
     });
   });
 
+  it.each([{ page: "workboard", detail: { boardId: "ops", boardKind: "sessions" } }, undefined])(
+    "carries Gateway run work context %j into the runner",
+    async (workContext) => {
+      const params = baseParams();
+      params.ctx.GatewayRunWorkContext = workContext;
+
+      await runPreparedReply(params);
+
+      expect(requireRunReplyAgentCall().followupRun.run.workContext).toEqual(workContext);
+    },
+  );
+
   it("includes current exec overrides in the queued runner prompt", async () => {
     await runPrepared({
       execOverrides: {

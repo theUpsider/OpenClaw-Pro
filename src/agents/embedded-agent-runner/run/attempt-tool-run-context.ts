@@ -15,6 +15,7 @@ type AttemptToolRunFacts = Pick<
   | "gatewayUiCommandTarget"
   | "pinnedWidgetAuthoring"
   | "toolBindings"
+  | "workContext"
   | "chatType"
   | "agentAccountId"
   | "messageTo"
@@ -78,6 +79,7 @@ export function buildEmbeddedAttemptToolRunContext(
     gatewayUiCommandTarget: params.gatewayUiCommandTarget,
     pinnedWidgetAuthoring: params.pinnedWidgetAuthoring,
     toolBindings: params.toolBindings,
+    workContext: params.workContext,
     chatType: params.chatType,
     agentAccountId: params.agentAccountId,
     messageTo: params.messageTo,

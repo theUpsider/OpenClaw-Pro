@@ -7,6 +7,7 @@ import {
 } from "openclaw/plugin-sdk/error-runtime";
 import { isPathInside } from "openclaw/plugin-sdk/file-access-runtime";
 import { raceWithTimeout } from "openclaw/plugin-sdk/time-runtime";
+import { DECISION_REJECTION_MARKER, type LobsterRegistry } from "./decision-bridge.js";
 
 type LobsterInputRequest = {
   type?: "input_request";
@@ -53,6 +54,8 @@ type EmbeddedToolContext = {
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
   signal?: AbortSignal;
+  /** Wrapped command registry; absent means the core default registry is used. */
+  registry?: LobsterRegistry;
 };
 
 type EmbeddedToolEnvelope = {
@@ -86,7 +89,24 @@ type EmbeddedToolRuntime = {
     cancel?: boolean;
     ctx?: EmbeddedToolContext;
   }) => Promise<EmbeddedToolEnvelope>;
+  /** Present on the real `@clawdbot/lobster/core`; used to build the wrapped registry. */
+  createDefaultRegistry?: () => LobsterRegistry;
 };
+
+/**
+ * The `@clawdbot/lobster/core` namespace the runner loaded for this process. A
+ * `createRegistry` provider runs only after the runner awaited this module, so it can
+ * synchronously build a wrapped registry over `createDefaultRegistry()`.
+ */
+let loadedCoreModule: EmbeddedToolRuntime | undefined;
+
+/** Core module after `createEmbeddedLobsterRunner` has loaded it. @internal */
+export function loadedLobsterCore(): EmbeddedToolRuntime {
+  if (!loadedCoreModule) {
+    throw new Error("lobster core runtime is not loaded");
+  }
+  return loadedCoreModule;
+}
 
 const workflowExts = new Set([".lobster", ".yaml", ".yml", ".json"]);
 
@@ -107,18 +127,30 @@ export function resolveLobsterCwd(cwdRaw: unknown): string {
   return resolved;
 }
 
+/**
+ * A byte-capped sink. `Writable` emits `error` when a write callback errors, and an unhandled
+ * `error` event ends the process, so the failure is captured and surfaced by the caller after
+ * the run instead of escaping as an unhandled event.
+ */
 function createLimitedSink(maxBytes: number, label: "stdout" | "stderr") {
   let bytes = 0;
-  return new Writable({
+  let failure: Error | undefined;
+  const stream = new Writable({
     write(chunk, _encoding, callback) {
       bytes += Buffer.byteLength(String(chunk), "utf8");
       if (bytes > maxBytes) {
-        callback(new Error(`lobster ${label} exceeded maxStdoutBytes`));
+        failure ??= new Error(`lobster ${label} exceeded maxStdoutBytes`);
+        callback(failure);
         return;
       }
       callback();
     },
   });
+  // Keep the recorded failure from reaching the process as an unhandled event.
+  stream.on("error", () => {
+    failure ??= new Error(`lobster ${label} exceeded maxStdoutBytes`);
+  });
+  return { stream, failure: () => failure };
 }
 
 function normalizeEnvelope(
@@ -127,6 +159,21 @@ function normalizeEnvelope(
 ): LobsterEnvelope {
   if (!envelope.ok) {
     throw new Error(envelope.error?.message ?? "lobster runtime failed");
+  }
+  // A bridge rejection is terminal: inside a workflow file a halted stage makes the engine
+  // throw, but on the inline-pipeline path the engine reports a non-approval halt as `ok` with
+  // the halted item as its output. Reporting that as a successful run would let a caller treat
+  // an unresolved decision as a completed step, so it is a failure here. The marker is a symbol,
+  // so ordinary workflow JSON can never produce it.
+  const rejection = envelope.output?.find(
+    (item) =>
+      typeof item === "object" &&
+      item !== null &&
+      (item as Record<string | symbol, unknown>)[DECISION_REJECTION_MARKER] === true,
+  ) as { reason?: unknown } | undefined;
+  if (rejection) {
+    const reason = typeof rejection.reason === "string" ? rejection.reason : "";
+    throw new Error(`decision.evaluate rejected the decision: ${reason}`);
   }
   if (envelope.status === "needs_input" && !envelope.requiresInput?.resumeToken) {
     throw new Error("Lobster input request is missing its resume token");
@@ -182,30 +229,50 @@ async function loadEmbeddedToolRuntimeFromPackage(): Promise<EmbeddedToolRuntime
   // @clawdbot/lobster/core; the plugin's declared @clawdbot/lobster dependency
   // provides it at runtime, so it is a used direct dependency.
   const coreSpecifier = ["@clawdbot", "lobster", "core"].join("/");
-  return (await import(coreSpecifier)) as EmbeddedToolRuntime;
+  const core = (await import(coreSpecifier)) as EmbeddedToolRuntime;
+  loadedCoreModule = core;
+  return core;
 }
 
 export function createEmbeddedLobsterRunner(options?: {
   loadRuntime?: () => Promise<EmbeddedToolRuntime>;
+  /**
+   * Builds the command registry for one run. Called per `run()` invocation, inside the
+   * call, so a provider never retains another invocation's authority. Returning undefined
+   * keeps the core default registry.
+   */
+  createRegistry?: () => LobsterRegistry | undefined;
 }) {
   const loadRuntime = options?.loadRuntime ?? loadEmbeddedToolRuntimeFromPackage;
+  const createRegistry = options?.createRegistry;
   let runtimePromise: Promise<EmbeddedToolRuntime> | undefined;
   return {
     async run(params: LobsterRunnerParams) {
       runtimePromise ??= loadRuntime();
       const runtime = await runtimePromise;
+      // Evaluate the provider here, after the core module is loaded but before any work.
+      const registry = createRegistry?.();
       const controller = new AbortController();
       return await raceWithTimeout(
         async () => {
           const maxStdoutBytes = Math.max(1024, params.maxStdoutBytes);
+          const stdoutSink = createLimitedSink(maxStdoutBytes, "stdout");
+          const stderrSink = createLimitedSink(maxStdoutBytes, "stderr");
           const ctx: EmbeddedToolContext = {
             cwd: params.cwd,
             env: { ...process.env },
             mode: "tool",
             stdin: Readable.from([]),
-            stdout: createLimitedSink(maxStdoutBytes, "stdout"),
-            stderr: createLimitedSink(maxStdoutBytes, "stderr"),
+            stdout: stdoutSink.stream,
+            stderr: stderrSink.stream,
             signal: controller.signal,
+            ...(registry ? { registry } : {}),
+          };
+          const assertSinksWithinBounds = () => {
+            const failure = stdoutSink.failure() ?? stderrSink.failure();
+            if (failure) {
+              throw failure;
+            }
           };
           let envelope: EmbeddedToolEnvelope;
 
@@ -264,6 +331,7 @@ export function createEmbeddedLobsterRunner(options?: {
               ctx,
             });
           }
+          assertSinksWithinBounds();
           return normalizeEnvelope(envelope, maxStdoutBytes);
         },
         Math.max(200, params.timeoutMs),
