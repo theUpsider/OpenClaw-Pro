@@ -50,7 +50,7 @@ Each entry lists the package, distribution route, and description.
 
 ## Core npm package
 
-69 plugins
+70 plugins
 
 - **[a2a](/plugins/reference/a2a)** (`@openclaw/a2a`) - included in OpenClaw. A2A v1.0 Agent-to-Agent protocol channel plugin.
 
@@ -113,6 +113,8 @@ Each entry lists the package, distribution route, and description.
 - **[huggingface](/plugins/reference/huggingface)** (`@openclaw/huggingface-provider`) - included in OpenClaw. Adds Hugging Face model provider support to OpenClaw.
 
 - **[imap](/plugins/reference/imap)** (`@openclaw/imap`) - included in OpenClaw. Watch IMAP mailboxes and dispatch authenticated incoming email to isolated agent sessions.
+
+- **[example](/plugins/reference/example)** (`@openclaw/example`) - included in OpenClaw. Typed decision provider for the loopback Example ds41 model.
 
 - **[kie](/plugins/reference/kie)** (`@openclaw/kie-provider`) - included in OpenClaw. Adds Kie model provider support to OpenClaw.
 

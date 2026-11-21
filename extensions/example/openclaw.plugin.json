@@ -1,0 +1,73 @@
+{
+  "id": "example",
+  "name": "Example Decisions",
+  "description": "Typed decision provider for the loopback Example ds41 model.",
+  "categories": [
+    "developer-tools"
+  ],
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "decisionProviders": [
+      "example"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "maxLength": 128,
+        "pattern": "^https?://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]{1,5})?/?$"
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 60000,
+        "default": 30000
+      },
+      "maxTokens": {
+        "type": "integer",
+        "minimum": 256,
+        "maximum": 65536,
+        "default": 4096
+      }
+    },
+    "additionalProperties": false
+  },
+  "uiHints": {
+    "baseUrl": {
+      "label": "Example endpoint",
+      "help": "Loopback origin of the OpenAI-compatible vLLM endpoint that serves ds41, such as http://127.0.0.1:8011. Requests stay on the local host; the endpoint is unauthenticated. Omit to keep the provider not configured."
+    },
+    "timeoutMs": {
+      "label": "Request timeout (ms)",
+      "advanced": true
+    },
+    "maxTokens": {
+      "label": "Max output tokens",
+      "help": "Output budget per request. The model's reasoning tokens share this budget, so keep it generous.",
+      "advanced": true
+    }
+  },
+  "decisionModels": [
+    {
+      "provider": "example",
+      "id": "ds41-314113f8",
+      "name": "DeepSeek V4.1 (ds41, HF 314113f8)",
+      "capabilities": {
+        "questionTypes": [
+          "boolean",
+          "choice",
+          "score"
+        ],
+        "maxQuestions": 32,
+        "maxChoiceAlternatives": 64,
+        "maxScoreLevels": 10,
+        "confidence": "none"
+      }
+    }
+  ]
+}
