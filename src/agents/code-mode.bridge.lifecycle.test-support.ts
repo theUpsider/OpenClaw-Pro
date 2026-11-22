@@ -18,6 +18,7 @@ export function createSubscribedCodeModeHarness(params: {
   sessionManager?: SessionManager;
   onBlockReplyFlush?: () => Promise<void>;
   onToolResult?: EmbeddedRunAttemptParams["onToolResult"];
+  onAgentToolResult?: EmbeddedRunAttemptParams["onAgentToolResult"];
   onBlockReply?: EmbeddedRunAttemptParams["onBlockReply"];
   onPartialReply?: EmbeddedRunAttemptParams["onPartialReply"];
   sourceReplyDeliveryMode?: EmbeddedRunAttemptParams["sourceReplyDeliveryMode"];
@@ -51,6 +52,7 @@ export function createSubscribedCodeModeHarness(params: {
       sessionId,
       sessionKey,
       onToolResult: params.onToolResult,
+      onAgentToolResult: params.onAgentToolResult,
       observeToolTerminal: params.observeToolTerminal,
       onToolStreamBoundary: params.onToolStreamBoundary,
       onPartialReply: params.onPartialReply,

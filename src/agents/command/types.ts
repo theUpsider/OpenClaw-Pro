@@ -26,6 +26,7 @@ import type { ExecElevatedDefaults } from "../bash-tools.exec-types.js";
 import type { BootstrapContextRunKind } from "../bootstrap-mode.js";
 import type { CliSessionBindingFacts } from "../cli-runner/session-binding.types.js";
 import type { CronCreatorAuthorityCapability } from "../cron-creator-authority-context.js";
+import type { RunEmbeddedAgentParams } from "../embedded-agent-runner/run/params.js";
 import type { RuntimeContextFragment } from "../internal-runtime-context.js";
 import type { MainSessionRecoveryOwnerLease } from "../main-session-recovery/main-session-recovery-store.js";
 import type { ReplyExpectation } from "../reply-completion.js";
@@ -255,6 +256,9 @@ export type AgentCommandOpts = {
   onModelFallbackExhausted?: () => void;
   /** Called before delivery projection when the raw run contains an error payload. */
   onResultErrorPayload?: (message?: string) => void;
+  onAgentToolResult?: RunEmbeddedAgentParams["onAgentToolResult"];
+  /** Host-only opt-in collector; never accepted from public ingress. */
+  skillExposure?: import("../skill-exposure-receipt.js").SkillExposureReceiptCollector;
   /** Called when compaction rotates the active run onto a successor session. */
   onSessionIdChanged?: (sessionId: string) => void;
   /** Internal one-shot model probe mode: no tools, no workspace/chat prompt policy. */
@@ -297,6 +301,8 @@ export const AGENT_COMMAND_PUBLIC_INGRESS_DEFAULTS = Object.freeze({
   isTerminalOutcomeObserved: undefined,
   prepareAssistantTranscriptMessage: undefined,
   internalDeliverySuppressErrors: undefined,
+  onAgentToolResult: undefined,
+  skillExposure: undefined,
 } satisfies Partial<AgentCommandOpts>);
 
 type AgentCommandGatewayOnlyKey = Exclude<

@@ -601,6 +601,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
     onReasoningEnd: params.onReasoningEnd,
     onToolResult: params.onToolResult,
     onAgentToolResult: params.onAgentToolResult,
+    skillExposure: params.skillExposure,
     onAgentEvent: async (event) => {
       await params.onAgentEvent?.(event);
     },

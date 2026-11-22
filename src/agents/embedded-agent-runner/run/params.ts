@@ -253,6 +253,8 @@ export type RunEmbeddedAgentParams = {
   onToolResult?: (payload: ReplyPayload) => void | Promise<void>;
   /** Synchronous private observer for the sanitized per-tool result. */
   onAgentToolResult?: (event: { toolName: string; result: unknown; isError: boolean }) => void;
+  /** Opt-in, invocation-owned evidence from the final provider serialization owner. */
+  skillExposure?: import("../../skill-exposure-receipt.js").SkillExposureReceiptCollector;
   /** Reports a committed generic recovery compaction before its retry starts. */
   onAutoCompactionSucceeded?: (count: number) => void;
   onAgentEvent?: (evt: EmbeddedAgentEvent) => void | Promise<void>;

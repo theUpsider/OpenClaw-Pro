@@ -769,6 +769,8 @@ export async function runAgentAttempt(params: AgentAttemptParams) {
     modelRun: params.opts.modelRun,
     promptMode: params.opts.promptMode,
     onAgentEvent: params.onAgentEvent,
+    onAgentToolResult: params.opts.onAgentToolResult,
+    skillExposure: params.opts.skillExposure,
     deferTerminalLifecycle: params.deferTerminalLifecycle,
     onDeferredLifecycleOwner: params.deferredLifecycle?.adopt,
     onDeferredLifecycleAbort: params.deferredLifecycle?.abort,

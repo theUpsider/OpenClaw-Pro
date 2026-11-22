@@ -128,6 +128,11 @@ ${theme.muted("Docs:")} ${formatDocsLink("/cli/agent", "docs.openclaw.ai/cli/age
     .option("--no-auth-env-only", "Allow stored and external CLI credential discovery")
     .option("--timeout <seconds>", "Agent deadline in seconds", "600")
     .option("--json", "Emit the stable agent-exec JSON envelope", false)
+    .option(
+      "--skill-exposure-receipt",
+      "Include bounded exact skill-instruction inclusion evidence (requires --json)",
+      false,
+    )
     .addHelpText(
       "after",
       () =>
