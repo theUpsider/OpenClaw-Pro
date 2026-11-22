@@ -3,10 +3,9 @@
 # Purpose: no public push without a green sanitize gate. Runs on every pull
 # request into `pro/main`, on every push to `pro/main`, and on demand.
 #
-# The gate script and the hashed denylist live in a PRIVATE repo
-# (theUpsider/openclaw-pro-gate), fetched via a read-only deploy key so the
-# plaintext marker rules never enter the public repo. The job fails closed
-# when that source is not configured.
+# The gate script and the hashed denylist live in a PRIVATE repository, fetched
+# through a read-only deploy key, so the plaintext marker rules never enter the
+# public repo. The job fails closed when that source is not configured.
 name: pro-public-gate
 
 on:
@@ -46,11 +45,19 @@ jobs:
             exit 1
           fi
           mkdir -p ~/.ssh
+          # GitHub's published ed25519 host key, pinned literally: no keyscan at
+          # run time, so a substituted host key cannot slip in.
           printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > ~/.ssh/known_hosts
-          printf '%s\n' "$GATE_KEY" > ~/.ssh/pro_gate
-          chmod 600 ~/.ssh/pro_gate
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/pro_gate -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" \
-            git clone --depth 1 "git@github.com:${GATE_REPO}.git" /tmp/pro-gate
+          printf '%s\n' "$GATE_KEY" > ~/.ssh/gate_key
+          chmod 600 ~/.ssh/gate_key
+          cat >> ~/.ssh/config <<'SSHCONF'
+          Host gate-source
+            HostName github.com
+            IdentityFile ~/.ssh/gate_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+          SSHCONF
+          git clone --depth 1 "gate-source:${GATE_REPO}.git" /tmp/pro-gate
           test -f /tmp/pro-gate/gate_pro.py
           test -f /tmp/pro-gate/denylist.sha256
 
