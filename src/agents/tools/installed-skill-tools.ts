@@ -9,7 +9,7 @@ import {
   searchInstalledSkills,
   type InstalledSkill,
 } from "../installed-skill-catalog.js";
-import { formatSkillInstructions } from "../skill-instruction-result.js";
+import { bindSkillInstructionRead, formatSkillInstructions } from "../skill-instruction-result.js";
 import {
   asToolParamsRecord,
   jsonResult,
@@ -24,7 +24,11 @@ const SkillsSearchSchema = Type.Object({
 });
 const SkillsReadSchema = Type.Object({ name: Type.String({ minLength: 1 }) });
 
-export function createInstalledSkillTools(skills: readonly InstalledSkill[]): AnyAgentTool[] {
+export function createInstalledSkillTools(
+  skills: readonly InstalledSkill[],
+  /** Supplying a host run ID opts into content-free read facts, not exposure receipts. */
+  runId?: string,
+): AnyAgentTool[] {
   if (skills.length === 0) {
     return [];
   }
@@ -72,12 +76,14 @@ export function createInstalledSkillTools(skills: readonly InstalledSkill[]): An
         description:
           "Load complete SKILL.md instructions for an exact installed skill name. Use a known name directly; search is not required first. Does not execute the skill or grant additional tool permissions.",
         parameters: SkillsReadSchema,
-        execute: async (_id, args, signal) => {
+        execute: async (id, args, signal) => {
           const params = asToolParamsRecord(args);
           const name = readToolStringParam(params, "name", { required: true });
           const instructions = await readInstalledSkill(skills, name, signal);
+          const text = formatSkillInstructions(instructions);
+          bindSkillInstructionRead(instructions, text, runId, id);
           return {
-            content: [{ type: "text", text: formatSkillInstructions(instructions) }],
+            content: [{ type: "text", text }],
             details: instructions,
           };
         },

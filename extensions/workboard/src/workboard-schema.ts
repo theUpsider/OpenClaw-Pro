@@ -1,7 +1,7 @@
 // Columns added after a table shipped are declared last in their CREATE TABLE: PostgreSQL
 // builds them with ALTER TABLE ADD COLUMN (which appends) and admission compares column
 // positions, so a middle placement would refuse its own migration.
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const WORKBOARD_SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS workboard_schema_migrations (
@@ -71,7 +71,8 @@ export const WORKBOARD_SCHEMA_SQL = `
       stale_json TEXT,
       lifecycle_status_source_updated_at INTEGER,
       failure_count INTEGER,
-      interaction_json TEXT
+      interaction_json TEXT,
+      review_json TEXT
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_cards_board_status_idx
       ON workboard_cards(board_id, status, position);

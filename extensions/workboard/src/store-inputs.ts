@@ -84,6 +84,14 @@ export type WorkboardUpdateCardOptions = {
   ownerSlot?: { ownerId: string; now: number };
   preserveProofId?: string;
   preserveNotificationId?: string;
+  /**
+   * Whether *this write* introduces review data, i.e. whether the review budget guard
+   * applies. Resolved by `updateCard` from the patch via `reviewWrittenInPatch`, never
+   * supplied by a caller: the metadata trims that run after `normalizeMetadata` have to
+   * carry it too, or a later unguarded trim would still drop a comment or a proof to
+   * make room for the review (R27/A9).
+   */
+  reviewWritten?: boolean;
   onClassifications?: (change: WorkboardClassificationChange) => void;
 };
 export type WorkboardCommentInput = { body?: unknown };

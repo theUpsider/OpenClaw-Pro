@@ -14,7 +14,7 @@ function fixture(sql = "") {
   const sourcePath = path.join(directory, "workboard.sqlite");
   using db = openNodeSqliteDatabase(sourcePath);
   db.exec(metadata.sqlite);
-  db.exec("INSERT INTO workboard_schema_migrations VALUES ('schema-5', 17)");
+  db.exec("INSERT INTO workboard_schema_migrations VALUES ('schema-6', 17)");
   db.exec(
     "INSERT INTO workboard_boards (id, name, created_at, updated_at) VALUES ('board', ' {\"a\":1,\"a\":2} ', 1, 2)",
   );
@@ -38,7 +38,7 @@ describe("workboard port worker", () => {
       { operation: "inspect", sourcePath, config: {}, to: "postgres" },
       scope,
     );
-    expect(inspected).toMatchObject({ engine: "sqlite", version: 5, migrationRequired: false });
+    expect(inspected).toMatchObject({ engine: "sqlite", version: 6, migrationRequired: false });
     expect(inspected.verification?.tables.workboard_boards?.rows).toBe(1);
     expect(await fs.readdir(directory)).toEqual(before);
     expect(await hash(sourcePath)).toBe(original);
@@ -103,7 +103,7 @@ describe("workboard port worker", () => {
       { operation: "inspect", sourcePath, config: {}, to: "postgres" },
       scope,
     );
-    expect(facts).toMatchObject({ version: 2, targetVersion: 5, migrationRequired: true });
+    expect(facts).toMatchObject({ version: 2, targetVersion: 6, migrationRequired: true });
     const working = path.join(directory, "private.sqlite");
     await fs.copyFile(sourcePath, working);
     const migrated = await runWorkboardPortTask(
@@ -116,7 +116,7 @@ describe("workboard port worker", () => {
       { operation: "inspect", sourcePath: working, config: {}, to: "postgres" },
       scope,
     );
-    expect(after).toMatchObject({ version: 5, targetVersion: 5, migrationRequired: false });
+    expect(after).toMatchObject({ version: 6, targetVersion: 6, migrationRequired: false });
   });
 
   it.each([

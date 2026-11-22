@@ -115,6 +115,11 @@ export function settleManualStatusTransition(params: {
   acceptedByOperator?: boolean;
   nextNotificationSequence: () => number;
   preserveProofId?: string;
+  /**
+   * Carried from the write's `reviewWritten`, so the trim that this settle runs with its
+   * appended notification stays guarded for a review-bearing write (R27/A9).
+   */
+  reviewWritten?: boolean;
 }): { execution: WorkboardExecution | undefined; metadata: WorkboardMetadata } {
   const { existing, status, now } = params;
   // Status patches often spread existing metadata. Only a newly supplied
@@ -210,7 +215,11 @@ export function settleManualStatusTransition(params: {
     execution: finished.execution,
     metadata: trimMetadataToBudget(
       { ...finished.metadata, notifications },
-      { preserveProofId: params.preserveProofId, preserveNotificationId: notifications.at(-1)?.id },
+      {
+        preserveProofId: params.preserveProofId,
+        preserveNotificationId: notifications.at(-1)?.id,
+        reviewWritten: params.reviewWritten,
+      },
     ),
   };
 }

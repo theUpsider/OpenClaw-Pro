@@ -452,7 +452,10 @@ function* createOpenClawToolsSteps(
   const transcriptsTool = resolveTranscriptsTool(resolvedConfig, sessionAgentId, options);
   const githubTools = createGitHubTools(options);
   const tools: AnyAgentTool[] = [
-    ...createInstalledSkillTools(options?.installedSkills ?? []),
+    ...createInstalledSkillTools(
+      options?.installedSkills ?? [],
+      options?.trackSkillExposure ? options.runId : undefined,
+    ),
     createDashboardTool({
       agentSessionKey: options?.runSessionKey ?? options?.agentSessionKey,
       agentId: sessionAgentId,

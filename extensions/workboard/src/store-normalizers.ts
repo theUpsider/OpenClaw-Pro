@@ -77,6 +77,7 @@ import type {
   WorkboardProofInput,
   WorkboardWorkerLogInput,
 } from "./store-inputs.js";
+import { assertReviewFitsMetadataBudget, resolveWorkboardReview } from "./store-review.js";
 import { normalizeWorkboardAsk, normalizeWorkboardAskKind } from "./workboard-operator-ask.js";
 import { isAbsoluteWorkspacePath } from "./workspace-path.js";
 
@@ -1082,9 +1083,15 @@ export function normalizeMetadata(
   } = {},
 ): WorkboardMetadata {
   if (!isRecord(value) && !options.automationLaunch) {
-    return trimMetadataToBudget(fallback, options);
+    // No patch means no review write: a stored review must not refuse an unrelated write.
+    return trimMetadataToBudget(fallback, { ...options, reviewWritten: false });
   }
   const record = isRecord(value) ? value : {};
+  // The review family owns its own validation and bounds in `store-review.ts`; both
+  // card writers funnel through here, so its two rules sit at the write path. The
+  // resolved flag says whether *this write* introduced review data - the budget guard is
+  // gated on the write, never on the card merely holding a review.
+  const resolvedReview = resolveWorkboardReview(record, fallback.review);
   const stale = isRecord(record.stale) ? record.stale : null;
   // Archival is a transition owned by archive(), which appends the matching
   // `archived` event. Callers that cannot produce that event (create) must not
@@ -1188,13 +1195,19 @@ export function normalizeMetadata(
     // `workspaceAccess`, it survives only as the owner already recorded it, and
     // `updateCard` is the single writer that sets it.
     interaction: fallback.interaction,
+    // The review family owns its own validation and bounds in `store-review.ts`; both
+    // card writers funnel through here, so its two rules sit at the write path.
+    review: resolvedReview.review,
     lifecycleStatusSourceUpdatedAt: hasLifecycleStatusSourceUpdatedAt
       ? normalizeTimestamp(record.lifecycleStatusSourceUpdatedAt, 0)
       : fallback.lifecycleStatusSourceUpdatedAt,
     failureCount:
       resolveOptionalIntegerOption(record.failureCount, { min: 0 }) ?? fallback.failureCount,
   };
-  return trimMetadataToBudget(normalized, options);
+  return trimMetadataToBudget(normalized, {
+    ...options,
+    reviewWritten: resolvedReview.reviewWritten,
+  });
 }
 
 export function normalizeExecution(record: unknown): WorkboardExecution | undefined {
@@ -1290,9 +1303,25 @@ export function appendLinkPreservingDependencies(
 
 export function trimMetadataToBudget(
   metadata: WorkboardMetadata,
-  options: { preserveProofId?: string; preserveNotificationId?: string } = {},
+  options: {
+    preserveProofId?: string;
+    preserveNotificationId?: string;
+    /**
+     * True when this write carries review data that was not already stored. Only then does
+     * the review budget guard run: an unrelated write (comment, proof, link, heartbeat,
+     * status settle) on a card that happens to hold a review keeps the trim it always had.
+     */
+    reviewWritten?: boolean;
+  } = {},
 ): WorkboardMetadata {
   let next = removeUndefinedMetadataFields(metadata);
+  // Refuse a review that crowds out the data it must not displace, before the trim can
+  // drop a comment or a proof to make room for it (R27). The existing order below is
+  // untouched: the review family is never a trim candidate at all. Gated on this write
+  // introducing review data - a stored review is not ground for refusing a comment.
+  if (options.reviewWritten) {
+    assertReviewFitsMetadataBudget(next, metadataByteSize, MAX_CARD_METADATA_BYTES);
+  }
   while (metadataByteSize(next) > MAX_CARD_METADATA_BYTES) {
     const currentSize = metadataByteSize(next);
     for (const key of [

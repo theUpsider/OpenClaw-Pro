@@ -168,6 +168,69 @@ export type WorkboardInteraction = {
   surface?: WorkboardInteractionSurface;
 };
 
+/** Resolutions an annotation can record on its own; see {@link WorkboardReviewAnnotation}. */
+export const WORKBOARD_REVIEW_RESOLUTIONS = [
+  "accepted",
+  "changed",
+  "rejected",
+  "deferred",
+  "answered",
+] as const;
+export type WorkboardReviewResolution = (typeof WORKBOARD_REVIEW_RESOLUTIONS)[number];
+
+/** The four allowed overall verdicts; anything else is refused, never defaulted (R16). */
+export const WORKBOARD_REVIEW_VERDICT_VALUES = ["accept", "rework", "reject", "hold"] as const;
+export type WorkboardReviewVerdictValue = (typeof WORKBOARD_REVIEW_VERDICT_VALUES)[number];
+
+/** Where an annotation sits in its document. Own family, not in WorkboardComment. */
+export type WorkboardReviewAnchor =
+  | { kind: "pdf-rect"; page: number; rect: [number, number, number, number] }
+  | { kind: "text-quote"; quote: string; hash: string; page?: number }
+  | { kind: "text-range"; start: number; end: number; hash: string };
+
+/** One annotation with its own resolution. */
+export type WorkboardReviewAnnotation = {
+  id: string;
+  /** Attachment/artifact id the anchor refers to. */
+  documentRef: string;
+  anchor: WorkboardReviewAnchor;
+  body: string;
+  /** "operator" or an agent identifier. */
+  author: string;
+  createdAt: number;
+  /** "Resolved" is its own time, never a status change. */
+  resolvedAt?: number;
+  resolution?: WorkboardReviewResolution;
+};
+
+/** The overall verdict - one record, never a status. */
+export type WorkboardReviewVerdict = {
+  verdict: WorkboardReviewVerdictValue;
+  note?: string;
+  decidedAt: number;
+  /** Identity of the decider (R15). */
+  decidedBy: string;
+  /** What was still open when the verdict fell (R14). */
+  unresolvedAnnotationIds: readonly string[];
+  /** Ref -> source hash (R17). */
+  documentHashes: Record<string, string>;
+};
+
+/**
+ * The review case a card carries: its annotated documents, each annotation with its own
+ * resolution, and one overall verdict that names what was still open. Its own field
+ * family (`metadata.review` -> `review_json`), so `WorkboardComment` and
+ * `WorkboardAttachment` stay unchanged (R25).
+ */
+export type WorkboardReviewSession = {
+  id: string;
+  cardId: string;
+  /** Empty reads back as absent, the same shape the neighbouring list members use. */
+  documents?: Array<{ ref: string; label: string; sourceHash: string }>;
+  annotations?: WorkboardReviewAnnotation[];
+  overall?: WorkboardReviewVerdict;
+};
+
 export type WorkboardRunAttempt = {
   id: string;
   status: WorkboardAttemptStatus;
@@ -532,6 +595,12 @@ export type WorkboardMetadata = {
    * same posture as the voice board binding, and never an execution link.
    */
   interaction?: WorkboardInteraction;
+  /**
+   * Review case carried by the card: annotated documents, per-annotation resolutions, and
+   * one verdict that names what was open when it fell. One record per card; a write that
+   * carries it replaces it wholesale, and every write passes the store's review rules.
+   */
+  review?: WorkboardReviewSession;
 };
 
 export type WorkboardCard = {

@@ -29,6 +29,8 @@ import type { SkillWorkshopRunOptions } from "./tools/skill-workshop-tool-factor
 export type OpenClawSharedToolsOptions = {
   /** Complete model-discoverable catalog, prepared by the current host. */
   installedSkills?: readonly InstalledSkill[];
+  /** Host-only opt-in hash facts for exact native instruction-read exposure receipts. */
+  trackSkillExposure?: boolean;
   skillsSnapshot?: SkillSnapshot;
   /**
    * Overrides the originating-channel sender for blocking questions. An actual

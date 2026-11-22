@@ -23,6 +23,7 @@ export type AgentExecCliOptions = {
   authEnvOnly?: boolean;
   timeout?: string;
   json?: boolean;
+  skillExposureReceipt?: boolean;
 };
 
 function decodePrompt(bytes: Buffer, source: string): string {

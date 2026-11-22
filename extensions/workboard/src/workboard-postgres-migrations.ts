@@ -2,6 +2,7 @@ import { WORKBOARD_POSTGRES_SCHEMA_SQL } from "./workboard-postgres-schema.js";
 
 const EVENT_AGENT_COLUMN = '\n  "agent_id" text COLLATE "C",';
 const CARD_INTERACTION_COLUMN = '\n  "interaction_json" text COLLATE "C",';
+const CARD_REVIEW_COLUMN = '\n  "review_json" text COLLATE "C",';
 
 // Each step's fromSchema is the previous generated DDL with exactly the columns it
 // adds removed. Admission verifies both sides against the stored DDL hash and the
@@ -16,9 +17,15 @@ function withoutColumn(sql: string, table: string, column: string): string {
   return sql.slice(0, columnAt) + sql.slice(columnAt + column.length);
 }
 
-/** Version 4 is the generated version 5 DDL without workboard_cards.interaction_json. */
-const VERSION_4_SCHEMA = withoutColumn(
+/** Version 5 is the generated version 6 DDL without workboard_cards.review_json. */
+const VERSION_5_SCHEMA = withoutColumn(
   WORKBOARD_POSTGRES_SCHEMA_SQL,
+  "workboard_cards",
+  CARD_REVIEW_COLUMN,
+);
+/** Version 4 is the version-5 DDL without workboard_cards.interaction_json. */
+const VERSION_4_SCHEMA = withoutColumn(
+  VERSION_5_SCHEMA,
   "workboard_cards",
   CARD_INTERACTION_COLUMN,
 );
@@ -35,6 +42,12 @@ export const WORKBOARD_POSTGRES_MIGRATIONS = [
     version: 5,
     fromSchema: { postgres: VERSION_4_SCHEMA },
     sql: 'ALTER TABLE "workboard_cards" ADD COLUMN "interaction_json" text COLLATE "C"',
+    schema: { postgres: VERSION_5_SCHEMA },
+  },
+  {
+    version: 6,
+    fromSchema: { postgres: VERSION_5_SCHEMA },
+    sql: 'ALTER TABLE "workboard_cards" ADD COLUMN "review_json" text COLLATE "C"',
     schema: { postgres: WORKBOARD_POSTGRES_SCHEMA_SQL },
   },
 ] as const;

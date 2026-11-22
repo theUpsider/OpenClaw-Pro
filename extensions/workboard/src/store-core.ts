@@ -68,6 +68,7 @@ import {
   trimMetadataToBudget,
 } from "./store-normalizers.js";
 import { readCards } from "./store-read.js";
+import { reviewWrittenInPatch } from "./store-review.js";
 import { resolveLifecycleStatusWrite, settleManualStatusTransition } from "./store-status-write.js";
 import { normalizeCappedStringList } from "./store-string-lists.js";
 
@@ -406,6 +407,10 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     );
     const syncedMetadata = trimMetadataToBudget(
       syncExecutionAttemptMetadata(metadata, execution, now),
+      // Same non-terminality as in `updateCard`: this trim runs after the guarded
+      // `normalizeMetadata` and adds the attempt data, so a create carrying a review must
+      // carry the flag here too or it would shed a comment for the review (R27/A9).
+      { reviewWritten: reviewWrittenInPatch(input.metadata) },
     );
     const boardId = syncedMetadata.automation?.boardId ?? "default";
     const position = Number.isFinite(normalizedPosition)
@@ -592,6 +597,17 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
       preserveProofId: options.preserveProofId,
       preserveNotificationId: options.preserveNotificationId,
     });
+    // The guard has to hold for the whole write, not only where the patch was normalized:
+    // `normalizeMetadata` is the *first* of several metadata trims this write runs through,
+    // and the ones below add card data of their own (the interaction stamp, the automation
+    // patch, the execution-attempt sync, a settle notification). Reaching them without the
+    // flag is how a single write carrying a review *and* another field shed a comment and a
+    // proof to make room for the review (R27/A9) - measured 2026-11-20. Same reader as the
+    // resolution inside `normalizeMetadata`, so both answer alike for one write.
+    const metadataWriteOptions = {
+      ...options,
+      reviewWritten: reviewWrittenInPatch(effectivePatch.metadata, existing.metadata?.review),
+    };
     // A card-bound turn records which session is editing the card. Reference data
     // only (like the voice board binding): `startedAt` keeps the first turn of an
     // existing link, `updatedAt` moves on every turn, and nothing here is read as
@@ -606,7 +622,10 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
         updatedAt: stamp.at,
       });
       if (nextInteraction) {
-        metadata = trimMetadataToBudget({ ...metadata, interaction: nextInteraction }, options);
+        metadata = trimMetadataToBudget(
+          { ...metadata, interaction: nextInteraction },
+          metadataWriteOptions,
+        );
       }
     }
     if (status !== existing.status && !hasFreshLifecycleStatusSource) {
@@ -621,6 +640,9 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
         acceptedByOperator: options.actor === null,
         nextNotificationSequence: () => this.nextNotificationSequence(now),
         preserveProofId: options.preserveProofId,
+        // The settle appends a notification and runs its own trim; without the flag that
+        // trim is unguarded and would shed a comment for the review in the same write.
+        reviewWritten: metadataWriteOptions.reviewWritten,
       }));
     }
     const automationPatch: Record<string, unknown> = {};
@@ -653,7 +675,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
           ...metadata,
           automation: normalizeAutomationPatch(automationPatch, metadata.automation),
         },
-        options,
+        metadataWriteOptions,
       );
     }
     const next = definedFields<WorkboardCard>({
@@ -694,7 +716,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     });
     next.metadata = trimMetadataToBudget(
       syncExecutionAttemptMetadata(next.metadata ?? {}, execution, now),
-      options,
+      metadataWriteOptions,
     );
     // Placement stays fixed from claim through execution settlement. Check the
     // existing owner after normalizing the entire patch so metadata replacement
