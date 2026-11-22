@@ -566,23 +566,29 @@ export function guardWorkboardToolsForWorkspaceAccess(
         targetAgentId: readWorkboardTargetAgentId(value),
       });
     };
-    const writeTarget = async (
+    // Records another agent's runtime authority, or undefined when this write keeps the
+    // caller's own boundary (no target named, target is the caller, or no target config).
+    // `resolveWorkboardTargetAgentAccess` performs the roster and widening checks, so the
+    // assignment validation above is a strict subset of what this path already runs.
+    const stampOtherAgentTarget = async (
       value: Record<string, unknown>,
-    ): Promise<Record<string, unknown>> => {
+    ): Promise<Record<string, unknown> | undefined> => {
       const targetAccess = resolveWorkboardTargetAgentAccess({
         config,
         callerAgentId: context?.agentId,
         callerAccess: canonicalAccess,
         targetAgentId: readWorkboardTargetAgentId(value),
       });
-      // The unchanged path keeps the exact access object the guard has always stamped.
       if (!targetAccess) {
-        return withWorkboardWorkspaceAccess(value, canonicalAccess);
+        return undefined;
       }
       const canonicalTargetAccess = await canonicalizeWorkboardWorkspaceAccess(targetAccess);
       await assertWorkboardTargetWorkspaceMutationAccess(value, canonicalTargetAccess);
       return withWorkboardWorkspaceAccess(value, canonicalTargetAccess);
     };
+    const writeTarget = async (value: Record<string, unknown>): Promise<Record<string, unknown>> =>
+      // The unchanged path keeps the exact access object the guard has always stamped.
+      (await stampOtherAgentTarget(value)) ?? withWorkboardWorkspaceAccess(value, canonicalAccess);
     if (toolName === "workboard_create") {
       return await writeTarget(params);
     }
@@ -595,11 +601,14 @@ export function guardWorkboardToolsForWorkspaceAccess(
       };
     }
     if (toolName === "workboard_specify") {
-      if (containsWorkboardWorkspaceMutation(params)) {
-        return await writeTarget(params);
-      }
-      validateAssignedTarget(params);
-      return params;
+      // A specify that carries a workspace mutation keeps the caller's boundary exactly as
+      // before; one that only re-assigns the card records the new target's authority,
+      // because the assignment is what the dispatcher resolves the worker against. Leaving
+      // the previous owner's authority in place would dispatch this target against roots
+      // that were never its own.
+      return containsWorkboardWorkspaceMutation(params)
+        ? await writeTarget(params)
+        : ((await stampOtherAgentTarget(params)) ?? params);
     }
     if (toolName === "workboard_reassign") {
       validateAssignedTarget(params);

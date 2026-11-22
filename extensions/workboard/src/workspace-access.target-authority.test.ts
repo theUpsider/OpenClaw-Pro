@@ -477,6 +477,35 @@ describe("Workboard cross-agent card authority", () => {
     await expect(store.get(card.id)).resolves.toMatchObject({ agentId: "caretaker" });
   });
 
+  it("records the new target's authority when a specify only re-assigns the card", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const tools = guardedTools({
+      store,
+      context: workspaceOnlyCreator({ targetSandboxMode: "off" }),
+    });
+    // The caller's own boundary is on the card first, with no workspace mutation in the
+    // specify: the assignment alone must move the recorded authority to the target's.
+    const card = await store.create({
+      title: "Rough card",
+      status: "triage",
+      agentId: "creator",
+      workspaceAccess: { unrestricted: false, roots: [CREATOR_WORKSPACE], writable: true },
+    });
+
+    await tools.get("workboard_specify")?.execute("specify-reassigned", {
+      id: card.id,
+      agentId: "caretaker",
+      title: "Specified for caretaker",
+    });
+
+    await expect(store.get(card.id)).resolves.toMatchObject({
+      title: "Specified for caretaker",
+      status: "todo",
+      agentId: "caretaker",
+      metadata: { automation: { workspaceAccess: { unrestricted: true } } },
+    });
+  });
+
   it("does not widen a restricted dispatcher through an unrestricted card", async () => {
     const store = createWorkboardSqliteTestStore();
     // Unrestricted creator: the card records the target's (unrestricted) authority.
