@@ -33,6 +33,32 @@ backup.
 
 ## Update implementation contract
 
+A newer CLI refuses to forward-migrate an existing shared-state database when a
+provably older installed Gateway service uses that same database. This protects
+services left on another Node or npm prefix after a manual package install. Use
+`openclaw update` to coordinate the package and service, or use the CLI from the
+service installation. New databases and databases affirmatively identified as
+separate are not blocked. Hard links and host-visible bind-mount aliases remain
+protected. A known older service with uncertain account, environment, or filesystem
+mapping retains the restriction; restore inspection access or run as the service
+account. Service inspection is best effort; an unknown installation is not treated
+as an older one. The inspecting CLI must contain this guard.
+
+Admitted Doctor and update repair retain their existing schema-maintenance
+authority, including candidate and private rehearsal repair. Update phase flags
+alone do not grant that authority.
+
+A newer Doctor recognizes retained update captures whose state directory used
+an older Windows short-path spelling. Scope comparison resolves the recorded
+state directory and configuration parent without changing sealed capture bytes
+or following the final configuration entry. A different selected state directory
+or configuration entry remains rejected.
+
+Pre-update config copies publish through a temporary file and same-directory
+rename. An interrupted write preserves the previous `.pre-update` copy, and a
+later snapshot attempt can retry. This repair must be present in the updater
+taking the snapshot; it does not establish power-loss durability.
+
 SQLite header-probe timeouts report the discovery path count and link to the
 manual package-manager hop. A probe batch that misses its 10-second deadline now
 splits and retries, so slow or cold storage gets an answer; a path that cannot
@@ -44,6 +70,12 @@ Before post-core plugin work, the updater releases its temporary Doctor database
 ownership before rechecking profile-backed requester authority. Service custody
 remains with the updater; the next Doctor acquires its own database ownership.
 This avoids refusing the updater's own policy reads during its maintenance window.
+
+Plugin lifecycle work in update finalization and repair renews its lease from a
+worker, so a blocked main thread cannot expire the lease. Native Doctor and plugin
+install/update operations share this renewal behavior. Ownership checks,
+cancellation, and release still apply. The runtime holding the lease must contain
+this fix; a newer candidate cannot change an already-running lease owner.
 
 A managed update whose updater process dies keeps recovery with its surviving
 helper and original run. The helper retires an untouched preparation or completes
@@ -134,6 +166,10 @@ maintenance refusal. The updater performing the stop must contain this fix.
 This retention covers Node and Bun late imports, including CommonJS dependencies
 and JSON. Module state already loaded by the updater stays shared through cleanup;
 imports outside that retained generation continue using the active installation.
+The retained inventory preserves the running updater's Windows short-path
+spelling so its late imports keep their original module identity after package
+replacement. This requires the installed updater to contain the repair; a newer
+candidate cannot change an older updater that is already running.
 
 Native pnpm package swaps preserve platform-filtered optional dependencies as
 absent. On Windows, a dangling link declared in its owner's
@@ -386,6 +422,13 @@ reports retain these closed reason codes while redacting private diagnostics.
 Other package failures keep the `global-install-failed` reason. These diagnostics
 do not change refusal, backup, or rollback behavior and require an updated driver.
 
+Generated failure reports name recognized candidate startup causes, including
+plugin loading, port conflicts, schema migration, native-module compatibility,
+readiness timeouts, and process signals. Plugin names appear only when they belong
+to the shipped public catalog. Config errors retain schema field names and fixed
+validation kinds; user-defined map keys become `<id>` and unknown keys become
+`<key>`. Arbitrary error text and rejected values stay out of public reports.
+
 Control UI updates use a verified helper to stop and restart the managed Gateway.
 On macOS, the helper carries its live update ownership into LaunchAgent activation;
 ordinary commands inside the Gateway still cannot stop their own service. If an
@@ -442,6 +485,23 @@ the order of retained `PATH` entries and prepends newly added managed entries.
 Paths carried over solely from the old definition still pass the existing safety
 filters. If the definition cannot be preserved, reconciliation requires manual repair.
 Deployment-owned definitions retain their existing installation owner.
+
+If a service override keeps the Gateway on a different installation, only that
+installation is updated. Your shell CLI stays unchanged and may no longer support
+the shared config or plugins. Use the Gateway's CLI, or update your shell CLI to
+the same version.
+
+Reinstalling cannot replace a custom launcher override. Doctor reports this even
+when it cannot begin repairs. To change a systemd `ExecStart` override:
+
+1. Run `openclaw gateway status --deep` to find the service.
+2. Inspect it with `systemctl --user cat openclaw-gateway.service`.
+3. Update or remove the launcher override, keeping unrelated settings.
+4. Run `systemctl --user daemon-reload`. If needed, reinstall from the CLI you
+   want the Gateway to use, then check its launcher and health with `openclaw gateway status --deep`.
+
+For system services, omit `--user`; for profiles, use the reported unit name.
+These warnings require an updated CLI; an older updater still uses its old routing.
 
 An owned managed **Bun** Gateway at a different package root uses the existing
 service-root update route: only the Gateway installation advances, and the

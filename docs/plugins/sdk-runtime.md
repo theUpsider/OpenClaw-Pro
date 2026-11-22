@@ -235,6 +235,23 @@ its managed handles. Already admitted calls and streams have a bounded chance
 to finish before disposal; retaining an old function does not make it a current
 runtime handle.
 
+### Reload and saved configuration
+
+A turn retains the exact plugin instances whose capabilities it resolves or invokes,
+not every plugin in its registry. Selected model providers, fallback providers,
+hooks, and context engines retain their captured instances for later callbacks;
+tools retain their instance when resolved, before execution. Physical registry
+custody keeps resources available but does not by itself count as active work.
+Admitted turns keep their selected instances until completion and cleanup.
+
+Automatic configuration changes wait for affected retained work, in-flight calls,
+and unfinished cleanup without closing admission for new turns. A saved change
+can therefore return a deferred application receipt: `{ status: "deferred", reason,
+appliesWhen }`. This is not activation or rollback. The saved configuration and
+hash accompany the receipt; the watcher retries the latest saved candidate after
+work settles. Explicit plugin reloads keep their existing drain and refusal
+contracts. See [Plugin replacement](/plugins/architecture) for recovery details.
+
 ### Plugin value boundary
 
 OpenClaw admits native plugins when it loads and registers them, using the
@@ -259,7 +276,9 @@ Host-created request scopes borrow their plugin registry. A direct registry-scop
 callback keeps its registry until its returned operation settles; detached async
 resources do not extend that lifetime. Access to a released registry fails instead
 of silently selecting the current generation. Admitted turns and explicitly
-retained consumers keep their selected generation until they settle.
+retained consumers keep their selected generation until they settle. A retained
+consumer can outlive its admitting caller for its acquired instances; it does not
+keep the caller's authority to invoke other instances.
 Registry-dependent runtime APIs re-enter their live plugin owner after adoption
 and preserve an explicitly prepared registry, including an empty selection.
 
@@ -508,8 +527,11 @@ surfaces through normal database admission checks; Gateway shutdown cancels the 
 Memory runtimes may implement `prepareReload({ retireRuntime, retiringEmbeddingProviders })`
 and return `drain()` and `resume()`. Preparation synchronously fences affected
 manager acquisition, including lazy and fallback work. Match the exact acquired
-adapter objects rather than provider IDs. Drain removes affected managers from
-reuse before attempting to close them. It may return `{ errors }` to report
+adapter objects rather than provider IDs. Memory Core also drains lazy managers
+that have not attempted an adapter when any adapter retires: their dependencies
+are still unknown. This can restart an uninitialized manager for an unrelated
+provider, while managers with known unaffected adapters remain live. Drain removes
+affected managers from reuse before attempting to close them. It may return `{ errors }` to report
 cleanup failures. Resume reopens admission after cancellation, or after publication
 when the runtime is retained, even if old cleanup remains unfinished. Retiring
 managers must not publish late results into a replacement manager's caches.

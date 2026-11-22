@@ -105,8 +105,24 @@ describe("Anthropic Messages request max_tokens", () => {
     expect(await wireMaxTokens("claude-fable-5-1")).toBe(FABLE_5_MAX_TOKENS);
   });
 
-  it("does not lift an id the Fable 5 matcher must reject", async () => {
-    expect(await wireMaxTokens("claude-fable-50")).toBe(TRANSPORT_CLAMP_MAX_TOKENS);
+  it("gives the strict contract to an unknown later id", async () => {
+    expect(await wireMaxTokens("claude-fable-50")).toBe(FABLE_5_MAX_TOKENS);
     expect(await wireMaxTokens("claude-sonnet-4-6")).toBe(TRANSPORT_CLAMP_MAX_TOKENS);
   });
+});
+
+// Claude 5 models think by default; the 32k compatibility clamp starves thinking plus output.
+it.each([
+  ["claude-fable-5-2", 128_000],
+  ["claude-zzz-9-9", 128_000],
+  ["claude-opus-5-5", 128_000],
+  ["claude-sonnet-4-6", 32_000],
+])("uses the catalog output cap for %s", (id, expected) => {
+  expect(
+    resolveAnthropicTransportOptions(
+      makeAnthropicTransportModel({ id, maxTokens: FABLE_5_MAX_TOKENS, contextWindow: 1_000_000 }),
+      {},
+      API_KEY,
+    ).maxTokens,
+  ).toBe(expected);
 });

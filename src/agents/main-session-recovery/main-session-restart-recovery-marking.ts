@@ -7,6 +7,7 @@ import type {
 } from "../../config/sessions.js";
 import {
   hasMainSessionRecoveryClaim,
+  hasOrphanedMainSessionWork,
   hasRestartRecoveryTerminalRun,
   isMainRestartRecoveryCandidate,
   isRetryableUnadoptedChatClaim,
@@ -355,15 +356,6 @@ type OrphanMarkParams = {
   lifecycleGeneration: string;
 };
 
-function hasOrphanedMainSessionWork(entry: SessionEntry, sessionKey: string): boolean {
-  return (
-    isMainRestartRecoveryCandidate(entry, sessionKey) &&
-    (hasMainSessionRecoveryClaim(entry) ||
-      entry.abortedLastRun === true ||
-      entry.status === "interrupted")
-  );
-}
-
 async function markOrphanedMainSessionStore(
   params: OrphanMarkParams & {
     target: RestartRecoveryStoreTarget & { sessionKey?: string };
@@ -548,12 +540,14 @@ export async function markStartupOrphanedMainSessionsForRecovery(params: {
   activeSessionKeys?: Iterable<string>;
   startupCheckedStorePaths?: Set<string>;
   updatedBeforeMs?: number;
+  assertCommitAllowed?: () => void;
 }): Promise<{ marked: number; skipped: number; failedTargets?: RestartRecoveryStoreTarget[] }> {
   const result = { marked: 0, skipped: 0 };
   const failedTargets: RestartRecoveryStoreTarget[] = [];
   const lifecycleGeneration = getAgentEventLifecycleGeneration();
   const storeTargets = await discoverRestartRecoveryStoreTargets(params);
   for (const target of storeTargets) {
+    params.assertCommitAllowed?.();
     const key = restartRecoveryStoreTargetKey(target);
     if (params.startupCheckedStorePaths?.has(key)) {
       continue;
@@ -565,6 +559,7 @@ export async function markStartupOrphanedMainSessionsForRecovery(params: {
         lifecycleGeneration,
       });
       assertAgentRunLifecycleGenerationCurrent(lifecycleGeneration);
+      params.assertCommitAllowed?.();
       result.marked += storeResult.marked;
       result.skipped += storeResult.skipped;
       params.startupCheckedStorePaths?.add(key);

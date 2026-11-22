@@ -21,6 +21,7 @@ export const reportChunkTestFiles: readonly string[] = Array.from(
 );
 
 export type ReportFixtureMode =
+  | "file-backed-suites"
   | "overlap"
   | "serial"
   | "parallel"
@@ -341,6 +342,60 @@ ${index === 0 ? "test('alpha/two',()=>expect(2).toBe(2));" : "test.skip('beta/sk
         `const config = {root:${JSON.stringify(root)},test:{projects:[${JSON.stringify(other)},${JSON.stringify(beta)}]}};`,
       );
     }
+    if (mode === "file-backed-suites") {
+      // This report fixture owns its synthetic E2E files and has no product runtime to build.
+      env.OPENCLAW_E2E_SKIP_BUILD = "1";
+      const leaf = (name: string, file: string, extra = "") => {
+        const config = "test/vitest/vitest." + name + ".config.ts";
+        writeConfig(
+          path.join(root, config),
+          name,
+          "const config = {root:" +
+            JSON.stringify(root) +
+            ",test:{name:" +
+            JSON.stringify(name) +
+            ",include:[" +
+            JSON.stringify(file) +
+            "],pool:'forks',maxWorkers:1,fileParallelism:false," +
+            extra +
+            "}};",
+        );
+        return config;
+      };
+      const container = (name: string, projects: string[]) => {
+        const config = "test/vitest/vitest." + name + ".config.ts";
+        writeConfig(
+          path.join(root, config),
+          name,
+          "const config = {root:" +
+            JSON.stringify(root) +
+            ",test:{name:" +
+            JSON.stringify(name) +
+            ",projects:" +
+            JSON.stringify(projects) +
+            "}};",
+        );
+        return config;
+      };
+      write(
+        path.join(root, "gamma.test.ts"),
+        "import {test,expect} from 'vitest';test('gamma/one',()=>expect(1).toBe(1));",
+      );
+      write(
+        path.join(root, "delta.test.ts"),
+        "import {test,expect} from 'vitest';test('delta/one',()=>expect(1).toBe(1));",
+      );
+      const gateway = container("gateway", [
+        container("gateway-server", [
+          leaf("gateway-server-native", "alpha.test.ts", "sequence:{groupOrder:0},"),
+        ]),
+      ]);
+      const plugins = container("plugins", [
+        leaf("plugins-source", "beta.test.ts"),
+        leaf("plugins-native-loader", "gamma.test.ts", "execArgv:[],"),
+      ]);
+      targets = [gateway, plugins, leaf("e2e", "delta.test.ts")];
+    }
     if (mode === "chunks") {
       const files = reportChunkTestFiles;
       for (const [i, file] of files.entries()) {
@@ -370,6 +425,11 @@ ${index === 0 ? "test('alpha/two',()=>expect(2).toBe(2));" : "test.skip('beta/sk
     if (options.report === false) {
       args.splice(0, args.length, configLoader);
     }
+    if (mode === "file-backed-suites") {
+      // Canonical-looking config names model replay identity, not the checkout
+      // worker inventory. Declare the synthetic root before runtime selection.
+      args.push("--root", root);
+    }
     args.push(...(options.nativeArgs ?? []));
     if (mode === "dotted") {
       args.push("--reporter", "json");
@@ -396,10 +456,17 @@ ${index === 0 ? "test('alpha/two',()=>expect(2).toBe(2));" : "test.skip('beta/sk
       write(output, "old report");
     }
     let command = [path.join(repoRoot, "scripts/run-vitest.mjs"), "run", ...targets, ...args];
-    if (options.entry === "projects" || mode === "overlap" || mode === "automatic") {
+    if (
+      options.entry === "projects" ||
+      mode === "overlap" ||
+      mode === "automatic" ||
+      mode === "file-backed-suites"
+    ) {
       if (mode === "overlap") {
         targets = [configs[0]!, `./${configs[0]}`];
       }
+      // Alternate roots disable automatic delegation; explicit config targets
+      // still belong to the multi-project runner, not native test filters.
       command = [
         "--import",
         path.join(repoRoot, "node_modules/tsx/dist/loader.mjs"),
