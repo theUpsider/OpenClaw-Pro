@@ -50,13 +50,14 @@ jobs:
           printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > ~/.ssh/known_hosts
           printf '%s\n' "$GATE_KEY" > ~/.ssh/gate_key
           chmod 600 ~/.ssh/gate_key
-          cat >> ~/.ssh/config <<'SSHCONF'
-          Host gate-source
-            HostName github.com
-            IdentityFile ~/.ssh/gate_key
-            IdentitiesOnly yes
-            StrictHostKeyChecking yes
-          SSHCONF
+          printf '%s\n' \
+            'Host gate-source' \
+            '  HostName github.com' \
+            '  User git' \
+            '  IdentityFile ~/.ssh/gate_key' \
+            '  IdentitiesOnly yes' \
+            '  StrictHostKeyChecking yes' \
+            >> ~/.ssh/config
           git clone --depth 1 "gate-source:${GATE_REPO}.git" /tmp/pro-gate
           test -f /tmp/pro-gate/gate_pro.py
           test -f /tmp/pro-gate/denylist.sha256
