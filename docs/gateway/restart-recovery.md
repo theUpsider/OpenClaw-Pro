@@ -75,6 +75,15 @@ session, the source keeps the original request and the bound session owns the AC
 transcript and reply. An output-persistence failure does not make consumed input
 eligible for automatic resubmission.
 
+During graceful restart, new Gateway requests are fenced immediately, while
+accepted ingress retains its original grant until restart recovery is captured.
+Queued input is cancelled with the typed restart reason, so its durable pending
+row remains interrupted rather than cancelled. Its original authenticated source
+can retry with the same idempotency key; consumed inputs are not submitted twice.
+This does not add automatic restart dispatch for arbitrary non-main sessions.
+An input that has not committed durable custody receives a retryable unavailable
+response, not a successful acknowledgment. Ordinary stop still cancels pending input.
+
 If the browser no longer has the matching outbox payload, the saved interrupted
 input remains available for explicit resend. Cancelled input is not replayed.
 Inputs accepted by older versions without resumable custody also require explicit resend.
@@ -748,6 +757,14 @@ Three complementary mechanisms mark sessions whose turn did not finish:
   and retry budgets retain their existing owners and rules. A newer user turn
   clears the prior interruption and is not replayed. Stale transcript lock files
   are cleaned up at the same time.
+
+Startup selects orphan candidates from the existing active-session index in the
+session database worker, without transferring unrelated retained summaries to
+the Gateway. Pending canonical validation still runs for an empty selection.
+Marking rechecks the current row, live ownership, and current startup configuration
+before committing. Plugin loading and plugin services start before this scan;
+channels, startup hooks, and the existing startup-gated RPCs still wait for it.
+The scan remains tracked startup work and does not change saved-input replay rules.
 
 Agents still undergoing database startup inspection retain their recovery work.
 When admission finishes, the same startup recovery owner scans their stores with

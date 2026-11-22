@@ -73,24 +73,35 @@ later. This is recommended bookkeeping, not another release gate.
 
 ## Shared release boundaries
 
-This release branch predates trusted-P waiver evaluation: its Release Decision
-runs candidate-owned tooling. Changing P alone cannot retrofit waiver support
-into a frozen C/Q workflow. Follow the branch's strict
-[evidence policy](../../../docs/reference/full-release-validation/evidence.md#evidence-to-keep),
-not main's post-cutover waiver policy. A deliberate workflow cutover would need
-its own reviewed backport and newly qualified C/Q; this skill update does not
-provide one.
+Resolve Release Decision ownership from the actual qualification route. This
+branch's admitted route checks out P's qualification verifier and uses its state
+and summary scripts; Q=C still owns the frozen workflow closure and declared
+coverage. Without admission, the workflow uses its own decision scripts. Do not
+infer decision ownership from Q=C or silently substitute newer main tooling.
+Apply only exceptions supported by the actually admitted P and Q's coverage
+contract. Selecting or admitting P remains a separate prequalification step;
+this documentation update selects no P and grants no exception.
 
-FRV must conclude **success**, and every selected validation lane must pass,
-including live-provider and Telegram leaves. Required lanes include Windows
+Carry explicit channel/contact restrictions and each recorded grant's original
+version/job/attempt scope through candidate changes and handoffs. A failed-job
+grant requires terminal evidence; it never permits skipping that job. A not-run
+exemption needs its own supported Q coverage contract. Preserve raw failures,
+original producer identities and measurements; re-evaluation is not a new test
+run or measurement.
+
+FRV must conclude **success** under the actually admitted decision policy. Every
+selected validation lane must pass unless an exact supported policy grant applies
+to its terminal failure; an operator instruction or publisher override is not
+such a grant. Required lanes include Windows
 and macOS Node and other normal CI jobs, install smoke, survivor
 lanes, `update-first-hop-compat*`, pack/npm qualification, package integrity,
 and Linux/Windows/macOS Gateway checks, including Windows packaged
 install/upgrade checks in Release Checks. A cancelled run still blocks. Preserve
 first failures and classify each one as below before recovery. Stable
 publication requires stable/full evidence, soak, and blocking performance.
-Beta-profile evidence cannot authorize stable publication. No selected lane,
-soak, or performance requirement can be waived on this branch. All nine Gateway install/upgrade
+Beta-profile evidence cannot authorize stable publication. Hard gates and soak
+remain mandatory; any performance exception must be explicitly supported by
+the admitted policy and match the grant's exact scope. All nine Gateway install/upgrade
 combinations across Linux, Windows, and macOS are required for all-group
 qualification. Preserve identity, provenance, complete evidence, and existing
 publication approvals.
@@ -104,7 +115,7 @@ blocker is a regression in shipped bytes or behavior, or an update/install/
 publish defect; fix it on the release branch. Rerun a flake on
 the same Release SHA with at most two recorded reruns by default, and file a
 fix-in-parallel issue or PR on `main` with the evidence. Never re-cut, change
-P, or start a new FRV solely to waive a flake. A selected flake that remains red
+P, or start a new FRV solely to waive a flake. An unwaived selected flake that remains red
 blocks publication.
 Main-only failures and infrastructure
 failures (runner outages, GitHub ghost jobs, hosted-runner offload) count as
@@ -130,7 +141,9 @@ Follow the [FRV wall-time loop](../release-openclaw-ci/SKILL.md#keep-frv-off-the
 start remote validation promptly, repair failures as diagnostics drain, and
 minimize downtime between cycles. Include every known non-flake fix affecting
 the next run rather than knowingly carrying failures forward; overlap useful
-local checks with remote validation. This guides scheduling, not new gates.
+local checks with remote validation. Consider [broad CI discovery alongside initial FRV](../release-openclaw-ci/SKILL.md#optional-broad-ci-discovery-alongside-initial-frv)
+to reuse existing failures and batch repairs without delaying the initial run.
+This guides scheduling, not new gates.
 
 The operating objectives are approximately 20 minutes to seal validation and
 publication within an hour, not measured guarantees. Source-only children start
@@ -224,7 +237,7 @@ an unresolved repair. List every PR created during the release (`gh pr list --au
 each repair PR with a reason; confirm its fix is on `main` and, when it is release
 tooling, on the release branch. Also remove the release's temporary worktrees,
 abandoned local cut branches, and stale `scripts/pr` worktrees. Then write the
-[retrospective](references/retrospective.md) and open its `openclaw/maintainers`
+[retrospective](references/retrospective.md) and open its `openclaw/tideclaw`
 PR with the issue-ledger update; keep a findings notes file from the start of the
 release so it can be written from evidence.
 

@@ -29,6 +29,13 @@ for the next request and after a restart. The provider chooses which messages
 remain; it does not have to retain every original user message. See
 [OpenAI server-side compaction](/providers/openai/advanced).
 
+Built-in summarization rejects responses cut short by the model's output token limit,
+even when they contain summary text. In `mode: "default"`, automatic compaction
+retries invalid summary output once; manual compaction reports the failure without
+retrying. If no valid summary is produced, the original history remains in context
+and no compaction entry is written. Branch navigation also rejects truncated
+summaries and leaves the current branch unchanged.
+
 Built-in summarization receives text, not image pixels. Omitted images and other non-text input receive markers such as `[image data omitted from summary input]`, without claiming that a model processed the data. The first eight affected messages receive at most two fixed markers each; further omissions receive one aggregate statement. These additions, including newly retained role labels and separators, total at most 847 UTF-8 bytes per summarizer request and count toward token estimates. Existing text is not capped by this omission budget. Custom compaction providers still receive the original message content.
 
 <Note>
@@ -210,6 +217,11 @@ When unset, compaction starts with the active session model. If summarization fa
 Preflight compaction also uses that chain when the primary auth profile is already in cooldown. Each candidate must pass auth admission before summarization; a healthy fallback can compact the session without waiting for the primary cooldown to expire.
 
 In safeguard mode, provider timeouts and rate limits from built-in summarization remain eligible for that chain when no earlier summary can be reused. A summary deadline or an HTTP 408 or 504 instead uses the automatic timeout fallback (see [Auto-compaction](#auto-compaction)). Caller cancellation and failed safeguard quality checks do not trigger a model switch.
+
+Text quoted from the conversation into compaction summaries has credential shapes
+redacted before excerpts are clipped. This includes preserved recent turns,
+split-turn context, the latest request, and extracted identifiers. The stored
+transcript keeps the original text.
 
 ### Identifier preservation
 

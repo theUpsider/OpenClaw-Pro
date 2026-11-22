@@ -696,6 +696,9 @@ async function deliverReplyPlan(
             channelId: "telegram",
             accountId: params.accountId,
             conversationId: params.chatId,
+            ...(params.sessionKeyForInternalHooks
+              ? { sessionKey: params.sessionKeyForInternalHooks }
+              : {}),
           },
         );
       } catch (error) {

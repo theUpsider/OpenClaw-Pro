@@ -1,3 +1,4 @@
+import { racePromiseWithAbortSignal } from "../infra/abort-signal.js";
 import { hashStableJson } from "../plugins/installed-plugin-index-hash.js";
 import {
   getPluginRuntimeGeneration,
@@ -5,7 +6,10 @@ import {
   type PluginRuntimeApplication,
 } from "../plugins/lifecycle.js";
 import type { GatewayReloadPlan } from "./config-reload-plan.js";
-import { PluginAdmittedWorkTimeoutError } from "./server-plugin-reload-cleanup.js";
+import {
+  PluginAdmittedWorkTimeoutError,
+  PluginReloadDeferredError,
+} from "./server-plugin-reload-cleanup.js";
 import { GatewayConfigReloadSupersededError } from "./server-reload-contracts.js";
 
 export function isConfigReloadSuperseded(error: unknown): boolean {
@@ -69,7 +73,8 @@ export function createConfigPluginDrainTracker(params: {
     });
   let failure:
     | {
-        error: PluginRuntimeApplicationError;
+        error: PluginRuntimeApplicationError | PluginReloadDeferredError;
+        generation: number;
         paths: readonly string[];
         observation: AbortController;
         retriesWhenIdle: boolean;
@@ -91,8 +96,29 @@ export function createConfigPluginDrainTracker(params: {
       ),
     ) ?? false;
   return {
+    clear,
+    supersedeDeferred() {
+      if (failure?.error instanceof PluginReloadDeferredError) {
+        clear();
+      }
+    },
+    recordDeferred(plan: GatewayReloadPlan, error: PluginReloadDeferredError) {
+      if (failure?.error === error) {
+        return;
+      }
+      clear();
+      failure = {
+        error,
+        generation: getPluginRuntimeGeneration(),
+        paths: plan.reloadPluginPaths ?? [],
+        observation: new AbortController(),
+        retriesWhenIdle: true,
+        observing: false,
+        reported: false,
+      };
+    },
     assertCanApply(plan: GatewayReloadPlan, inputs: unknown) {
-      if (failure && failure.error.details.generation !== getPluginRuntimeGeneration()) {
+      if (failure && failure.generation !== getPluginRuntimeGeneration()) {
         clear();
       }
       if (lifecycleRetryGeneration !== getPluginRuntimeGeneration()) {
@@ -108,6 +134,7 @@ export function createConfigPluginDrainTracker(params: {
         plan.reloadPlugins &&
         failure &&
         !plan.pluginLifecycle?.waitForDrain &&
+        !(plan.pluginLifecycle && failure.error instanceof PluginReloadDeferredError) &&
         hasPendingFailure(plan)
       ) {
         // Publishing this candidate would expose plugin settings whose replacement never committed.
@@ -115,6 +142,10 @@ export function createConfigPluginDrainTracker(params: {
       }
     },
     recordFailure(plan: GatewayReloadPlan, error: unknown, inputs: unknown) {
+      // Rejected retries retain the original failed paths and idle observation.
+      if (failure?.error === error) {
+        return;
+      }
       const key = lifecycleRetryKey(plan, inputs);
       if (
         key &&
@@ -156,6 +187,7 @@ export function createConfigPluginDrainTracker(params: {
           error.cause instanceof PluginAdmittedWorkTimeoutError ? error.cause : undefined;
         const current = {
           error,
+          generation: error.details.generation,
           paths: plan.reloadPluginPaths ?? [],
           observation: new AbortController(),
           retriesWhenIdle: timeout !== undefined,
@@ -167,14 +199,37 @@ export function createConfigPluginDrainTracker(params: {
     },
     observeAfterReceipt() {
       const current = failure;
-      const timeout = current?.error.cause;
-      if (!current || current.observing || !(timeout instanceof PluginAdmittedWorkTimeoutError)) {
+      const deferred =
+        current?.error instanceof PluginReloadDeferredError ? current.error : current?.error.cause;
+      if (
+        !current ||
+        current.observing ||
+        !(
+          deferred instanceof PluginAdmittedWorkTimeoutError ||
+          deferred instanceof PluginReloadDeferredError
+        )
+      ) {
         return;
       }
       current.observing = true;
-      // The failed write receipt must settle before its turn can release retained work.
+      // Only exact handles and settlement facts survive the saved write receipt.
       const signal = AbortSignal.any([params.signal, current.observation.signal]);
-      void Promise.all(timeout.instances.map((instance) => instance.waitForIdle(signal))).then(
+      void Promise.all([
+        ...deferred.instances.map((instance) => instance.waitForIdle(signal)),
+        ...(deferred instanceof PluginReloadDeferredError && deferred.priorCleanup
+          ? [
+              racePromiseWithAbortSignal(
+                // A failed cleanup is also settled. Fresh admission reports its
+                // owner-held failure instead of leaving a saved write waiting forever.
+                deferred.priorCleanup.then(
+                  () => undefined,
+                  () => undefined,
+                ),
+                signal,
+              ),
+            ]
+          : []),
+      ]).then(
         () => {
           if (failure === current) {
             clear();
