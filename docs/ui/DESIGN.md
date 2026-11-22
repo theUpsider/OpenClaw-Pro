@@ -53,7 +53,7 @@ bleibt über den Fluss gleich: Knopf „Absenden" → Meldung „Gesendet…"; K
 | Kein eigener Farbton für Talk                                                 | Eine Feature-Farbe wäre die zweite Sprachpipeline, die der Auftrag ausschließt; `--accent-2` ist im Host belegt. Der Host-Akzent trägt die eine gefüllte Aktion.                                                                               | 2026-11-02 |
 | Der Urheber-Agent kommt aus der Server-Antwort, nicht aus dem Browser-Zustand | Ein clientseitig erfundenes Protokoll überlebt keinen Reload und wäre nicht prüfbar; die Karten-Events sind die vorhandene, persistente Fläche.                                                                                                | 2026-11-02 |
 | Das Protokoll hängt an den Karten-Events statt an einem neuen Audit-Store     | Events existieren bereits, werden mit der Karte persistiert und im Activity-Tab angezeigt — der kleinste Eingriff, der alle drei Belege trägt.                                                                                                 | 2026-11-02 |
-| Die Zielzeile nennt Agent **und** Ziel                                        | „main" allein beantwortet nicht „welches Board / welche Karte"; umgekehrt fehlt ohne Agent die Antwort auf the operator's Frage.                                                                                                                       | 2026-11-02 |
+| Die Zielzeile nennt Agent **und** Ziel                                        | „main" allein beantwortet nicht „welches Board / welche Karte"; umgekehrt fehlt ohne Agent die Antwort auf the operator's Frage.                                                                                                               | 2026-11-02 |
 
 ## Verweise
 
