@@ -92,7 +92,7 @@ function canonical(db: DatabaseSync, schema: PortDescriptor) {
 
 function seedWorkboard(db: DatabaseSync) {
   db.exec(descriptor.sqlite);
-  db.prepare("INSERT INTO workboard_schema_migrations VALUES (?, ?)").run("schema-5", 17);
+  db.prepare("INSERT INTO workboard_schema_migrations VALUES (?, ?)").run("schema-6", 17);
   db.prepare(
     "INSERT INTO workboard_boards (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
   ).run("board-é-🦞", "", -9223372036854775808n, 9223372036854775807n);

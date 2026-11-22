@@ -19,7 +19,7 @@ class WorkboardPortSchemaError extends Error {}
 const MISSING_COLUMNS: Record<string, string[]> = {
   workboard_boards: ["automation_job_id", "kind", "sessions_spec", "classifications_json"],
   workboard_card_events: ["agent_id"],
-  workboard_cards: ["interaction_json"],
+  workboard_cards: ["interaction_json", "review_json"],
 };
 
 /** Read-only version evidence before the owner is allowed to migrate a private copy. */

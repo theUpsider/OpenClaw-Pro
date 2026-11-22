@@ -375,6 +375,8 @@ function readMetadata(
   const interaction = parseJson(row.interaction_json) as
     | WorkboardMetadata["interaction"]
     | undefined;
+  // SAFETY: insertCard serializes WorkboardMetadata.review unchanged.
+  const review = parseJson(row.review_json) as WorkboardMetadata["review"] | undefined;
   return optional(
     definedFields({
       attempts,
@@ -403,6 +405,7 @@ function readMetadata(
       archivedAt: numberValue(row, "archived_at"),
       stale: stale || undefined,
       interaction: interaction || undefined,
+      review: review || undefined,
       lifecycleStatusSourceUpdatedAt: numberValue(row, "lifecycle_status_source_updated_at"),
       failureCount: numberValue(row, "failure_count"),
     }),

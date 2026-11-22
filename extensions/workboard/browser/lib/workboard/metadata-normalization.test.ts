@@ -166,3 +166,106 @@ describe("Workboard operator-ask metadata boundary", () => {
     );
   });
 });
+
+describe("Workboard review metadata boundary", () => {
+  const anchor = { kind: "pdf-rect" as const, page: 2, rect: [1, 2, 3, 4] as const };
+  const annotation = {
+    id: "a-1",
+    documentRef: "doc-1",
+    anchor,
+    body: "retention clause",
+    author: "operator",
+    createdAt: 1_700_000_000_000,
+  };
+  const document = { ref: "doc-1", label: "Package", sourceHash: "hash-1" };
+  const overall = {
+    verdict: "accept" as const,
+    decidedAt: 1_700_000_005_000,
+    decidedBy: "operator",
+    unresolvedAnnotationIds: ["a-1"],
+    documentHashes: { "doc-1": "hash-1" },
+  };
+  const review = {
+    id: "review-1",
+    cardId: "card-1",
+    documents: [document],
+    annotations: [annotation],
+  };
+
+  it("keeps a well-formed review whole, including its verdict", () => {
+    expect(normalizeMetadata({ review })).toEqual({ review });
+    expect(normalizeMetadata({ review: { ...review, overall } })).toEqual({
+      review: { ...review, overall },
+    });
+  });
+
+  it("drops an annotation whose anchor cannot be read, keeping the readable ones", () => {
+    expect(
+      normalizeMetadata({
+        review: {
+          ...review,
+          annotations: [
+            annotation,
+            {
+              ...annotation,
+              id: "bad-rect",
+              anchor: { kind: "pdf-rect", page: 1, rect: [0, 0, 1] },
+            },
+            { ...annotation, id: "bad-quote", anchor: { kind: "text-quote", quote: "x" } },
+            { ...annotation, id: "unknown", anchor: { kind: "video" } },
+            "not-an-object",
+          ],
+        },
+      }),
+    ).toEqual({ review: { ...review, annotations: [annotation] } });
+  });
+
+  it("drops a resolution word that carries no resolution time", () => {
+    expect(
+      normalizeMetadata({
+        review: { ...review, annotations: [{ ...annotation, resolution: "accepted" }] },
+      }),
+    ).toEqual({ review });
+    expect(
+      normalizeMetadata({
+        review: {
+          ...review,
+          annotations: [{ ...annotation, resolvedAt: 1_700_000_001_000, resolution: "answered" }],
+        },
+      }),
+    ).toEqual({
+      review: {
+        ...review,
+        annotations: [{ ...annotation, resolvedAt: 1_700_000_001_000, resolution: "answered" }],
+      },
+    });
+  });
+
+  it.each([
+    ["a string instead of an object", "review-1"],
+    ["an array instead of an object", ["review-1"]],
+    ["a missing id", { ...review, id: undefined }],
+    ["a missing cardId", { ...review, cardId: undefined }],
+  ])("drops a review the board cannot render: %s", (_label, value) => {
+    expect(normalizeMetadata({ review: value })).toBeUndefined();
+  });
+
+  it("drops an unknown verdict word but keeps the card's other data", () => {
+    // The mirror is tolerant by design: the store refuses the write, so the board only
+    // has to keep rendering a foreign payload rather than break on it.
+    const metadata = normalizeMetadata({
+      review: { ...review, overall: { ...overall, verdict: "ACCEPT" } },
+      comments: [{ id: "c-1", body: "kept", createdAt: 1 }],
+    });
+    expect(metadata?.comments).toHaveLength(1);
+    expect(metadata?.review?.id).toBe("review-1");
+    expect(metadata?.review?.overall).toBeUndefined();
+  });
+
+  it("reads an empty review list as absent and an absent review as nothing", () => {
+    expect(normalizeMetadata({ review: { ...review, documents: [], annotations: [] } })).toEqual({
+      review: { id: "review-1", cardId: "card-1" },
+    });
+    expect(normalizeMetadata({})).toBeUndefined();
+  });
+});

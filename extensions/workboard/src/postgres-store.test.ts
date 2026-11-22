@@ -342,20 +342,72 @@ describe.skipIf(!postgresUrl)("experimental PostgreSQL workboard admission and r
     await opened.close();
     // One newer than this build: the store may not be downgraded in place.
     await observer.query(
-      `UPDATE ${quoteIdentifier(schema)}.openclaw_schema_meta SET version = 6 WHERE store = 'workboard'`,
+      `UPDATE ${quoteIdentifier(schema)}.openclaw_schema_meta SET version = 7 WHERE store = 'workboard'`,
     );
     replaceAnchorForFreshAdmission(dbPath);
-    expect(() => createWorkboardDatabase(dbPath, undefined, postgresInput)).toThrow(/expected.*5/i);
+    expect(() => createWorkboardDatabase(dbPath, undefined, postgresInput)).toThrow(/expected.*6/i);
     expect(
       (
         await observer.query<{ version: number }>(
           `SELECT version::integer FROM ${quoteIdentifier(schema)}.openclaw_schema_meta WHERE store = 'workboard'`,
         )
       ).rows,
-    ).toEqual([{ version: 6 }]);
+    ).toEqual([{ version: 7 }]);
   });
 
-  // Migrates a genuine version-4 store (no interaction column) to the current version.
+  // Migrates a genuine version-5 store (no review column) to the current version.
+  it("adds the review column when a version-5 store migrates", async () => {
+    const dbPath = databasePath();
+    const [, version5] = WORKBOARD_POSTGRES_MIGRATIONS;
+    const opened = await openDatabase(dbPath);
+    const schema = opened.schema;
+    await opened.close();
+    await observer.query(`DROP SCHEMA ${quoteIdentifier(schema)} CASCADE`);
+    await observer.query(
+      `CREATE SCHEMA ${quoteIdentifier(schema)}; SET search_path TO ${quoteIdentifier(schema)}; ${version5.schema.postgres}`,
+    );
+    await observer.query(
+      `CREATE TABLE ${quoteIdentifier(schema)}.openclaw_schema_meta (store TEXT PRIMARY KEY, version BIGINT NOT NULL, store_id TEXT NOT NULL, fingerprint TEXT, ddl_hash TEXT, server_major BIGINT)`,
+    );
+    const anchor = new DatabaseSync(dbPath, { readOnly: true });
+    let storeId: string;
+    try {
+      storeId = String(
+        anchor.prepare("SELECT store_id FROM openclaw_engine_anchor").get()?.store_id ?? "",
+      );
+    } finally {
+      anchor.close();
+    }
+    await observer.query(
+      `INSERT INTO ${quoteIdentifier(schema)}.openclaw_schema_meta (store, version, store_id) VALUES ('workboard', 5, $1)`,
+      [storeId],
+    );
+    replaceAnchorForFreshAdmission(dbPath);
+
+    const migrated = await openDatabase(dbPath);
+    try {
+      // The added column is last, which is where ALTER TABLE ADD COLUMN puts it.
+      const columns = await observer.query<{ column_name: string; ordinal_position: number }>(
+        `SELECT column_name, ordinal_position FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'workboard_cards' AND column_name IN ('interaction_json', 'review_json') ORDER BY ordinal_position`,
+        [schema],
+      );
+      expect(columns.rows).toEqual([
+        { column_name: "interaction_json", ordinal_position: 34 },
+        { column_name: "review_json", ordinal_position: 35 },
+      ]);
+      expect(
+        (
+          await observer.query<{ version: number }>(
+            `SELECT version::integer AS version FROM ${quoteIdentifier(schema)}.openclaw_schema_meta WHERE store = 'workboard'`,
+          )
+        ).rows,
+      ).toEqual([{ version: 6 }]);
+    } finally {
+      await migrated.close();
+    }
+  });
+
+  // Migrates a genuine version-4 store (no interaction or review column) to the current version.
   it("adds the interaction column when a version-4 store migrates", async () => {
     const dbPath = databasePath();
     const [version4] = WORKBOARD_POSTGRES_MIGRATIONS;
@@ -393,12 +445,13 @@ describe.skipIf(!postgresUrl)("experimental PostgreSQL workboard admission and r
     try {
       // The migrated catalog matches the generated DDL, which the column position decides.
       const columns = await observer.query<{ column_name: string; ordinal_position: number }>(
-        `SELECT column_name, ordinal_position FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'workboard_cards' AND column_name IN ('failure_count', 'interaction_json') ORDER BY ordinal_position`,
+        `SELECT column_name, ordinal_position FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'workboard_cards' AND column_name IN ('failure_count', 'interaction_json', 'review_json') ORDER BY ordinal_position`,
         [schema],
       );
       expect(columns.rows).toEqual([
         { column_name: "failure_count", ordinal_position: 33 },
         { column_name: "interaction_json", ordinal_position: 34 },
+        { column_name: "review_json", ordinal_position: 35 },
       ]);
       expect(
         (
@@ -417,7 +470,7 @@ describe.skipIf(!postgresUrl)("experimental PostgreSQL workboard admission and r
             `SELECT version::integer AS version FROM ${quoteIdentifier(schema)}.openclaw_schema_meta WHERE store = 'workboard'`,
           )
         ).rows,
-      ).toEqual([{ version: 5 }]);
+      ).toEqual([{ version: 6 }]);
     } finally {
       await migrated.close();
     }

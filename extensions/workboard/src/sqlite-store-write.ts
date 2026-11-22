@@ -139,6 +139,7 @@ export function insertCard(db: WorkboardSqlConnection, card: WorkboardCard): voi
     archived_at: () => bindNull(metadata?.archivedAt),
     stale_json: () => jsonValue(metadata?.stale),
     interaction_json: () => jsonValue(metadata?.interaction),
+    review_json: () => jsonValue(metadata?.review),
     lifecycle_status_source_updated_at: () => bindNull(metadata?.lifecycleStatusSourceUpdatedAt),
     failure_count: () => bindNull(metadata?.failureCount),
   })();

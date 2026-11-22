@@ -91,8 +91,8 @@ describe("Workboard SQLite schema admission", () => {
     }
   });
 
-  // Builds a schema-4 file by dropping the version-5 column and migration row.
-  test("adds the interaction column when an existing schema-4 database opens", async () => {
+  // Builds a pre-version-6 file by dropping both late columns and the version-6 row.
+  test("adds the interaction and review columns when a database below schema 6 opens", async () => {
     const dir = tempDirs.make("openclaw-workboard-interaction-migration-");
     const dbPath = path.join(dir, "workboard.sqlite");
     const initialized = createWorkboardSqliteStores({ dbPath, workerModuleUrl });
@@ -117,6 +117,7 @@ describe("Workboard SQLite schema admission", () => {
     const downgrade = new DatabaseSync(dbPath);
     try {
       downgrade.exec("ALTER TABLE workboard_cards DROP COLUMN interaction_json");
+      downgrade.exec("ALTER TABLE workboard_cards DROP COLUMN review_json");
       downgrade.exec(
         `DELETE FROM workboard_schema_migrations WHERE id = 'schema-${SCHEMA_VERSION}'`,
       );
@@ -133,8 +134,9 @@ describe("Workboard SQLite schema admission", () => {
     try {
       const card = await reopened.cards.lookup("legacy-card");
       expect(card).toMatchObject({ card: { id: "legacy-card", title: "Legacy card" } });
-      // No backfill: the reopened row carries no interaction link.
+      // No backfill: the reopened row carries neither late field.
       expect(card?.card.metadata?.interaction).toBeUndefined();
+      expect(card?.card.metadata?.review).toBeUndefined();
     } finally {
       await reopened.close();
     }
@@ -145,6 +147,11 @@ describe("Workboard SQLite schema admission", () => {
           .prepare("SELECT name FROM pragma_table_info('workboard_cards') WHERE name = ?")
           .get("interaction_json"),
       ).toEqual({ name: "interaction_json" });
+      expect(
+        verified
+          .prepare("SELECT name FROM pragma_table_info('workboard_cards') WHERE name = ?")
+          .get("review_json"),
+      ).toEqual({ name: "review_json" });
       expect(
         verified
           .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = ?")

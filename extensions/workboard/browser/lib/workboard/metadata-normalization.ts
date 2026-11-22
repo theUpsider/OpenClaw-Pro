@@ -14,12 +14,16 @@ import {
   WORKBOARD_NOTIFICATION_KINDS,
   WORKBOARD_OPERATOR_ASK_KINDS,
   WORKBOARD_PROOF_STATUSES,
+  WORKBOARD_REVIEW_RESOLUTIONS,
+  WORKBOARD_REVIEW_VERDICT_VALUES,
   WORKBOARD_STATUSES,
   WORKBOARD_TEMPLATE_IDS,
   type WorkboardEvent,
   type WorkboardExecution,
   type WorkboardInteraction,
   type WorkboardMetadata,
+  type WorkboardReviewAnnotation,
+  type WorkboardReviewSession,
 } from "./types.ts";
 
 const optionalStringSchema = z.string().optional().catch(undefined);
@@ -310,6 +314,119 @@ const interactionSchema = z
   .optional()
   .catch(undefined);
 
+/**
+ * The review case on a card: annotated documents, each annotation with its own
+ * resolution, and one overall verdict. Tolerant like its neighbours, because this is a
+ * mirror and never the enforcer: the store refuses an over-bound or rule-breaking write,
+ * so the board only has to keep rendering a foreign or older payload instead of breaking
+ * on it. A malformed entry is dropped whole, and an unknown anchor or verdict word drops
+ * that field, never the card's other data.
+ */
+const reviewAnchorSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("pdf-rect"),
+    page: z.number().finite().int().min(1),
+    rect: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+  }),
+  z.object({
+    kind: z.literal("text-quote"),
+    quote: trimmedRequiredStringSchema,
+    hash: trimmedRequiredStringSchema,
+    page: z.number().finite().int().min(1).optional(),
+  }),
+  z.object({
+    kind: z.literal("text-range"),
+    start: z.number().finite().int().min(0),
+    end: z.number().finite().int().min(0),
+    hash: trimmedRequiredStringSchema,
+  }),
+]);
+
+/** Drops entries a schema rejects whole, unlike `tolerantArray`, which only drops non-objects. */
+function reviewEntries<T>(schema: z.ZodType<T | null>) {
+  return z
+    .array(z.unknown())
+    .transform((items) => {
+      const kept = items.flatMap((item) => {
+        const result = schema.safeParse(item);
+        return result.success && result.data !== null ? [result.data] : [];
+      });
+      return kept.length ? kept : undefined;
+    })
+    .optional()
+    .catch(undefined);
+}
+
+// An anchor that cannot be read whole drops the annotation: a quote without its hash or a
+// rectangle with three corners points at nothing.
+const reviewAnnotationSchema: z.ZodType<WorkboardReviewAnnotation | null> = z
+  .object({
+    id: trimmedRequiredStringSchema,
+    documentRef: trimmedRequiredStringSchema,
+    anchor: z.unknown(),
+    body: trimmedRequiredStringSchema,
+    author: trimmedRequiredStringSchema,
+    createdAt: z
+      .number()
+      .finite()
+      .refine((value) => value !== 0),
+    resolvedAt: optionalNumberSchema,
+    resolution: z.enum(WORKBOARD_REVIEW_RESOLUTIONS).optional().catch(undefined),
+  })
+  .transform((value): WorkboardReviewAnnotation | null => {
+    const anchor = reviewAnchorSchema.safeParse(value.anchor);
+    return anchor.success
+      ? definedFields({
+          id: value.id,
+          documentRef: value.documentRef,
+          anchor: anchor.data,
+          body: value.body,
+          author: value.author,
+          createdAt: value.createdAt,
+          resolvedAt: value.resolvedAt,
+          resolution: value.resolvedAt ? value.resolution : undefined,
+        })
+      : null;
+  });
+
+const reviewDocumentSchema: z.ZodType<
+  NonNullable<WorkboardReviewSession["documents"]>[number] | null
+> = z
+  .object({
+    ref: trimmedRequiredStringSchema,
+    label: trimmedRequiredStringSchema,
+    sourceHash: trimmedRequiredStringSchema,
+  })
+  .transform((value) => value);
+
+const reviewVerdictSchema = z
+  .object({
+    verdict: z.enum(WORKBOARD_REVIEW_VERDICT_VALUES),
+    note: optionalStringSchema,
+    decidedAt: z
+      .number()
+      .finite()
+      .refine((value) => value !== 0),
+    decidedBy: trimmedRequiredStringSchema,
+    unresolvedAnnotationIds: z.array(z.string()),
+    documentHashes: z.record(z.string(), z.string()),
+  })
+  .transform(definedFields)
+  .optional()
+  .catch(undefined);
+
+const reviewSchema = z
+  .object({
+    id: trimmedRequiredStringSchema,
+    cardId: trimmedRequiredStringSchema,
+    documents: reviewEntries(reviewDocumentSchema),
+    annotations: reviewEntries(reviewAnnotationSchema),
+    overall: reviewVerdictSchema,
+  })
+  .transform(definedFields)
+  .optional()
+  .catch(undefined);
+
 const workboardMetadataSchema = z
   .object({
     attempts: tolerantArray(attemptSchema),
@@ -328,6 +445,7 @@ const workboardMetadataSchema = z
     archivedAt: optionalNumberSchema,
     stale: staleSchema,
     interaction: interactionSchema,
+    review: reviewSchema,
     lifecycleStatusSourceUpdatedAt: z
       .number()
       .finite()

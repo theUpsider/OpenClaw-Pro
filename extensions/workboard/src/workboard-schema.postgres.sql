@@ -184,6 +184,7 @@ CREATE TABLE "workboard_cards" (
   "lifecycle_status_source_updated_at" bigint,
   "failure_count" bigint,
   "interaction_json" text COLLATE "C",
+  "review_json" text COLLATE "C",
   PRIMARY KEY ("id")
 );
 
