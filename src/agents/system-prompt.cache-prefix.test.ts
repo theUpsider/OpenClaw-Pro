@@ -128,8 +128,10 @@ describe("installed skill prompt guidance", () => {
       expect(prompt).toContain("skills.search(query)");
       expect(prompt).not.toContain("read exact <location> with `read`");
     } else {
-      expect(prompt).not.toContain("skills.read(");
-      expect(prompt).not.toContain("skills.search(");
+      // No admitted Code Mode reader: the catalog and both hints stay out.
+      expect(prompt).not.toMatch(
+        /## Skills|<available_skills>|read exact <location>|skills\.(read|search)\(/,
+      );
     }
   });
 

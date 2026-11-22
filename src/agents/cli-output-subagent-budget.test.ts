@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { CLI_STREAM_JSON_OUTPUT_LIMITS } from "./cli-output-stream-limits.js";
 import { createCliJsonlStreamingParser } from "./cli-output-stream.js";
 
+const { maxTurnRawChars, maxTurnLines } = CLI_STREAM_JSON_OUTPUT_LIMITS;
 const AGENT_CALL = "agent-call-1";
+// Half the raw budget per payload: two of them cross the raw budget while one
+// line still fits under the pending-line budget.
+const HALF_BUDGET = Math.ceil(maxTurnRawChars / 2) + 1;
 
 function createParser(onProgress?: (id: string) => void) {
   return createCliJsonlStreamingParser({
@@ -58,8 +63,10 @@ describe("Claude subagent output budget", () => {
   });
 
   it("still bounds the same volume in the parent conversation", () => {
-    const { parser } = runTurn(null, 300, 40 * 1024);
-    expect(parser.getErrorText()).toMatch(/exceeded 8388608 characters/);
+    // Enough 40 KiB records to cross the raw budget in the parent conversation.
+    const parentRecords = Math.ceil(maxTurnRawChars / (40 * 1024)) + 2;
+    const { parser } = runTurn(null, parentRecords, 40 * 1024);
+    expect(parser.getErrorText()).toContain(`exceeded ${maxTurnRawChars} characters`);
     expect(parser.getOutput()?.text).toBe("");
   });
 
@@ -73,18 +80,18 @@ describe("Claude subagent output budget", () => {
           event: {
             type: "content_block_delta",
             index: 0,
-            delta: { type: "text_delta", text: "r".repeat(4_300_000) },
+            delta: { type: "text_delta", text: "r".repeat(HALF_BUDGET) },
           },
         })}\n`,
       );
     }
     parser.finish();
-    expect(parser.getErrorText()).toMatch(/exceeded 8388608 characters/);
+    expect(parser.getErrorText()).toContain(`exceeded ${maxTurnRawChars} characters`);
   });
 
   it("still bounds a subagent flood by frames", () => {
-    const { parser } = runTurn(AGENT_CALL, 20_001, 1);
-    expect(parser.getErrorText()).toMatch(/exceeded 20000 lines/);
+    const { parser } = runTurn(AGENT_CALL, maxTurnLines + 1, 1);
+    expect(parser.getErrorText()).toContain(`exceeded ${maxTurnLines} lines`);
   });
 });
 
@@ -111,13 +118,13 @@ it.each([
       JSON.stringify({
         type: "assistant",
         parent_tool_use_id: AGENT_CALL,
-        message: { content: [{ type: "text", text: "x".repeat(4_300_000) }] },
+        message: { content: [{ type: "text", text: "x".repeat(HALF_BUDGET) }] },
         ...extra,
       }) + "\n",
     );
   }
   parser.finish();
-  expect(parser.getErrorText()).toMatch(/exceeded 8388608 characters/);
+  expect(parser.getErrorText()).toContain(`exceeded ${maxTurnRawChars} characters`);
   expect(parser.getOutput()?.text).toBe("");
 });
 
@@ -127,11 +134,11 @@ it("rejects an individually oversized discarded child line", () => {
     JSON.stringify({
       type: "assistant",
       parent_tool_use_id: AGENT_CALL,
-      message: { content: [{ type: "text", text: "x".repeat(8 * 1024 * 1024) }] },
+      message: { content: [{ type: "text", text: "x".repeat(maxTurnRawChars + 1) }] },
     }) + "\n",
   );
   parser.finish();
-  expect(parser.getErrorText()).toMatch(/line exceeded 8388608 characters/);
+  expect(parser.getErrorText()).toContain(`line exceeded ${maxTurnRawChars} characters`);
 });
 
 it("preserves unicode parent text after discarded child messages", () => {

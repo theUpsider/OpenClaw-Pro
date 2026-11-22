@@ -135,8 +135,13 @@ describe("rendered skills diagnostics", () => {
   it.each([
     { name: "visible skills_read", params: { toolNames: ["skills_read"] }, included: true },
     {
-      name: "Code Mode exec",
+      name: "Code Mode exec without a reader",
       params: { codeModeActive: true, toolNames: ["exec"] },
+      included: false,
+    },
+    {
+      name: "Code Mode exec with an admitted reader",
+      params: { codeModeActive: true, toolNames: ["exec"], capabilityToolNames: ["skills_read"] },
       included: true,
     },
     { name: "CLI native tools", params: { promptSurface: "cli_backend" }, included: true },

@@ -509,9 +509,10 @@ export function buildAgentSystemPrompt(params: {
     "",
   ];
   // CLI backends own native file tools outside OpenClaw's projected tool list.
-  // Keep their skill catalog visible while embedded runs require a real read tool.
+  // Keep their skill catalog visible while embedded runs require a real reader:
+  // Code Mode needs an admitted `skills_read` endpoint, other runs need `read`.
   const canAccessSkills = params.codeModeActive
-    ? visibleTools.has("exec")
+    ? visibleTools.has("exec") && availableTools.has("skills_read")
     : visibleTools.has("read") ||
       availableTools.has("skills_read") ||
       promptSurface === "cli_backend";

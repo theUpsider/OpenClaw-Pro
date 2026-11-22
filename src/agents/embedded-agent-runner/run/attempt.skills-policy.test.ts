@@ -313,7 +313,7 @@ describe("runEmbeddedAttempt skill policy projections", () => {
       { label: "unrestricted", skillsPrompt, available: true },
       { label: "wildcard", toolsAllow: ["*"], skillsPrompt, available: true },
       { label: "mixed wildcard", toolsAllow: ["message", "*"], skillsPrompt, available: true },
-      { label: "finite", toolsAllow: ["message"], available: false },
+      { label: "finite", toolsAllow: ["message"], skillsPrompt, available: false },
       {
         label: "read executable",
         toolExecutionAllow: ["skill_workshop", "read", "skills_read", "skills_search"],

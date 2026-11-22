@@ -1,0 +1,58 @@
+# Public-push gate for OpenClaw Pro.
+#
+# Purpose: no public push without a green sanitize gate. This workflow runs on
+# every pull_request into `pro/main` and on every push to `pro/main`, and fails if
+# the published tree contains a private marker (hashed denylist) or a secret shape.
+#
+# The gate script and the hashed denylist live in the PRIVATE runtime repo; this
+# workflow fetches them from there so the plaintext terms never enter the public
+# repo. Until that fetch is wired (repository secret PRO_GATE_REPO + token), the
+# job fails closed rather than silently skipping.
+name: pro-public-gate
+
+on:
+  pull_request:
+    branches: [pro/main]
+  push:
+    branches: [pro/main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pro-public-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: sanitize gate (denylist + secret scan)
+    runs-on: [self-hosted, linux, x64, runner]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch the gate (script + hashed denylist) from the private runtime repo
+        env:
+          GATE_TOKEN: ${{ secrets.PRO_GATE_TOKEN }}
+          GATE_REPO: ${{ vars.PRO_GATE_REPO }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GATE_TOKEN:-}" ] || [ -z "${GATE_REPO:-}" ]; then
+            echo "::error::gate source not configured (PRO_GATE_REPO / PRO_GATE_TOKEN); failing closed."
+            exit 1
+          fi
+          git clone --depth 1 \
+            "https://x-access-token:${GATE_TOKEN}@github.com/${GATE_REPO}.git" /tmp/pro-gate
+          test -f /tmp/pro-gate/gate_pro.py
+          test -f /tmp/pro-gate/denylist.sha256
+
+      - name: Run the sanitize gate on the candidate tree
+        run: |
+          set -euo pipefail
+          # The gate reads denylist.sha256 next to itself.
+          python3 /tmp/pro-gate/gate_pro.py --repo "$GITHUB_WORKSPACE" --ref HEAD
