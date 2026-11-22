@@ -8,7 +8,7 @@ import exampleEntry from "../extensions/example/index.js";
 import {
   createLobsterRegistry,
   type DecisionEvaluator,
-} from "../extensions/lobster/src/decision-bridge.js";
+} from "../extensions/lobster/test-api.js";
 import {
   clearRuntimeConfigSnapshot,
   setRuntimeConfigSnapshot,
