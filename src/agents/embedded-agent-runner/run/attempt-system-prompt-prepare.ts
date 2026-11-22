@@ -200,7 +200,6 @@ export async function prepareEmbeddedAttemptSystemPrompt(params: {
   const promptSurface = resolveAgentPromptSurfaceForSessionKey(attempt.sessionKey);
   const toolPolicyRestricted = toolPolicyRestrictsTools({ allow: attempt.toolsAllow });
   const effectivePromptMode = toolPolicyRestricted ? ("minimal" as const) : promptMode;
-  const effectiveSkillsPrompt = toolPolicyRestricted ? undefined : params.skillsPrompt;
   const openClawReferences =
     params.referencePaths ??
     (await resolveOpenClawReferencePaths({
@@ -319,7 +318,11 @@ export async function prepareEmbeddedAttemptSystemPrompt(params: {
       extraSystemPrompt,
       ownerNumbers: attempt.ownerNumbers,
       reasoningTagHint,
-      skillsPrompt: effectiveSkillsPrompt,
+      // A finite tool allowlist narrows the callable tools, not the catalog: an
+      // agent that may still `read` needs the skill paths. The renderer gates the
+      // Skills section on the callable reader (read / skills_read / CLI backend),
+      // so a policy without one keeps the catalog out and no reader is added.
+      skillsPrompt: params.skillsPrompt,
       codeModeActive: params.codeModeActive,
       webSearchUnconfigured: params.webSearchUnconfigured?.(),
       docsPath: openClawReferences.docsPath ?? undefined,

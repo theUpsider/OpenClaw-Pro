@@ -210,21 +210,107 @@ describe("buildAttemptSystemPrompt", () => {
     expect(prepared.systemPromptReport?.skills.entries).toEqual([]);
   });
 
-  it("reports read becoming visible while preserving attempt tool policy", async () => {
-    const toolsAllow = ["message"];
+  // A finite tool allowlist narrows the callable tools; it must not delete the
+  // skill catalog for an agent that can still `read` the listed SKILL.md paths.
+  // The renderer owns the protection: no callable reader -> no catalog.
+  const locatedCatalog = [
+    "<available_skills>",
+    "  <skill>",
+    "    <name>weather</name>",
+    "    <description>weather skill</description>",
+    "    <location>/skills/weather/SKILL.md</location>",
+    "  </skill>",
+    "</available_skills>",
+  ].join("\n");
+
+  it("keeps the skill catalog under a finite allowlist while a reader stays callable", async () => {
+    const toolsAllow = ["read", "write", "edit"];
     const { prepared, read, refreshSystemPrompt } = await preparePermissionPrompt(
       false,
       undefined,
       undefined,
       undefined,
-      { prompt: skillsCatalog, toolsAllow, initialToolNames: [] },
+      { prompt: locatedCatalog, toolsAllow, initialToolNames: [...toolsAllow] },
     );
-    expect(prepared.systemPromptText).not.toContain(skillsCatalog);
+    // The affected agent reads SKILL.md by path; the path must survive the policy.
+    expect(prepared.systemPromptText).toContain(locatedCatalog);
+    expect(prepared.systemPromptText).toContain("read exact <location> with `read`");
+    expect(prepared.systemPromptText).toContain("/skills/weather/SKILL.md");
+    expect(prepared.systemPromptReport?.skills.entries.map(({ name }) => name)).toEqual([
+      "weather",
+    ]);
+
+    // Losing the reader in a later tool generation hides the catalog again.
+    const hidden = await refreshSystemPrompt(prepared.systemPromptText, []);
+    expect(hidden).not.toContain(locatedCatalog);
     expect(prepared.systemPromptReport?.skills.promptChars).toBe(0);
 
-    const refreshed = await refreshSystemPrompt(prepared.systemPromptText, [read]);
-    expect(refreshed).not.toContain(skillsCatalog);
-    expect(prepared.systemPromptReport?.skills.promptChars).toBe(0);
+    const restored = await refreshSystemPrompt(hidden, [read]);
+    expect(restored).toContain(locatedCatalog);
+  });
+
+  it.each([
+    ["reader callable", ["read", "write"], ["read", "write"], true],
+    ["reader not callable", ["write", "exec"], ["write", "exec"], false],
+    ["no callable tools", ["message"], [], false],
+    ["explicitly tool-less", [], [], false],
+    // False-negative probe: an allowlist with no reader at all (not even `exec`)
+    // must not surface the catalog, and a reader-only allowlist must.
+    ["write/edit without any reader", ["write", "edit"], ["write", "edit"], false],
+    ["read-only reader", ["read"], ["read"], true],
+  ] as const)(
+    "gates the finite-allowlist catalog on the callable reader: %s",
+    async (_label, toolsAllow, toolNames, expected) => {
+      const { prepared } = await preparePermissionPrompt(false, undefined, undefined, undefined, {
+        prompt: locatedCatalog,
+        toolsAllow: [...toolsAllow],
+        initialToolNames: [...toolNames],
+      });
+      expect(prepared.systemPromptText.includes(locatedCatalog)).toBe(expected);
+      expect(prepared.systemPromptReport?.skills.entries.map(({ name }) => name)).toEqual(
+        expected ? ["weather"] : [],
+      );
+    },
+  );
+
+  // The Steward trigger sets BOTH a finite `toolsAllow` and `promptMode: "minimal"`.
+  // A finite allowlist already forces `effectivePromptMode` to minimal, but the
+  // explicit case must hold too: `isMinimal` gates the memory/docs sections, never
+  // the skills catalog, which is gated on the callable reader alone.
+  it("keeps the reader-allowlist catalog under an explicit minimal prompt mode", async () => {
+    const toolsAllow = ["read", "write", "edit"];
+    const { prepared } = await preparePermissionPrompt(
+      false,
+      undefined,
+      undefined,
+      undefined,
+      { prompt: locatedCatalog, toolsAllow, initialToolNames: [...toolsAllow] },
+      undefined,
+      { promptMode: "minimal" },
+    );
+    // `## Execution Bias` is a `!isMinimal` section: its absence proves minimal ran.
+    expect(prepared.systemPromptText).not.toContain("## Execution Bias");
+    expect(prepared.systemPromptText).toContain(locatedCatalog);
+    expect(prepared.systemPromptText).toContain("read exact <location> with `read`");
+    expect(prepared.systemPromptText).toContain("/skills/weather/SKILL.md");
+    expect(prepared.systemPromptReport?.skills.entries.map(({ name }) => name)).toEqual([
+      "weather",
+    ]);
+  });
+
+  it("keeps the catalog out under minimal when the allowlist has no reader", async () => {
+    const toolsAllow = ["write", "edit"];
+    const { prepared } = await preparePermissionPrompt(
+      false,
+      undefined,
+      undefined,
+      undefined,
+      { prompt: locatedCatalog, toolsAllow, initialToolNames: [...toolsAllow] },
+      undefined,
+      { promptMode: "minimal" },
+    );
+    expect(prepared.systemPromptText).not.toContain("## Execution Bias");
+    expect(prepared.systemPromptText).not.toContain(locatedCatalog);
     expect(prepared.systemPromptReport?.skills.entries).toEqual([]);
   });
 
