@@ -352,18 +352,30 @@ describe("buildAttemptSystemPrompt", () => {
     expect(prompts[2]).toBe(prompts[0]);
   });
 
-  it("marks rebuilt prompts as fresh even when restoring the original bytes", async () => {
-    const { prepared, read } = await preparePermissionPrompt();
+  // A rebuild is marked fresh when the tool SURFACE changed for any reason, and
+  // stays marked fresh even if the resulting bytes come back identical. The
+  // precondition here is a name leaving both the admitted set and the session
+  // capability set - the one kind of change both the old and the new mirror basis
+  // agree moves these bytes. A visibility-only restriction is deliberately not
+  // such a change any more (the `## Tooling` mirror renders the session surface;
+  // pinned in system-prompt-tool-list.test.ts), so it must not be used as the
+  // trigger of this contract.
+  it("marks capability-driven rebuilds as fresh even when restoring the original bytes", async () => {
+    const { capabilityToolNames, prepared, read } = await preparePermissionPrompt();
     const original = prepared.systemPromptText;
     const unchanged = await prepared.prepareToolPrompt!();
     expect(unchanged.freshlyRendered).toBeUndefined();
     expect(unchanged("Already projected prompt")).toBe("Already projected prompt");
 
+    capabilityToolNames.delete("write");
+    capabilityToolNames.delete("exec");
     const restrict = await prepared.prepareToolPrompt!([read]);
     expect(restrict.freshlyRendered).toBe(true);
     const restricted = restrict(original);
     expect(restricted).not.toBe(original);
 
+    capabilityToolNames.add("write");
+    capabilityToolNames.add("exec");
     const restore = await prepared.prepareToolPrompt!();
     expect(restore.freshlyRendered).toBe(true);
     expect(restore(restricted)).toBe(original);
