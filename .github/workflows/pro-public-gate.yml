@@ -1,13 +1,11 @@
 # Public-push gate for OpenClaw Pro.
 #
-# Purpose: no public push without a green sanitize gate. This workflow runs on
-# every pull_request into `pro/main` and on every push to `pro/main`, and fails if
-# the published tree contains a private marker (hashed denylist) or a secret shape.
+# Purpose: no public push without a green sanitize gate. Runs on every pull
+# request into `pro/main`, on every push to `pro/main`, and on demand.
 #
-# The gate script and the hashed denylist live in the PRIVATE runtime repo; this
-# workflow fetches them from there so the plaintext terms never enter the public
-# repo. Until that fetch is wired (repository secret PRO_GATE_REPO + token), the
-# job fails closed rather than silently skipping.
+# The gate script and the hashed denylist live in a PRIVATE repository, fetched
+# through a read-only deploy key, so the plaintext marker rules never enter the
+# public repo. The job fails closed when that source is not configured.
 name: pro-public-gate
 
 on:
@@ -27,8 +25,8 @@ concurrency:
 jobs:
   gate:
     name: sanitize gate (denylist + secret scan)
-    runs-on: [self-hosted, linux, x64, runner]
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -36,23 +34,35 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch the gate (script + hashed denylist) from the private runtime repo
+      - name: Fetch the gate (script + hashed denylist) from the private gate repo
         env:
-          GATE_TOKEN: ${{ secrets.PRO_GATE_TOKEN }}
+          GATE_KEY: ${{ secrets.PRO_GATE_SSH_KEY }}
           GATE_REPO: ${{ vars.PRO_GATE_REPO }}
         run: |
           set -euo pipefail
-          if [ -z "${GATE_TOKEN:-}" ] || [ -z "${GATE_REPO:-}" ]; then
-            echo "::error::gate source not configured (PRO_GATE_REPO / PRO_GATE_TOKEN); failing closed."
+          if [ -z "${GATE_KEY:-}" ] || [ -z "${GATE_REPO:-}" ]; then
+            echo "::error::gate source not configured (PRO_GATE_REPO / PRO_GATE_SSH_KEY); failing closed."
             exit 1
           fi
-          git clone --depth 1 \
-            "https://x-access-token:${GATE_TOKEN}@github.com/${GATE_REPO}.git" /tmp/pro-gate
+          mkdir -p ~/.ssh
+          # GitHub's published ed25519 host key, pinned literally: no keyscan at
+          # run time, so a substituted host key cannot slip in.
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > ~/.ssh/known_hosts
+          printf '%s\n' "$GATE_KEY" > ~/.ssh/gate_key
+          chmod 600 ~/.ssh/gate_key
+          printf '%s\n' \
+            'Host gate-source' \
+            '  HostName github.com' \
+            '  User git' \
+            '  IdentityFile ~/.ssh/gate_key' \
+            '  IdentitiesOnly yes' \
+            '  StrictHostKeyChecking yes' \
+            >> ~/.ssh/config
+          git clone --depth 1 "gate-source:${GATE_REPO}.git" /tmp/pro-gate
           test -f /tmp/pro-gate/gate_pro.py
           test -f /tmp/pro-gate/denylist.sha256
 
       - name: Run the sanitize gate on the candidate tree
         run: |
           set -euo pipefail
-          # The gate reads denylist.sha256 next to itself.
           python3 /tmp/pro-gate/gate_pro.py --repo "$GITHUB_WORKSPACE" --ref HEAD
