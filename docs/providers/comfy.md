@@ -288,6 +288,55 @@ The `image` and `video` sections also support a reference-image input node:
 | `inputImageNodeId`    | Yes (when passing a reference image) | --        | Node ID that receives the uploaded reference image. |
 | `inputImageInputName` | No                                   | `"image"` | Input name on the image node.                       |
 
+### Separate edit workflow
+
+A reference-image run can use its own graph instead of the text workflow. Set any
+`edit*` key in the same `image` or `video` section, and OpenClaw uses those values
+for requests that carry a reference image only; text-only runs keep the base keys.
+
+| Key                       | Overrides             |
+| ------------------------- | --------------------- |
+| `editWorkflow`            | `workflow`            |
+| `editWorkflowPath`        | `workflowPath`        |
+| `editPromptNodeId`        | `promptNodeId`        |
+| `editPromptInputName`     | `promptInputName`     |
+| `editSeedNodeId`          | `seedNodeId`          |
+| `editSeedInputName`       | `seedInputName`       |
+| `editInputImageNodeId`    | `inputImageNodeId`    |
+| `editInputImageInputName` | `inputImageInputName` |
+| `editOutputNodeId`        | `outputNodeId`        |
+
+Connection settings (`mode`, `baseUrl`, `apiKey`, `headers`, `allowPrivateNetwork`,
+`pollIntervalMs`, `timeoutMs`) always come from the base section.
+
+```json5
+{
+  plugins: {
+    entries: {
+      comfy: {
+        config: {
+          mode: "local",
+          image: {
+            workflowPath: "./workflows/z-image-t2i.api.json",
+            promptNodeId: "10",
+            seedNodeId: "5",
+            outputNodeId: "20",
+            editWorkflowPath: "./workflows/z-image-img2img.api.json",
+            editPromptNodeId: "10",
+            editInputImageNodeId: "30",
+            editSeedNodeId: "5",
+            editOutputNodeId: "20",
+          },
+        },
+      },
+    },
+  },
+}
+```
+
+`workflowPath` files may be a bare node map or ComfyUI's API format
+(`{ "prompt": { ... }, "client_id": ... }`); OpenClaw unwraps the `prompt` wrapper.
+
 `apiKey` accepts either a literal string or a [secret reference](/gateway/config-secrets-env#secrets) object.
 
 ## Workflow details
