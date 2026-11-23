@@ -1,4 +1,7 @@
 import type { LookupAddress } from "node:dns";
+import fs from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { MAX_TIMER_TIMEOUT_MS } from "openclaw/plugin-sdk/number-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildComfyImageGenerationProvider } from "./image-generation-provider.js";
@@ -789,6 +792,199 @@ describe("comfy image-generation provider", () => {
         "9": { inputs: {} },
       },
     });
+  });
+
+  it("routes reference-image runs to a separate inline edit workflow", async () => {
+    fetchWithSsrFGuardMock.mockResolvedValueOnce(fetchGuardJson({ name: "upload.png" }));
+    fetchWithSsrFGuardMock.mockResolvedValueOnce(fetchGuardJson({ prompt_id: "edit-1" }));
+    fetchWithSsrFGuardMock.mockResolvedValueOnce(
+      fetchGuardJson({
+        "edit-1": {
+          outputs: {
+            "91": { images: [{ filename: "edited.png", subfolder: "", type: "output" }] },
+          },
+        },
+      }),
+    );
+    fetchWithSsrFGuardMock.mockResolvedValueOnce({
+      response: new Response(Buffer.from("edited-data"), {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      }),
+      release: vi.fn(async () => {}),
+    });
+
+    const provider = buildComfyImageGenerationProvider();
+    const result = await provider.generateImage({
+      provider: "comfy",
+      model: "workflow",
+      prompt: "restyle this photo",
+      cfg: buildComfyConfig({
+        workflow: {
+          "6": { inputs: { text: "" } },
+          "9": { inputs: {} },
+        },
+        promptNodeId: "6",
+        outputNodeId: "9",
+        editWorkflow: {
+          "61": { inputs: { text: "" } },
+          "71": { inputs: { image: "" } },
+          "91": { inputs: {} },
+        },
+        editPromptNodeId: "61",
+        editInputImageNodeId: "71",
+        editOutputNodeId: "91",
+      }),
+      inputImages: [{ buffer: Buffer.from("source"), mimeType: "image/png", fileName: "src.png" }],
+    });
+
+    // Reference-image run keeps its edit node IDs instead of the base ones.
+    expect(parseJsonBody(2)).toEqual({
+      prompt: {
+        "61": { inputs: { text: "restyle this photo" } },
+        "71": { inputs: { image: "upload.png" } },
+        "91": { inputs: {} },
+      },
+    });
+    expect(result.images[0]?.buffer.toString()).toBe("edited-data");
+  });
+
+  it("keeps the base workflow for text-only runs even when edit keys are configured", async () => {
+    mockLocalImageResponses("t2i-1", { body: Buffer.from("base-data"), contentType: "image/png" });
+
+    const provider = buildComfyImageGenerationProvider();
+    await provider.generateImage({
+      provider: "comfy",
+      model: "workflow",
+      prompt: "draw a lobster",
+      cfg: buildComfyConfig({
+        workflow: {
+          "6": { inputs: { text: "" } },
+          "9": { inputs: {} },
+        },
+        promptNodeId: "6",
+        outputNodeId: "9",
+        editWorkflow: {
+          "61": { inputs: { text: "" } },
+          "71": { inputs: { image: "" } },
+          "91": { inputs: {} },
+        },
+        editPromptNodeId: "61",
+        editInputImageNodeId: "71",
+        editOutputNodeId: "91",
+      }),
+    });
+
+    // No upload request: the first call is the base workflow submit.
+    expect(fetchRequest(1).url).toBe("http://127.0.0.1:8188/prompt");
+    expect(parseJsonBody(1)).toEqual({
+      prompt: {
+        "6": { inputs: { text: "draw a lobster" } },
+        "9": { inputs: {} },
+      },
+    });
+  });
+
+  it("unwraps API-format workflowPath files that wrap the node map under prompt", async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), "comfy-api-format-"));
+    const apiPath = join(dir, "z-image-t2i.api.json");
+    await fs.writeFile(
+      apiPath,
+      JSON.stringify({
+        prompt: { "6": { inputs: { text: "" } }, "9": { inputs: {} } },
+        client_id: "fixture-client",
+      }),
+    );
+    try {
+      mockLocalImageResponses("api-1", { body: Buffer.from("api-data"), contentType: "image/png" });
+
+      const provider = buildComfyImageGenerationProvider();
+      const result = await provider.generateImage({
+        provider: "comfy",
+        model: "workflow",
+        prompt: "draw a lobster",
+        cfg: buildComfyConfig({
+          workflowPath: apiPath,
+          promptNodeId: "6",
+          outputNodeId: "9",
+        }),
+      });
+
+      expect(parseJsonBody(1)).toEqual({
+        prompt: {
+          "6": { inputs: { text: "draw a lobster" } },
+          "9": { inputs: {} },
+        },
+      });
+      expect(result.images[0]?.buffer.toString()).toBe("api-data");
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("loads a separate editWorkflowPath from disk for reference-image runs", async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), "comfy-edit-workflow-"));
+    const editPath = join(dir, "edit.api.json");
+    await fs.writeFile(
+      editPath,
+      JSON.stringify({
+        prompt: {
+          "61": { class_type: "CLIPTextEncode", inputs: { text: "" } },
+          "71": { class_type: "LoadImage", inputs: { image: "" } },
+          "91": { class_type: "SaveImage", inputs: {} },
+        },
+      }),
+    );
+    try {
+      fetchWithSsrFGuardMock.mockResolvedValueOnce(fetchGuardJson({ name: "upload.png" }));
+      fetchWithSsrFGuardMock.mockResolvedValueOnce(fetchGuardJson({ prompt_id: "edit-2" }));
+      fetchWithSsrFGuardMock.mockResolvedValueOnce(
+        fetchGuardJson({
+          "edit-2": {
+            outputs: {
+              "91": { images: [{ filename: "edited.png", subfolder: "", type: "output" }] },
+            },
+          },
+        }),
+      );
+      fetchWithSsrFGuardMock.mockResolvedValueOnce({
+        response: new Response(Buffer.from("edited-2"), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+        release: vi.fn(async () => {}),
+      });
+
+      const provider = buildComfyImageGenerationProvider();
+      await provider.generateImage({
+        provider: "comfy",
+        model: "workflow",
+        prompt: "make it a watercolour",
+        cfg: buildComfyConfig({
+          workflow: { "6": { inputs: { text: "" } }, "9": { inputs: {} } },
+          promptNodeId: "6",
+          outputNodeId: "9",
+          editWorkflowPath: editPath,
+          editPromptNodeId: "61",
+          editInputImageNodeId: "71",
+          editOutputNodeId: "91",
+        }),
+        inputImages: [{ buffer: Buffer.from("source"), mimeType: "image/png" }],
+      });
+
+      expect(parseJsonBody(2)).toEqual({
+        prompt: {
+          "61": {
+            class_type: "CLIPTextEncode",
+            inputs: { text: "make it a watercolour" },
+          },
+          "71": { class_type: "LoadImage", inputs: { image: "upload.png" } },
+          "91": { class_type: "SaveImage", inputs: {} },
+        },
+      });
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("uses cloud endpoints, auth headers, and partner-node extra_data", async () => {
