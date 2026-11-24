@@ -14,6 +14,7 @@ import { assertAgentRunLifecycleGenerationCurrent } from "../../infra/agent-even
 import { formatErrorMessage } from "../../infra/errors.js";
 import { readDatabasePathIdentitySync } from "../../infra/sqlite-worker-identity.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { pluginInvocationContext } from "../../plugins/plugin-instance-scope.js";
 import {
   getPluginRegistryForContext,
   getPluginRuntimeGatewayRequestScope,
@@ -180,146 +181,149 @@ export function scheduleSessionMaintenance(
     }
     readSource?.assertSourceCurrent();
   };
+  // Optional maintenance owns fresh plugin calls, not the trailing turn's finite scope.
+  // The gateway request scope below still carries the registry; exit() drops only custody.
   const run = withPluginRuntimeGatewayRequestScope(
     {
       pluginRegistry,
       resolveGatewayContext,
       isWebchatConnect: () => false,
     },
-    async () => {
-      if (
-        afterOwnerSettles &&
-        !(await racePromiseWithAbortSignal(afterOwnerSettles, owner.signal))
-      ) {
-        log.debug(
-          "Optional session maintenance skipped: foreground owner did not complete successfully.",
-        );
-        return;
-      }
-      return owner.run(() =>
-        runWithGatewayIndependentRootWorkAdmission(
-          async () => {
-            assertCurrent();
-            const { captureSessionEntryCurrentRead, withSessionEntryReadOnlyInWorker } =
-              await loadSessionStoreRuntime();
-            let entry: SessionEntry | undefined;
-            const admission = await beginSessionWorkAdmission({
-              agentId: followupRun.run.agentId,
-              scope: prepared.storePath,
-              identities: [sessionKey, request.sessionId],
-              signal: owner.signal,
-              onInterrupt: () =>
-                interrupted.abort(
-                  createAbortError("Session maintenance writer admission interrupted"),
-                ),
-              assertAllowed: async () => {
-                assertCurrent();
-                entry = await withSessionEntryReadOnlyInWorker(
-                  sessionReadScope,
-                  assertCurrent,
-                  async (read, source) => {
-                    if (!read.ok) {
-                      throw read.error;
-                    }
-                    const captured = captureSessionEntryCurrentRead(sessionReadScope, source);
-                    if (
-                      (readSource &&
-                        (captured.kind !== readSource.kind ||
-                          (captured.kind === "file" &&
-                            readSource.kind === "file" &&
-                            (captured.source.agentId !== readSource.source.agentId ||
-                              captured.source.path !== readSource.source.path ||
-                              captured.source.databaseIdentity !==
-                                readSource.source.databaseIdentity ||
-                              captured.source.databaseBirthtime !==
-                                readSource.source.databaseBirthtime)))) ||
-                      (captured.kind === "file" &&
-                        !sourceIdentities.some(
-                          (identity) =>
-                            identity.canonicalPath === captured.source.path &&
-                            identity.key === `file:${captured.source.databaseIdentity}` &&
-                            identity.birthtime === captured.source.databaseBirthtime,
-                        ))
-                    ) {
-                      throw createAbortError(
-                        "Session maintenance database changed before admission",
-                      );
-                    }
-                    readSource ??= captured;
-                    return read.value;
-                  },
-                );
-                assertCurrent();
-                if (
-                  !entry ||
-                  entry.sessionId !== request.sessionId ||
-                  entry.lifecycleRevision !== request.lifecycleRevision
-                ) {
-                  throw createAbortError("Session changed before optional maintenance admission");
-                }
-                if (entry.pendingFinalDelivery) {
-                  throw createAbortError(
-                    "Optional maintenance skipped while final delivery is pending",
+    () =>
+      pluginInvocationContext.exit(async () => {
+        if (
+          afterOwnerSettles &&
+          !(await racePromiseWithAbortSignal(afterOwnerSettles, owner.signal))
+        ) {
+          log.debug(
+            "Optional session maintenance skipped: foreground owner did not complete successfully.",
+          );
+          return;
+        }
+        return owner.run(() =>
+          runWithGatewayIndependentRootWorkAdmission(
+            async () => {
+              assertCurrent();
+              const { captureSessionEntryCurrentRead, withSessionEntryReadOnlyInWorker } =
+                await loadSessionStoreRuntime();
+              let entry: SessionEntry | undefined;
+              const admission = await beginSessionWorkAdmission({
+                agentId: followupRun.run.agentId,
+                scope: prepared.storePath,
+                identities: [sessionKey, request.sessionId],
+                signal: owner.signal,
+                onInterrupt: () =>
+                  interrupted.abort(
+                    createAbortError("Session maintenance writer admission interrupted"),
+                  ),
+                assertAllowed: async () => {
+                  assertCurrent();
+                  entry = await withSessionEntryReadOnlyInWorker(
+                    sessionReadScope,
+                    assertCurrent,
+                    async (read, source) => {
+                      if (!read.ok) {
+                        throw read.error;
+                      }
+                      const captured = captureSessionEntryCurrentRead(sessionReadScope, source);
+                      if (
+                        (readSource &&
+                          (captured.kind !== readSource.kind ||
+                            (captured.kind === "file" &&
+                              readSource.kind === "file" &&
+                              (captured.source.agentId !== readSource.source.agentId ||
+                                captured.source.path !== readSource.source.path ||
+                                captured.source.databaseIdentity !==
+                                  readSource.source.databaseIdentity ||
+                                captured.source.databaseBirthtime !==
+                                  readSource.source.databaseBirthtime)))) ||
+                        (captured.kind === "file" &&
+                          !sourceIdentities.some(
+                            (identity) =>
+                              identity.canonicalPath === captured.source.path &&
+                              identity.key === `file:${captured.source.databaseIdentity}` &&
+                              identity.birthtime === captured.source.databaseBirthtime,
+                          ))
+                      ) {
+                        throw createAbortError(
+                          "Session maintenance database changed before admission",
+                        );
+                      }
+                      readSource ??= captured;
+                      return read.value;
+                    },
                   );
-                }
-              },
-            });
-            try {
-              await admission.run(async () => {
-                assertCurrent();
-                if (!entry) {
-                  throw createAbortError("Session maintenance has no admitted session");
-                }
-                const sessionStore = { [sessionKey]: entry };
-                const maintenanceParams = () => ({
-                  cfg: prepared.cfg,
-                  followupRun,
-                  promptForEstimate: "",
-                  defaultModel: followupRun.run.model,
-                  sessionEntry: entry,
-                  sessionStore,
-                  sessionKey,
-                  runtimePolicySessionKey: prepared.runtimePolicySessionKey ?? sessionKey,
-                  storePath: prepared.storePath,
-                  isHeartbeat: false,
-                  abortSignal: owner.signal,
-                });
-                const memory = await loadAgentRunnerMemoryRuntime();
-                assertCurrent();
-                followupRun.run.timeoutMs = budget.remainingMs();
-                assertCurrent();
-                const flushed = await memory.runMemoryFlushIfNeeded({
-                  ...maintenanceParams(),
-                  resolvedVerboseLevel: followupRun.run.verboseLevel ?? "off",
-                });
-                // Flush reports aborted attempts as failed outcomes; cancellation still forbids compaction.
-                assertCurrent();
-                entry = flushed.sessionEntry ?? entry;
-                followupRun.run.sessionId = entry.sessionId;
-                followupRun.run.timeoutMs = budget.remainingMs();
-                assertCurrent();
-                await memory.runSessionCompactionIfNeeded({
-                  ...maintenanceParams(),
-                  // The completed user is canonical history; do not reserve its input twice.
-                  compactionRequestBudget: request.compactionRequestBudget
-                    ? { ...request.compactionRequestBudget, pendingTokens: 0 }
-                    : undefined,
-                  agentHarnessId: request.agentHarnessId,
-                  authorize: () => {
-                    assertCurrent();
-                    return true;
-                  },
-                });
+                  assertCurrent();
+                  if (
+                    !entry ||
+                    entry.sessionId !== request.sessionId ||
+                    entry.lifecycleRevision !== request.lifecycleRevision
+                  ) {
+                    throw createAbortError("Session changed before optional maintenance admission");
+                  }
+                  if (entry.pendingFinalDelivery) {
+                    throw createAbortError(
+                      "Optional maintenance skipped while final delivery is pending",
+                    );
+                  }
+                },
               });
-            } finally {
-              admission.release();
-            }
-          },
-          "session-maintenance",
-          owner.signal,
-        ),
-      );
-    },
+              try {
+                await admission.run(async () => {
+                  assertCurrent();
+                  if (!entry) {
+                    throw createAbortError("Session maintenance has no admitted session");
+                  }
+                  const sessionStore = { [sessionKey]: entry };
+                  const maintenanceParams = () => ({
+                    cfg: prepared.cfg,
+                    followupRun,
+                    promptForEstimate: "",
+                    defaultModel: followupRun.run.model,
+                    sessionEntry: entry,
+                    sessionStore,
+                    sessionKey,
+                    runtimePolicySessionKey: prepared.runtimePolicySessionKey ?? sessionKey,
+                    storePath: prepared.storePath,
+                    isHeartbeat: false,
+                    abortSignal: owner.signal,
+                  });
+                  const memory = await loadAgentRunnerMemoryRuntime();
+                  assertCurrent();
+                  followupRun.run.timeoutMs = budget.remainingMs();
+                  assertCurrent();
+                  const flushed = await memory.runMemoryFlushIfNeeded({
+                    ...maintenanceParams(),
+                    resolvedVerboseLevel: followupRun.run.verboseLevel ?? "off",
+                  });
+                  // Flush reports aborted attempts as failed outcomes; cancellation still forbids compaction.
+                  assertCurrent();
+                  entry = flushed.sessionEntry ?? entry;
+                  followupRun.run.sessionId = entry.sessionId;
+                  followupRun.run.timeoutMs = budget.remainingMs();
+                  assertCurrent();
+                  await memory.runSessionCompactionIfNeeded({
+                    ...maintenanceParams(),
+                    // The completed user is canonical history; do not reserve its input twice.
+                    compactionRequestBudget: request.compactionRequestBudget
+                      ? { ...request.compactionRequestBudget, pendingTokens: 0 }
+                      : undefined,
+                    agentHarnessId: request.agentHarnessId,
+                    authorize: () => {
+                      assertCurrent();
+                      return true;
+                    },
+                  });
+                });
+              } finally {
+                admission.release();
+              }
+            },
+            "session-maintenance",
+            owner.signal,
+          ),
+        );
+      }),
   );
   void owner
     .track(run)

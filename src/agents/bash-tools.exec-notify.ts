@@ -9,6 +9,7 @@ import { readExecRequestOwners, withExecRequestOwners } from "../infra/exec-requ
 import { withSystemEventOwner } from "../infra/system-event-ownership.js";
 import { enqueueSystemEventWithReceipt } from "../infra/system-events.js";
 import { logWarn } from "../logger.js";
+import { pluginInvocationContext } from "../plugins/plugin-instance-scope.js";
 import { parseAgentSessionKey } from "../routing/session-key.js";
 import { isSubagentSessionKey } from "../sessions/session-key-utils.js";
 import {
@@ -116,13 +117,17 @@ export function maybeNotifyOnExit(
       return;
     }
     try {
-      const receipt = enqueueSessionEvent(eventText, {
-        ...eventOptions,
-        agentId,
-        source: "exec",
-        sourceTurnId: `exec:${processSessionInstanceId(session)}`,
-        expectedTarget: session.notifySessionTarget,
-      });
+      // Completion outlives the producing turn; this boundary owns fresh plugin calls,
+      // not the closed turn's finite invocation scope.
+      const receipt = pluginInvocationContext.exit(() =>
+        enqueueSessionEvent(eventText, {
+          ...eventOptions,
+          agentId,
+          source: "exec",
+          sourceTurnId: `exec:${processSessionInstanceId(session)}`,
+          expectedTarget: session.notifySessionTarget,
+        }),
+      );
       recordNotifyOnExitRemoval(session, receipt.cancel);
       void receipt.settled.then((outcome) => {
         if (outcome.status === "failed") {

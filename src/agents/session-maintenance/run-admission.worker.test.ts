@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { copyFileSync, renameSync } from "node:fs";
 import { beforeEach, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
@@ -5,6 +6,9 @@ import { createTestFollowupRun } from "../../auto-reply/reply/agent-runner.test-
 import { writeSessionEntry } from "../../config/sessions/session-accessor.sqlite-entry-store.js";
 import * as entryReads from "../../config/sessions/session-entry-read-runtime.js";
 import { getAgentEventLifecycleGeneration } from "../../infra/agent-events.js";
+import { wrapCurrentPluginInstance } from "../../plugins/plugin-instance-scope.js";
+import { PluginInstance } from "../../plugins/plugin-instance.js";
+import { PluginInvocationScope } from "../../plugins/plugin-invocation-scope.js";
 import { createEmptyPluginRegistry } from "../../plugins/registry-empty.js";
 import { withPluginRuntimeGatewayRequestScope } from "../../plugins/runtime/gateway-request-scope.js";
 import { closeOpenClawAgentDatabaseByPathAsync } from "../../state/openclaw-agent-db-lifecycle.js";
@@ -79,6 +83,55 @@ it("rejects a replacement database while waiting for the foreground owner", asyn
       await waitForSessionMaintenance(sessionKey);
       memory.runMemoryFlushIfNeeded.mockClear();
       memory.runSessionCompactionIfNeeded.mockClear();
+    }
+  });
+});
+
+it("runs maintenance plugin calls detached from a closed turn invocation scope", async () => {
+  await withOpenClawTestState({ label: "maintenance-closed-scope" }, async ({ env }) => {
+    const database = openOpenClawAgentDatabase({ agentId: "main", env });
+    const sessionKey = "agent:main:maintenance-closed-scope";
+    const entry = {
+      sessionId: "maintenance-closed-scope",
+      lifecycleRevision: "initial",
+      updatedAt: 1,
+    };
+    writeSessionEntry(database, sessionKey, entry);
+    const followupRun = createTestFollowupRun({ sessionKey, sessionId: entry.sessionId });
+    const request = {
+      prepared: { cfg: {}, sessionKey, storePath: database.path, timeoutMs: 60_000 },
+      followupRun,
+      sessionId: entry.sessionId,
+      lifecycleRevision: entry.lifecycleRevision,
+      lifecycleGeneration: getAgentEventLifecycleGeneration(),
+      startedAt: Date.now(),
+    };
+    // Production shape: a callable registered during a turn whose captured frame
+    // resumes after the turn's finite invocation scope closed.
+    const instance = new PluginInstance("maintenance-closed-scope");
+    const turn = new PluginInvocationScope(createEmptyPluginRegistry(), [instance]);
+    const registered = turn.run(() => instance.run(() => wrapCurrentPluginInstance(() => "probe")));
+    const trailing = turn.run(() => AsyncLocalStorage.snapshot());
+    turn.release();
+    memory.runMemoryFlushIfNeeded.mockImplementationOnce(async () => {
+      registered();
+      return {};
+    });
+    try {
+      // The closed scope is the ambient frame; maintenance owns fresh calls.
+      expect(() => trailing(registered)).toThrow("Plugin invocation scope is closed");
+      trailing(() =>
+        withPluginRuntimeGatewayRequestScope(
+          { pluginRegistry: createEmptyPluginRegistry(), isWebchatConnect: () => false },
+          () => scheduleSessionMaintenance(request),
+        ),
+      );
+      await waitForSessionMaintenance(sessionKey);
+      expect(memory.runMemoryFlushIfNeeded).toHaveBeenCalledOnce();
+      expect(memory.runSessionCompactionIfNeeded).toHaveBeenCalledOnce();
+    } finally {
+      turn.release();
+      await instance.dispose();
     }
   });
 });
