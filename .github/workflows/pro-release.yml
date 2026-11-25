@@ -211,7 +211,7 @@ jobs:
           done
 
           if [ -z "${selected}" ] || [ "${selected}" = "null" ]; then
-            echo "::error::no merged pull request with merge_commit_sha == ${SHA} targeting pro/main found (rebase merges report a null merge_commit_sha and are rejected on purpose)"
+            echo "::error::no merged pull request with merge_commit_sha == ${SHA} targeting pro/main found"
             exit 1
           fi
 
@@ -254,11 +254,7 @@ jobs:
               label_version="${tag}"
               image_tags="${IMAGE}:${tag},${IMAGE}:sha-${short}"
               cancellable="false"
-              if [ "${DRY_RUN:-false}" = "true" ]; then
-                group="pro-release-dry-${RUN_ID}"
-              else
-                group="pro-release-pr-${PR_NUMBER}"
-              fi
+              group="pro-release-pr-${PR_NUMBER}"
               ;;
             latest)
               primary_tag="latest"
@@ -267,10 +263,17 @@ jobs:
               cancellable="true"
               ;;
             proof)
-              group="pro-release-proof-${EVENT_PR_NUMBER}"
+              group="pro-release-proof-pr-${EVENT_PR_NUMBER}"
               cancellable="true"
               ;;
           esac
+
+          # A dry run must never cancel or serialize behind real publishers:
+          # park it in its own unique group, whatever the mode.
+          if [ "${DRY_RUN:-false}" = "true" ]; then
+            group="pro-release-dry-${RUN_ID}"
+            cancellable="false"
+          fi
 
           {
             echo "tag=${tag}"
@@ -396,7 +399,7 @@ jobs:
           # below reads both shapes.
           if docker buildx imagetools inspect "${ref}" >/dev/null 2>"${err_file}"; then
             revision="$(docker buildx imagetools inspect --format '{{json .Image}}' "${ref}" \
-              | jq -r '(."linux/amd64" // .).config.Labels."org.opencontainers.image.revision" // empty')
+              | jq -r '(."linux/amd64" // .).config.Labels."org.opencontainers.image.revision" // empty')"
             if [ -z "${revision}" ]; then
               echo "::error::${ref} exists but org.opencontainers.image.revision could not be read; refusing to skip"
               docker buildx imagetools inspect "${ref}"
@@ -469,7 +472,7 @@ jobs:
         # Runs even when the build was skipped (the image already existed), so a
         # re-run repairs a missing `sha-*` tag through `imagetools create`
         # instead of failing the release on the next attempt.
-        if: always() && needs.plan.outputs.publish == 'true' && needs.plan.outputs.mode == 'release' && (steps.build.conclusion == 'success' || steps.existing.outputs.skip == 'true')
+        if: always() && needs.plan.outputs.publish == 'true' && needs.plan.outputs.mode == 'release' && (steps.build.conclusion == 'success' || (steps.existing.conclusion == 'success' && steps.existing.outputs.skip == 'true'))
         env:
           IMAGE: ${{ needs.plan.outputs.image }}
           PRIMARY_TAG: ${{ needs.plan.outputs.primary_tag }}
@@ -612,7 +615,7 @@ jobs:
             echo "::error::tag ${TAG} already exists on the remote (${remote}) without a GitHub release"
             exit 1
           fi
-          if ! grep -Eqi "no commit found|not found|HTTP 40[0-9]" "${tag_err}"; then
+          if ! grep -Eqi "no commit found|not found|HTTP 404" "${tag_err}"; then
             echo "::error::could not check tag ${TAG} on the remote:"
             cat "${tag_err}"
             exit 1
