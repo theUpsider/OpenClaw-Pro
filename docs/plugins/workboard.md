@@ -104,6 +104,18 @@ descriptions, column order, and the fallback column. Ask the Board agent to edit
 column rules. Saving only the name, icon, or color leaves the saved columns unchanged,
 including column edits made by another operator while the dialog was open.
 
+For a Cards board, the same dialog also edits the board's
+[classification palette](#classification-palette): up to ten slots, each a name and
+one of the eight session colors. Rename, recolor, reorder, add, or remove a slot and
+save. Editing the palette never rewrites card labels: a renamed or removed name
+leaves the labels already on cards in place as plain chips, exactly as a `replaces`
+overwrite does; new labels pick from the palette through the card label editor. The
+list is validated at the field (empty name, duplicate name ignoring case, the
+`parallelizable` system label, more than ten), so Save is refused there instead of
+round-tripping a rejection. The write goes through `workboard.boards.classifications`
+with the whole list; the board record's palette then applies to the next card write.
+Sessions boards keep no palette and show no editor.
+
 For `workboard.boards.upsert`, omitting `icon` or `color`, passing `null`, or passing
 an empty string preserves the existing value, including for older clients. To clear
 appearance explicitly, send `clearAppearance: ["icon", "color"]`, or list only the
@@ -268,6 +280,14 @@ context to the conversation, but plugin tools do not receive that context as a
 structured argument. With several Sessions boards, the agent must pass the board
 id from that context or from `workboard_boards`.
 
+Workboard tools also read an optional `openclawVoiceBoard` run tool binding,
+`{ boardId, boardKind: "cards" | "sessions" }`. It is quoted reference data,
+not authority: it only fills a missing `boardId`, an explicit argument wins, and
+it never widens scope or permissions. The Gateway admits run tool bindings only
+from a paired browser copilot client, so the Control UI microphone (see
+[Voice control](#voice-control)) cannot send this binding and passes the same
+board as Working context instead.
+
 Specs allow 2–12 columns with unique lowercase slug ids (1–48 characters), labels
 (1–60), and descriptions (1–400). Exactly one column must have `fallback: true`.
 Optional colors use the board palette. `scope` accepts `agentIds`,
@@ -317,10 +337,10 @@ are rejected.
 
 Cards also carry compact metadata:
 
-| Metadata      | Values                                                                                                                                                                                                                                                                                                                                                       |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| card state    | attempts, comments, links, proof, artifacts, automation settings, attachments, worker logs, worker protocol state, claims, diagnostics, notifications, template id, archive state, stale-session detection                                                                                                                                                   |
-| recent events | `created`, `edited`, `moved`, `linked`, `specified`, `decomposed`, `claimed`, `heartbeat`, `execution_updated`, `attempt_started`, `attempt_updated`, `comment_added`, `link_added`, `proof_added`, `artifact_added`, `attachment_added`, `diagnostic`, `notification`, `dispatch`, `orchestration`, `protocol_violation`, `archived`, `unarchived`, `stale` |
+| Metadata      | Values                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| card state    | attempts, comments, links, proof, artifacts, automation settings, attachments, worker logs, worker protocol state, claims, diagnostics, notifications, template id, archive state, stale-session detection                                                                                                                                                               |
+| recent events | `created`, `edited`, `moved`, `linked`, `specified`, `decomposed`, `claimed`, `heartbeat`, `execution_updated`, `attempt_started`, `attempt_updated`, `comment_added`, `link_added`, `unlinked`, `proof_added`, `artifact_added`, `attachment_added`, `diagnostic`, `notification`, `dispatch`, `orchestration`, `protocol_violation`, `archived`, `unarchived`, `stale` |
 
 This metadata lets an operator see how a card moved through the board without
 opening the linked session. It is local operating context, not a replacement for session
@@ -332,6 +352,50 @@ naming the keys, rather than accepting data that will not be stored.
 New and edited comments are limited to 2000 characters. Unchanged stored comment
 bodies, including older oversized comments, retain their exact text during dispatch
 and other card updates. The existing per-card metadata budget still applies.
+
+### Classification palette
+
+Each Cards board keeps a closed palette of at most 10 classifications. An entry is
+a name plus one of the eight session colors (`red`, `blue`, `green`, `yellow`,
+`purple`, `orange`, `pink`, `cyan`), so a full palette repeats two colors; the
+name is the identity. Cards still carry several labels.
+
+When a card is created or its labels change, each newly added label is checked
+against the card's board:
+
+- A name already in the palette, ignoring case, is accepted with the palette's spelling.
+- An unknown name takes the next free slot. Its color follows the slot index.
+- With 10 entries, an unknown name is rejected. The error lists the current
+  classifications and asks for `replaces`, the existing classification to overwrite.
+  The overwritten slot keeps its position and color. Cards that still carry the
+  old name keep it as a plain chip.
+- `replaces` must name a classification, and is an error when no new name needs
+  a slot. One write can replace one classification; bulk updates cannot replace.
+
+Labels a card already carried are not checked again, and status, claim, and
+metadata writes never consult the palette. The system label `parallelizable`
+never takes a slot and cannot become a classification.
+
+A board created before palettes existed is seeded on its first card write
+(a create, or an update that changes labels). The seed takes the distinct labels
+of the board's non-archived cards, most-used first, ties broken by first
+appearance in card creation order, capped at 10. Card labels are never
+rewritten: labels beyond the first 10 stay on their cards as plain chips, and a
+board without labels seeds an empty palette. The seed is stored, so later
+writes do not reorder it.
+
+`workboard_boards` and `workboard.boards.list` return each board's
+`classifications`. `workboard_create` and `workboard_update` return the board's
+palette with the card, plus `classificationsAdded` or `classificationReplaced`
+when the write changed it. Board metadata updates keep the palette.
+
+`workboard.boards.classifications` replaces a cards board's whole palette after
+validation, and is what the board editor's palette section writes. It never
+rewrites card labels; a name removed from the palette leaves the labels still on
+cards as plain chips, exactly as a `replaces` overwrite does. The CLI reaches the
+same card-level gate through `workboard update --labels-add/--labels-remove`, and a
+full palette is refused with the `--replaces` step named, so an operator can reuse
+or overwrite a classification from the terminal too.
 
 The plugin and Control UI use one Workboard card contract. Control UI refreshes
 therefore preserve workspace provenance and authority, claim state, diagnostic
@@ -582,6 +646,13 @@ workers. Gateway or slash-command dispatch can start children that reach `ready`
 Unassigned starts use the configured default agent, as described under Worker
 selection below.
 
+Each attempt has one launch identity, persisted when the launch is prepared and
+sent as the worker run's idempotency key. Preparing again under the same claim
+reuses it instead of minting a new one. A card that still has a running attempt
+is not started or claimed again, even when its owner slot is free: complete,
+block, or reclaim that attempt first. The retry budget (`maxRetries`) still caps
+how many failed attempts a card may have.
+
 Workspace paths follow the caller's existing filesystem authority:
 
 - Gateway clients with `operator.write` can use configured agent workspaces.
@@ -595,6 +666,16 @@ so a persisted card cannot widen a later caller's access. Older cards with an
 explicit host workspace but no recorded authority must have that workspace
 re-saved before a full-host dispatch. Cards without a host path adopt the
 current caller's authority when first dispatched.
+
+A card assigned to another agent records **that** agent's authority instead: a
+sandboxed target records its own workspace root, and any other target records
+unrestricted access, matching how the dispatcher resolves the target agent's
+runtime. The assignment therefore starts a worker whose agent is not sandboxed
+and does not share the creator's workspace. An explicitly set `workspace` is
+still validated against the creating caller's boundary (and, when the target
+records restricted access, against the target's root), so assigning a card never
+widens the creator's filesystem reach, and dispatch still intersects the card's
+recorded authority with the dispatching caller's own.
 
 Workspace-bound dispatch accepts a directory or Git checkout only when its
 repository root exactly matches the target agent workspace. A worktree request
@@ -613,6 +694,69 @@ Workspace authority does not create a second card-lifecycle permission model.
 Callers that may mutate Workboard cards can manually move them through the same
 statuses on every surface. Read-only workspace access only prevents worker
 dispatch that needs writes.
+
+### Dependencies
+
+Dependencies gate **starts** (`ready`/`running`) and **acceptance** (`done`);
+they never block **recording completion** (`review`). The schedule hold stays in
+force for every gated status: a card scheduled for later cannot move to
+`ready`, `running`, or `review` before its `scheduledAt`.
+
+- A child stays `todo` until every parent is `done`; dispatch promotion then
+  moves it to `ready`. Creating a child with parents and status `running`
+  stores it as `todo`; a requested `review` is kept.
+- A child with an open parent can still land in `review`: a worker's
+  `workboard_complete`, `workboard_move`, or an operator move or update. Its
+  summary, proof, and `completed` notification are recorded as usual.
+- Until every parent is `done`, that child cannot move to `done` and a reviewer
+  cannot claim it. Reopening a parent leaves a `review` child in `review`.
+- `workboard.cards.linkDependency` adds a parent/child dependency link and
+  `workboard.cards.unlinkDependency` removes that one pair's link from both
+  cards, so a card gated by an outdated dependency can be closed once the link
+  is gone. Unlinking is purely structural: it never promotes or moves a card,
+  and every other link on either card stays.
+
+Older builds refused that `review` write, so finished children could stay in
+`todo` while a parent was open. There is no automatic sweep: once its work is
+verified, move such a card to `review` from the Control UI,
+`workboard.cards.move`, `workboard_move`, or the CLI:
+
+```bash
+openclaw workboard move <card-id> --status review
+```
+
+### External placement
+
+A card can opt out of local placement entirely. Set
+`metadata.automation.dispatchMode` to `external` (the `workboard_update` or
+`workboard_set_dispatch_mode` tool, `--dispatch-mode external` on the CLI, or the
+`dispatchMode` field on `workboard.cards.create`/`workboard.cards.update`) when a
+controller outside this Gateway owns the card's placement and transport.
+
+- The local dispatcher **never claims or starts** an external card. A scheduled
+  pass leaves it untouched, and starting one exact card answers with a refusal
+  naming the external mode instead of a start failure.
+- Dependency promotion and claim cleanup still run for external cards, so a
+  promoted external child reaches `ready` for the external controller to see.
+- The external controller uses the normal manual flow: `workboard_claim`,
+  `workboard_heartbeat`, and `workboard_complete` (or the Gateway methods behind
+  them). Workboard stays the one authoritative task status; there is no second
+  task database and no local fallback for external work.
+- Omitted means `native`, so every card that does not carry the field behaves
+  exactly as before. `native` written explicitly is equivalent to omitting it.
+- `workboard_specify` accepts `dispatchMode`; children created by
+  `workboard_decompose` inherit their parent's mode unless they explicitly set
+  `native` or `external`. Inheritance is persisted before dependency promotion.
+- A card's effective mode cannot change while a stored claim or running execution
+  owns it, including through metadata replacement. Complete, block, or reclaim
+  that work first, then change the mode. Expired claims keep placement fixed until
+  reclaimed, so a suspended dispatcher cannot resume under a new mode. Writing
+  the same mode is allowed.
+
+This field only decides who places and starts the worker. It is not authority:
+the claim token still gates heartbeats and completion, and workspace access is
+still resolved from the card's own persisted authority at dispatch and claim
+time.
 
 ### Worker selection
 
@@ -758,6 +902,34 @@ Archiving a linked session does not hide its terminal outcome from this sweep.
 After a restart or missed completion hook, Workboard still reconciles active cards linked
 to archived sessions into `review` or `blocked`.
 
+If a Gateway restart tombstoned a running card's linked session (the session row
+reports `restartRecoveryStatus: "tombstoned"`) and no replacement session was
+started, the sweep blocks the card instead of leaving it `running`. It closes
+the run, records _Session ended during a gateway restart and no replacement
+session was started._ with the session key as a comment, emits the normal
+`failed` notification, and stores `metadata.automation.restartTombstone`
+(`sessionKey`, `detectedAt`). The Control UI's **Why is this waiting?** line
+names that session. A later sweep leaves the blocked card alone, and moving the
+card out of `blocked` clears the record. Workboard does not reset or replace the
+session; that recovery stays with the operator.
+
+If a running card's accepted session link disappears from a complete session
+snapshot, and an exact read of that agent-scoped key also finds nothing, the sweep
+records the first miss in `metadata.automation.danglingSession` (`sessionKey`,
+`runId`, `detectedAt`, `misses`). When the next complete sweep misses the same
+attempt again, it blocks the card once with _Linked session is missing;
+termination unconfirmed._ and the session key, closes the run, and emits one
+`failed` notification. The session link, run id, execution record, and attempt
+history stay on the card. A truncated snapshot, a failed exact read, a prepared
+launch, an agentless key, or the bare `unknown` link never counts as a miss, and
+a session that reappears clears the first miss. Moving the card out of `blocked`
+clears the record; Workboard does not clean up the link or workspace on its own.
+
+Lifecycle writes from a superseded attempt are ignored: an update naming a run id
+other than the card's current one, or a session only an earlier attempt used,
+does not change the card's status, execution, or attempts. A session report never
+moves a `review` or `done` card's execution back to running.
+
 Incognito sessions remain absent from session discovery. Explicitly linked
 Incognito cards use authorized exact-session metadata reads, without derived
 titles or message previews, to reconcile their terminal outcomes.
@@ -769,9 +941,77 @@ While a card is in an active work state, Workboard follows the linked session:
 | active                                | `running`   |
 | completed                             | `review`    |
 | failed, killed, timed out, or aborted | `blocked`   |
+| tombstoned by a Gateway restart       | `blocked`   |
+| missing from two complete sweeps      | `blocked`   |
 
 **Manual review states win.** Moving a card to `review`, `blocked`, or `done`
 stops auto-sync for that card until you move it back to `todo` or `running`.
+
+### Completion and acceptance
+
+A worker's own `workboard_complete` call is not acceptance. The card lands in
+`review` with the summary, proof, artifacts, created-card manifest, and
+`completed` notification recorded as before, plus
+`metadata.automation.awaitingAcceptance: true`, `autoCompletedAt`, and
+`autoCompletedBy` (the completing agent, else the claim owner its token proved).
+Auto-sync leaves it there like any other review card.
+
+`summary` is free-text review prose, capped at **2000 characters**. An over-long
+summary is capped, not rejected: the card still completes with its proof,
+artifacts, and status move, the stored summary keeps its first characters and
+gains an explicit `[truncated: N characters omitted]` marker naming the real
+number of dropped characters, and the truncation is recorded on the card as a
+warning-level worker log naming the original length. The same 2000-character cap
+applies to the `workboard_specify` spec summary and the `workboard_decompose`
+summary. Only prose is capped: claim identity, created-card linkage, and proof
+or artifact validity still refuse the write and leave the card unchanged.
+
+Acceptance is decided by who completes, not by the card's status:
+
+| Completion                                                                       | Card status                       |
+| -------------------------------------------------------------------------------- | --------------------------------- |
+| Agent completion (`workboard_complete`) of a card not awaiting acceptance        | `review`, awaiting acceptance     |
+| Agent completion of an awaiting card by its `autoCompletedBy` owner (re-claimed) | stays `review`, awaiting          |
+| Agent completion of an awaiting card by a different owner                        | `done` (accepts it)               |
+| Operator `workboard.cards.complete` through the Gateway                          | `done` (accepts it)               |
+| `workboard_decompose` completing its parent                                      | `done`, so its children can start |
+
+An agent completion of a `review` card that is not awaiting acceptance, for
+example one auto-sync moved to `review` after the session ended, is a first
+report too: it lands in `review` awaiting acceptance, even when the completing
+agent is a reviewer. `workboard_decompose` on an awaiting card follows the same
+identity rule: only a different owner completes the parent as `done`.
+
+Any status change out of `review` settles the result: `done` accepts it, any
+other status sends it back, and both clear the marker. Only the operator (the
+Control UI, Gateway methods such as `workboard.cards.move`, and the CLI) or an
+agent other than the `autoCompletedBy` owner can do either. The reporting owner
+may not: the check runs on every card write, whichever tool makes it. Its
+`workboard_move`, `workboard_release`, `workboard_reassign`, or
+`workboard_reclaim` with any status other than `review`, and its
+`workboard_unblock`, `workboard_block`, or `workboard_protocol_violation`, fail
+with an error naming who can settle the card, and the card stays in `review`
+unchanged; a refused `workboard_release` or `workboard_block` keeps the claim. Otherwise the owner could send its result back
+and then move the card to `done`, because a card that was sent back no longer
+awaits anything. The owner may revise its result in place instead: claim the card
+and call `workboard_complete` again, which keeps it in `review` awaiting
+acceptance and records the new summary and `autoCompletedAt`.
+
+After the operator or another agent sends the card back, its next agent
+completion is a fresh report: it lands in `review` awaiting acceptance with
+`autoCompletedBy` set to the agent that completed the rework, so that agent cannot
+accept it either. Cards an older build marked as awaiting carry no
+`autoCompletedBy`: an agent's `workboard_complete` leaves them in `review`, and
+the operator or any status move settles them.
+
+Children that depend on the card stay `todo` until it is accepted. Until then the
+card carries the `awaiting_acceptance` diagnostic, and the Control UI shows an
+**Awaiting acceptance** chip on it.
+
+Opening an automatically finished card in the Control UI records
+`metadata.automation.acceptanceSeenAt` through `workboard.cards.update` with the
+card's `expectedUpdatedAt`. A `done` card that finished automatically and has not
+been opened since shows a **New** chip.
 
 Starting a card uses normal Gateway sessions. Workboard only stores card
 metadata and links. Conversation transcript, model selection, and run
@@ -796,8 +1036,319 @@ The template id is stored as card metadata.
    available drop columns gain an outline.
 4. Start an unlinked card when it has no active or unresolved task association.
 5. Open the linked session from the card while the agent works.
-6. Let lifecycle sync move running work into `review`/`blocked`, then manually
-   move the card to `done` when accepted.
+6. Let lifecycle sync or the worker's completion move running work into
+   `review`/`blocked`, then manually move the card to `done` when accepted.
+
+A card that waits on you shows one **Needs you** badge and a second leading
+stripe, on board cards and list rows alike. It appears when the card is in
+`review`, when it is `blocked` and carries the `decision` label (any case), or
+when it has no agent and is in `triage`, `backlog`, `todo` or `ready`. The
+browser derives it from those existing fields on every render; it is
+not stored and adds no card field. Archived cards never show it, even in
+`review`. The badge and stripe use the host's `--danger` color, so they never
+take one of the board's classification palette slots, and a classified card shows
+both stripes.
+
+### Select several cards and accept them in one batch
+
+A triage backlog is worked in batches, not card by card. Select cards and one
+**Move to…** picker accepts or sorts all of them at once.
+
+- **Select:** shift-click a card, or press `Shift+Enter`/`Shift+Space` while it is
+  focused, to start a selection; keep clicking cards to extend it. A column's
+  overflow menu offers **Select all in column**. Archived cards are never
+  selectable; the selection is scoped to the board and agent filter, and changing
+  either one clears it.
+- **Act on the selection:** the toolbar switches to a selection group with
+  **Move to…** (every status, including `done`), **Assign agent…**, **Edit
+  properties** (priority, agent, labels), **Archive**, and **Delete**. Moving to
+  `done` is the batch acceptance: it is the same write as a single drag to the
+  `done` column, applied per card.
+- **Safety:** every write carries the revision the browser last read for that
+  card and the batch stops at the first conflict instead of overwriting a newer
+  change; the cards that were not applied stay selected with the error, so you
+  can re-read and retry. The batch reports _applied to N of M cards_ when it
+  stops early. Archived-only cards and cards outside the current scope are
+  dropped before the write.
+
+Batch acceptance is a Control UI action; there is no `openclaw workboard` bulk
+subcommand. A script that must accept several cards can send the same write(s)
+through the Gateway RPC (see [Permissions](#permissions)) — one
+`workboard.cards.move` per card, or `workboard.cards.bulk` with `ids` and a
+`patch`/`archived` for a shared change — with the fail-closed semantics
+above. Neither path auto-closes a card: it only moves the cards you named.
+
+### Voice control
+
+The Workboard page heading (card boards and Sessions boards) and the
+`workboard:board` dashboard widget show a microphone. It is the composer's
+dictation control: tap once to start, tap again to stop. Device choice,
+transcription, and the reason dictation is unavailable are the same as in a new
+session's composer. Press Escape or leave the page to cancel without sending.
+
+The board on screen when you start speaking is captured then; switching boards
+mid-sentence does not retarget the turn. When you stop, nothing is sent yet: a
+**Check transcript** dialog shows the recognized text in an editable field.
+Above it, **Run by: &lt;agent&gt; · &lt;target&gt;** names the agent of the dock
+conversation that will run the turn and the board (or board and card) it is
+about. On a Sessions board whose Board agent conversation does not exist yet,
+the line reads **Board agent, resolved on send** until the send creates it.
+
+- **Send** sends the edited text as one chat turn with Working context
+  `page: "workboard"` and `detail: { boardId, boardKind }`, closes the dialog,
+  and opens the conversation in the dock. The microphone then shows **Sent to
+  &lt;agent&gt;. The answer follows in the dock.**
+- **Discard**, or Escape, closes the dialog without sending or creating a
+  conversation, and the microphone shows **Discarded.**
+- **Send** is disabled while the text is empty. If the send fails, the dialog
+  stays open with the error under the field and your text intact, so you can
+  retry or discard.
+
+The dialog's action row carries the same controls as the chat composer:
+
+- The model picker and thinking selector change the conversation the turn is
+  sent to, exactly as in that conversation's composer. For a card turn that is
+  the card's own conversation and agent, never the board's. Until a first turn
+  creates that conversation (the first voice turn on a card board or about a
+  card, or a Sessions board without a saved Board agent conversation), they
+  show the agent's defaults, disabled, with the reason in their tooltip.
+- **Record again** is the composer's dictation microphone. The new recording
+  replaces the text in the field; a recording without speech keeps it.
+- **Send** is the composer's send button. While that conversation is running,
+  it reads **Steer** or **Queue** from your follow-up setting and the session's
+  queue mode, and the turn is delivered that way. Queued turns use the
+  Gateway's follow-up queue and run after the current turn. On a read-only
+  connection you can still record and edit, but **Send** stays disabled with the
+  composer's reason.
+
+The all-boards view captures no board, so the turn carries only
+`page: "workboard"`.
+
+- On a Sessions board, the turn goes to the board's saved **Board agent**
+  conversation, created on first use like the **Board agent** button.
+- Card boards have no saved Board agent conversation. The first voice turn per
+  board creates a dock conversation named **Workboard · &lt;board name&gt;** with
+  the selected or default agent and reuses it until the Control UI reloads.
+
+The card detail drawer's **Overview** tab has its own microphone, **Talk about
+this card**. It sends the same kind of turn with
+`detail: { boardId, boardKind: "cards", cardId }` for the card's own board,
+even when the page shows all boards. The turn runs as the **card's agent** (the
+agent shown in the card's **Agent** field, or the default agent when the card
+has none), not the selected agent, in the card's own dock conversation named
+**Workboard · &lt;board name&gt; · "&lt;card title&gt;"**. That conversation is
+created on the first turn about the card and reused until the Control UI
+reloads; it is never shared with the board microphone or another card. The card
+and its agent are captured when you start speaking; opening another card or
+board mid-sentence does not retarget the turn. It uses the same dialog, whose
+line names the card's agent and the card. After the send,
+the drawer shows **Sent about "&lt;card title&gt;". The answer follows in the
+dock.** The agent's answer appears in the dock, and the card picks up the change
+through the normal Workboard live refresh.
+
+Card changes an agent makes record that agent on the card event:
+`workboard_move`, `workboard_update`, `workboard_set_parallelism`,
+`workboard_comment`, `workboard_reassign`, `workboard_complete`, and
+`workboard_block` store the calling agent id from the Gateway's tool context,
+never from the browser. The card's **Activity** tab shows it next to the event
+and its time, for example **Moved to Review by &lt;agent&gt;**. Events from
+operator actions, from other tools, and from before this field existed show only
+the text and time. Attribution is a record, not authority: claim checks and
+permissions are unchanged.
+
+On such a turn, `workboard_read`, `workboard_move`, `workboard_comment`,
+`workboard_update`, `workboard_reassign`, `workboard_proof`,
+`workboard_complete`, and `workboard_block` may omit `id`. The bound card fills
+it only while it still exists, is not archived, and lives on the bound cards
+board; otherwise the call fails with `id required` and changes nothing. An
+explicit `id` always wins. The bound card never widens claim scope or
+`workboard_dispatch`, and status holds, claim checks, and dispatch rules apply
+as for any other call. So "move it to running", "make it urgent", "add the
+needs-qa label", "assign it to writer", or "note that QA passed" edit only the
+card you were looking at.
+
+Spoken requests change the board only through the existing tools, such as
+`workboard_move`, `workboard_comment`, `workboard_dispatch`, and
+`workboard_update`, and `workboard_sessions_board_move`, with the caller's normal scopes. A read-only
+connection can still record, but sending a chat turn needs `operator.write`:
+the dialog disables **Send** and shows **Sending messages is unavailable with
+your current access.**, and nothing is sent. Board context in the turn is quoted reference
+data, never instructions or authority.
+
+### Fill in a new card by voice
+
+The **New card** dialog has its own microphone in its header, **Fill in the card
+by voice**. It is the same composer dictation control. Speak one sentence, for
+example "fix the login bug on Safari, urgent, label frontend, for writer". While
+the draft is prepared the dialog shows **Filling in the form from your
+words…**; only the microphone waits, so you can keep typing.
+
+The answer fills in the open form: title, notes, labels, priority, and, when
+you said them, status and assigned agent. Only fields your sentence supports
+are filled in; a field it does not mention keeps whatever you already entered.
+The dialog stays open and shows **Filled in from your words. Check the fields;
+nothing is created until you press Create.** Nothing is saved until you press
+**Create**; **Cancel** discards the draft as usual.
+
+- Labels come only from the board's [classification palette](#classification-palette),
+  in the palette's spelling. A label you said that is not on the palette is left
+  out, and a short note under the status line names it. On a board without a
+  palette yet, no labels are set and the note says so. Add labels with the label
+  editor; speech never adds palette entries.
+- Status and priority come only from the fixed Workboard lists. An agent is set
+  only when it names a configured agent; otherwise it is left out with a note.
+- If drafting fails, the dialog's error message explains why, every field keeps
+  its value, and the dialog stays open.
+- A read-only connection shows the microphone disabled with its reason. The
+  microphone is not offered when editing an existing card.
+
+The dialog calls `workboard.cards.draft` (`operator.write`, because it spends
+model tokens). It reads the board palette and the configured agents, asks a
+model for a JSON draft through the plugin model-completion runtime
+(`api.runtime.llm.complete`, under the caller's operator authority and the
+plugin's model policy; the browser cannot choose the model or agent), and
+normalizes the answer. It stores nothing: no card, event, or palette change.
+
+- Params: `voiceText` (required, 1-2000 characters after trimming) and optional
+  `boardId` (defaults to `default`). Any other field, such as `model` or
+  `agentId`, is rejected.
+- Result: a `draft` object with optional `title`, `notes`, `status`,
+  `priority`, `labels`, and `agentId`, plus a `hints` string array. `title` is
+  at most 180 characters and `notes` at most 4000; longer values are shortened
+  with a hint. An answer that is not one JSON object of the expected shape is an
+  error, never a partial draft.
+
+### Decision cards
+
+A blocked card with the `decision` label waits on the operator. Its drawer
+shows **Your decision**: the operator picks one of the card's options or types
+an answer. Either way the answer is saved as the comment `Decision: <answer>`.
+Picking an option, or typing an answer and choosing **Decision made**, then
+moves the card to Ready and drops the `decision` label in the same write.
+**Add note** saves the comment and keeps the card blocked.
+
+Agents supply the options with `decisionOptions` on `workboard_create`,
+`workboard_update`, or `workboard_block`: 2 to 6 entries of
+`{ label, description?, recommended? }` (label at most 64 characters,
+description at most 240). The list order is the number the operator sees, so
+put the recommended choice where you want it. Mark at most one entry
+`recommended`; if several are marked, only the first counts. On
+`workboard_update`, omitting `decisionOptions` keeps the stored list and `[]`
+clears it. The tools reject invalid lists with a reason; other writers, such as
+raw `metadata.automation` patches, drop invalid entries instead. The options
+are stored in `metadata.automation.decisionOptions`, so `workboard_read`
+returns them.
+
+The options appear as a numbered list with the description under each label
+and a **Recommended** badge on the recommended one. Labels and descriptions are
+rendered as inline Markdown (they stay inside the option's button, so they carry
+no block structure), and the card's notes, operator comments, proof notes and the
+waiting line render as Markdown too; a ```mermaid fence in notes or a comment is
+shown as a diagram, with the source kept as text when the renderer fails. The
+operator can click an
+option, press its number key while focus is in the panel but outside a text
+field, or move between options with the arrow keys and press Enter or Space.
+Arrow keys only move focus; they never decide. A custom answer field is always
+there, and typing in it never decides on its own.
+
+Cards without `decisionOptions` keep the earlier convention: unchecked task
+items in the notes (`- [ ] SQLite`) become numbered options without a
+description or badge. A card with neither shows only the answer field. A
+decision has one answer; the picker never offers multiple selection.
+
+If a dispatch run starts while the comment is saved, the card cannot move to
+Ready. The panel keeps the chosen option and any typed text, and the board
+shows that the decision was saved as a note, so the operator can decide again.
+
+### Opening and downloading a path artifact
+
+A card artifact may name a host path instead of a URL — for example a report a
+worker wrote outside every agent workspace. The drawer's action for such a row
+comes entirely from the Gateway, never from path math in the browser.
+
+The operator configures the eligible directories under
+`plugins.entries.workboard.config.fileRoots`: each entry is an absolute,
+canonical host path and an optional `baseUrl` (an `http(s)` origin plus an
+optional path prefix). A root without `baseUrl` is download-only.
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "workboard": {
+        "config": {
+          "fileRoots": [
+            {
+              "root": "/workspace/shared/reports-export",
+              "baseUrl": "https://files.example.test/reports"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+- `workboard.artifacts.fileAccess` (`operator.read`) takes the **card id** and
+  returns `{ files: { [artifactId]: { open?: { url }, download?: { url,
+expiresAt } } } }`. The card's stored paths are resolved server-side; the
+  request never carries a path.
+- **Open** is offered only when the artifact's root has a `baseUrl` and the file
+  is not a document. `text/html`, `application/xhtml+xml` and `image/svg+xml`
+  are always download-only, whether they arrive as attachments or path artifacts.
+- **Download** is served by the plugin's own route
+  (`/plugins/workboard/files/<connId>/<ticket>`, `GET`/`HEAD`). The ticket is
+  opaque, bound to one resolved file and to the bytes read when it was minted,
+  expires after five minutes, and dies with its connection. Every response is
+  `application/octet-stream` with `Content-Disposition: attachment`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
+  `Cache-Control: no-store` and `Content-Security-Policy: default-src 'none';
+sandbox`, so no file ever becomes a document on the Gateway origin.
+- Containment is decided by path components, not string prefixes
+  (`/exports-other/x` is not inside `/exports`), and a symlink is re-checked
+  against the root's real path before any byte is read. Rows the Gateway did not
+  approve keep only **Copy path** (and the markdown **Preview**).
+
+### Sharing an artifact
+
+In the card drawer's **Artifacts and files** block, every row with a web URL or
+a host path has **Share…**. Attachments without a path or URL have nothing to
+share and get no action. The action is shown only while the Control UI is
+connected to the Gateway.
+
+**Share…** opens a dialog that shows the exact message before anything is
+sent: the artifact label on the first line and its URL (or, without one, its
+path) on the second. When the label is the reference itself, it is sent once.
+Only this reference is shared. The file is never uploaded and no media is
+attached.
+
+1. Pick a **Channel**. The list comes from `channels.status` (`operator.read`)
+   and contains channels with at least one enabled, configured account. When a
+   channel has several accounts, an **Account** picker appears with the
+   channel's default account selected.
+2. Enter the **Recipient** in the channel's own format. With `operator.admin`,
+   the field suggests targets from `conversations.list` for the chosen channel,
+   account, and the scoped agent. Suggestions are only a convenience: the text
+   you enter is what is sent, and no account or thread routing is taken from the
+   directory. Without admin access, or when the directory is unavailable, the
+   field stays a plain text field.
+3. **Send** calls the Gateway `send` method (`operator.write`) once with
+   `channel`, `accountId`, `to`, the message text, and a new `idempotencyKey`.
+   On success the dialog closes and the row shows **Sent to &lt;recipient&gt;
+   via &lt;channel&gt;.**
+
+Choosing a channel, account, or suggestion never sends. **Cancel** and Escape
+close the dialog without a request; Escape is ignored while a send is in flight.
+**Send** stays disabled, with the reason under the field, while channels load,
+when no channel is set up, on a read-only connection, or while the recipient is
+empty. If the send fails, the dialog stays open with **Could not send: …** under
+the field and keeps the recipient, channel, and account, so you can correct the
+recipient and send again.
+
+Sharing writes nothing to the Workboard store: no card event, comment, or status
+change records it. The receipt lives in the open drawer only; the message in the
+channel is the lasting record.
 
 ### Session-board widgets
 
@@ -829,18 +1380,19 @@ Diagnostics are computed from local card metadata. Built-in checks flag:
 | `missing_proof`             | `done` card with no proof, artifacts, or attachments.                          |
 | `orphaned_session`          | `running` card with a `sessionKey` but no `execution` metadata.                |
 | `archived_but_active`       | Archived card remains in any non-`done` lifecycle status.                      |
+| `awaiting_acceptance`       | `review` card a worker completed that nobody has accepted yet.                 |
 
 ## Permissions
 
 Gateway RPC methods live under `workboard.*`. Sessions board methods use the same
 read/write scopes as boards:
 
-| Scope            | Methods                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `operator.read`  | `cards.list`, `cards.export`, `cards.diagnostics`, attachment list/get, notification event reads, `boards.list`, `cards.stats`, `cards.runs`                                                                                                                                                                                                                                                            |
-| `operator.read`  | `sessionsBoard.read`                                                                                                                                                                                                                                                                                                                                                                                    |
-| `operator.write` | `cards.diagnostics.refresh`, create/captureSession/update/move/delete/comment/link/linkDependency/proof/artifact, attachment add/delete, worker log, protocol violation, claim/heartbeat/release/promote/reassign/reclaim/complete/block/unblock/start, `cards.dispatch`, `cards.bulk`, archive, `boards.upsert`/`archive`/`delete`, `cards.specify`/`decompose`, notification subscribe/delete/advance |
-| `operator.write` | `sessionsBoard.update`, `sessionsBoard.move`                                                                                                                                                                                                                                                                                                                                                            |
+| Scope            | Methods                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `operator.read`  | `cards.list`, `cards.export`, `cards.diagnostics`, attachment list/get, `artifacts.fileAccess`, notification event reads, `boards.list`, `cards.stats`, `cards.runs`                                                                                                                                                                                                                                                                                     |
+| `operator.read`  | `sessionsBoard.read`                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `operator.write` | `cards.diagnostics.refresh`, create/captureSession/update/move/delete/comment/link/linkDependency/unlinkDependency/proof/artifact, attachment add/delete, worker log, protocol violation, claim/heartbeat/release/promote/reassign/reclaim/complete/block/unblock/start, `cards.dispatch`, `cards.bulk`, archive, `boards.upsert`/`archive`/`delete`, `cards.specify`/`decompose`, `cards.draft` (stores nothing), notification subscribe/delete/advance |
+| `operator.write` | `sessionsBoard.update`, `sessionsBoard.move`                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 `workboard.cards.update`, `workboard.cards.move`, `workboard.cards.archive`, and
 `workboard.cards.delete` accept an optional `expectedUpdatedAt` request field.
@@ -849,6 +1401,11 @@ If the card has changed, the request fails with `workboard_conflict` and returns
 its latest card in `error.details.card` (`error.details.type` is
 `workboard_card_conflict`). Review that card before retrying. Omitting the field
 keeps the method's existing unguarded request behavior.
+
+`workboard.cards.move` also accepts an optional `labelsRemove` array. Those
+labels (matched case-insensitively) are dropped in the same write as the status
+change. The Control UI uses it to remove the `decision` label when the operator
+records a decision and the card moves to Ready.
 
 Control UI bulk actions use each card's observed revision and stop on a conflict.
 Remaining cards stay selected for review and retry; the batch does not silently
@@ -868,6 +1425,11 @@ protocol state, and subscriptions all live in Workboard tables (not
 plugin key-value entries). A card export preserves the board narrative
 without inlining attachment blob contents.
 
+Card events carry an optional `agent_id` column (schema version 4) for the
+agent that caused them. Existing databases gain the column on open, and existing
+events keep it empty; the experimental PostgreSQL engine migrates version 3
+stores by adding the same nullable column.
+
 Sessions boards add optional `kind` and `sessions_spec` columns to
 `workboard_boards`, plus `workboard_session_placements` for operator pins.
 Existing board rows are not backfilled;
@@ -875,6 +1437,12 @@ an absent kind still means a Cards board. Rolling back to a release without Sess
 boards shows each Sessions board as an empty Cards board and ignores the placement
 table; cards created against it there are rejected once the newer release runs again. Session transcripts and the Board agent
 conversation remain in the normal session store.
+
+Classification palettes live in the nullable `classifications_json` column of
+`workboard_boards`. Rolling back to a release without palettes ignores the column
+and accepts any label. After upgrading, the stored palette applies again; labels
+added in between stay on their cards and render as plain chips unless they match a
+classification.
 
 SQLite opening, queries, and transactions run in a background database worker.
 Disabling or reloading the plugin drains admitted storage work before closing

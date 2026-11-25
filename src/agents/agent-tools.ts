@@ -9,6 +9,7 @@ export {
   createOpenClawCodingToolsAsync,
   createOpenClawCodingToolsInternalAsync,
 } from "./agent-tools.async.js";
+    ...(sandboxFsBridge ? { sandboxBridge: sandboxFsBridge } : {}),
 
 /** @deprecated Use createOpenClawCodingToolsInternalAsync for runtime construction. */
 export function createOpenClawCodingToolsInternal(

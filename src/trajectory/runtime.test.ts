@@ -3,6 +3,7 @@ import path from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { sha256Hex } from "@openclaw/normalization-core/node-crypto";
 import {
   observeHostDataSql,
   trackSqliteStatementExecutions,

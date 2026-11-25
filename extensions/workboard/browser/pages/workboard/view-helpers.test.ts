@@ -1,6 +1,7 @@
 import "../../test/dom.setup.ts";
 import { expect, it, vi } from "vitest";
 import { formatDurationCompact } from "../../lib/format.ts";
+import { getWorkboardState } from "../../lib/workboard/runtime.ts";
 import { createWorkboardCard } from "../../lib/workboard/test/index-helpers.ts";
 import { workboardTestHost } from "../../test/host.setup.ts";
 import { formatUpdatedTime, matchesCardQuery } from "./view-helpers.tsx";
@@ -61,4 +62,19 @@ it("reuses card formatters and replaces them when the host locale changes", () =
     dates.mockRestore();
     numbers.mockRestore();
   }
+});
+
+it("counts cards left queued behind a busy lane in the dispatch summary", () => {
+  const state = getWorkboardState({});
+  const counts = { failures: 0, promoted: 0, blocked: 0, reclaimed: 0, orchestrated: 0 };
+  state.lastDispatchSummary = { ...counts, started: 1, queued: 2 };
+  expect(dispatchSummaryMessage(state)).toBe(
+    "Started 1. Prepared 0, blocked 0, released 0, organized 0. Failed to start: 0. Queued behind a busy lane: 2.",
+  );
+  state.lastDispatchSummary = { ...counts, started: 0, queued: 1 };
+  expect(dispatchSummaryMessage(state)).toBe(
+    "Started 0. Prepared 0, blocked 0, released 0, organized 0. Failed to start: 0. Queued behind a busy lane: 1.",
+  );
+  state.lastDispatchSummary = { ...counts, started: 0, queued: 0 };
+  expect(dispatchSummaryMessage(state)).toBe("No cards were started.");
 });

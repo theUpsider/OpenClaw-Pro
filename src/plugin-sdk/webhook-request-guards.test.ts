@@ -199,9 +199,11 @@ describe("runDetachedWebhookWork", () => {
 
   it.each([
     ["detached", "accepting", true],
-    ["inherited", "accepting", false],
+    ["inherited", "accepting", true],
     ["detached", "suspended", true],
+    ["inherited", "suspended", false],
     ["detached", "restarting", false],
+    ["inherited", "restarting", false],
   ] as const)("owns %s post-ack cleanup while %s", async (kind, phase, allowed) => {
     const cleanupStarted = createDeferredCore();
     const execute = createDeferredCore();
@@ -239,6 +241,7 @@ describe("runDetachedWebhookWork", () => {
         await expect(continued).resolves.toBe(42);
         expect(deliver).toHaveBeenCalledOnce();
       } else {
+        // A closed fence (suspend/restart) still refuses the unreserved chain.
         await expect(continued).rejects.toBeInstanceOf(GatewayDrainingError);
         expect(deliver).not.toHaveBeenCalled();
       }

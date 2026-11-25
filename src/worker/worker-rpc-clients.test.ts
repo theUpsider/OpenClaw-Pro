@@ -18,6 +18,7 @@ import {
   WORKER_PROTOCOL_MAX_PAYLOAD_BYTES,
 } from "../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
 import * as transcriptBudget from "../../packages/gateway-protocol/src/worker-transcript-budget.js";
+import { WORKER_MESSAGE_MAX_TEXT_BYTES } from "../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { makeAgentAssistantMessage } from "../agents/test-helpers/agent-message-fixtures.js";
 import { createUsageFixture } from "../agents/test-helpers/usage-fixtures.js";

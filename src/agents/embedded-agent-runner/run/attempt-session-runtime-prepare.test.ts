@@ -871,6 +871,10 @@ describe("prepareEmbeddedAttemptSessionRuntime", () => {
         preparedUserTurnMessage: { role: "user", content: "hello" },
       }),
     );
+    // The wire basis comes from the session's post-pin accessor, not the raw catalog.
+    expect(mocks.prepareTrajectory).toHaveBeenCalledWith(
+      expect.objectContaining({ wireToolNames: ["read", "write"] }),
+    );
     expect(fixture.externalAbortController.setActiveSessionAbort).toHaveBeenCalledWith(
       fixture.abortActiveSession,
     );

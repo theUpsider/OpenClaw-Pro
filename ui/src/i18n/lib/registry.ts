@@ -35,3 +35,10 @@ export async function loadLazyLocaleTranslation(locale: Locale): Promise<Transla
   const module: LocaleModule = await LAZY_LOCALE_REGISTRY[locale]();
   return module[locale.replaceAll("-", "_")] ?? null;
 }
+
+export async function loadLazyLocaleConfigHints(locale: Locale): Promise<TranslationMap | null> {
+  if (locale === DEFAULT_LOCALE) {
+    return null;
+  }
+  return (await LAZY_LOCALE_CONFIG_HINTS_REGISTRY[locale]()).default;
+}

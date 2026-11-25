@@ -241,9 +241,18 @@ export function isGatewaySubordinateWorkAdmissionClosed(): boolean {
   }
   const current = currentRootWork.getStore();
   if (current) {
-    // Reset/release retires inherited ALS descendants. They must explicitly
-    // re-enter admission instead of spawning untracked subordinate work.
-    return current.released;
+    if (current.retiredByReset) {
+      // Reset retires inherited ALS descendants. They must explicitly re-enter
+      // admission instead of spawning untracked subordinate work.
+      return true;
+    }
+    if (!current.released) {
+      return false;
+    }
+    // A settled lease is not a fence: long-lived handlers keep async work chained
+    // off an already-released lease (channel ingress, keyed run queues, inbound
+    // debouncers). Descendants re-enter through normal admission, so only the
+    // suspend phase below still refuses.
   }
   return GATEWAY_WORK_ADMISSION_STATE.suspendPhase !== "accepting";
 }

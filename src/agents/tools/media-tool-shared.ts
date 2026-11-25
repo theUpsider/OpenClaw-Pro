@@ -423,6 +423,8 @@ export async function resolveMediaToolReferenceAccess(params: {
   input: string;
   isDataUrl: boolean;
   workspaceDir?: string;
+  /** The agent's own workspace; a session workspace or cwd may replace `workspaceDir`. */
+  agentWorkspaceDir?: string;
   cwd?: string;
   fsPolicy?: ToolFsPolicy;
   sandbox?: SandboxedBridgeMediaPathConfig | null;
@@ -433,6 +435,10 @@ export async function resolveMediaToolReferenceAccess(params: {
   const cwd = normalizeWorkspaceDir(params.cwd) ?? root;
   const hostRoots = [getMediaDir(), ...(root ? [root] : [])];
   const workspaceOnly = params.fsPolicy?.workspaceOnly ?? params.sandbox?.workspaceOnly === true;
+  // Unconfined host reads keep the agent workspace next to a session root; confined and
+  // sandboxed reads stay limited to the session root.
+  const agentWorkspaceDir =
+    workspaceOnly || params.sandbox ? undefined : normalizeWorkspaceDir(params.agentWorkspaceDir);
   const reference = classifyMediaReferenceSource(params.input);
   const resolveHostPath = () => {
     if (reference.isFileUrl) {
@@ -465,6 +471,7 @@ export async function resolveMediaToolReferenceAccess(params: {
     resolvedPath: params.isDataUrl ? null : pathInfo.resolved,
     localRoots: uniqueStrings([
       ...(workspaceOnly ? hostRoots : [...getDefaultLocalRootsCore(), ...hostRoots]),
+      ...(agentWorkspaceDir ? [agentWorkspaceDir] : []),
       ...(params.fsPolicy?.readOnlyRoots ?? []),
       ...hostReadRoot,
     ]),

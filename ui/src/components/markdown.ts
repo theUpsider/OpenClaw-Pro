@@ -1,4 +1,5 @@
 import { pruneMapToMaxSize } from "../../../src/infra/map-size.ts";
+import { escapeHtml } from "../../../src/shared/html-escape.js";
 import { stripUnsupportedCitationControlMarkers } from "../../../src/shared/text/citation-control-markers.js";
 import { i18n, t } from "../i18n/index.ts";
 import { truncateText } from "../lib/format.ts";

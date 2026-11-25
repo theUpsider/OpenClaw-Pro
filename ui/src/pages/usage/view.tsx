@@ -262,6 +262,10 @@ function UsageView(props: UsageControlsProps & { loading: boolean; read: UsageRe
                   endDate: props.filters.endDate,
                   complete: chartComplete(),
                 }}
+              <div class="callout usage-callout" role="note">
+                {t("usage.lowerBound")}
+            </Show>
+            <>
               />
               <Show when={keepAnalytics() && analyticsTotals()}>
                 {(totals) => (

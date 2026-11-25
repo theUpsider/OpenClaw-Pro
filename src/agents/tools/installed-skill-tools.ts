@@ -140,7 +140,7 @@ export function createInstalledSkillTools(
         description:
           "Load complete SKILL.md instructions for an exact installed skill name; search is not required first. Optional relativePath reads a UTF-8 text companion (up to 256 KiB) inside a local skill directory. Restricted placements are instruction-only. Does not execute files or grant command permissions.",
         parameters: SkillsReadSchema,
-        execute: async (_id, args, signal) => {
+        execute: async (id, args, signal) => {
           const params = asToolParamsRecord(args);
           const name = readToolStringParam(params, "name", { required: true });
           const relativePath = readToolStringParam(params, "relativePath", {

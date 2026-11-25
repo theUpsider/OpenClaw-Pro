@@ -80,6 +80,10 @@ function scenario() {
     hasActiveRun: true,
     activeRunIds: ["notice-run"],
     startedAt: now - 18_000,
+    model: "gpt-5.6-sol",
+    modelProvider: "openai",
+    thinkingLevel: "high",
+    subagentRole: "leaf",
   } satisfies GatewaySessionRow;
   const other = {
     ...child,
@@ -88,6 +92,11 @@ function scenario() {
     label: "Review keyboard navigation",
     activeRunIds: ["keyboard-run"],
     startedAt: now - 35_000,
+    // A spawn without explicit model or thinking must read as unknown, not as a default.
+    model: undefined,
+    modelProvider: undefined,
+    thinkingLevel: undefined,
+    subagentRole: undefined,
   } satisfies GatewaySessionRow;
   const finished = {
     ...child,
@@ -599,6 +608,7 @@ suite.define(() => {
         ).toBe('""');
         await panel
           .locator(`[data-group="waiting"][data-session-key="${queued.key}"]`)
+          .locator(".chat-subagents__metadata")
           .getByText("Queued", { exact: true })
           .waitFor();
         await panel
@@ -674,6 +684,14 @@ suite.define(() => {
           ".agent-chat__disabled-banner",
           ".chat-subagent-detail__header openclaw-elapsed-time",
         ]);
+        const detailFacts = detail.locator(".chat-subagent-detail__header .chat-subagents__facts");
+        await detailFacts.locator(`openclaw-agent-row-chip [data-agent-id="main"]`).waitFor();
+        expect(await detailFacts.locator('[data-fact="model"]').textContent()).toBe(
+          "openai · gpt-5.6-sol",
+        );
+        expect(await detailFacts.locator('[data-fact="thinking"]').textContent()).toBe(
+          "Thinking: high",
+        );
         expect(await detail.getByRole("button", { name: "Open parent session" }).count()).toBe(0);
         expect(await draft.inputValue()).toBe("Keep this parent draft");
         expect(await page.locator("html").getAttribute("data-subagent-claimed-input")).toBeNull();

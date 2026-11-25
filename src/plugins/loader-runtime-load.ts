@@ -23,6 +23,9 @@ import { createDebugProxyWebSocketAgent, resolveDebugProxySettings } from "../pr
 import { captureWsEvent, captureWsEventAsync } from "../proxy-capture/runtime.js";
 import { createRealtimeTranscriptionWebSocketSession } from "../realtime-transcription/websocket-session.js";
 import { createLazyRuntimeMethod, createLazyRuntimeModule } from "../shared/lazy-runtime.js";
+import { MAIN_THREAD_STALL_ATTRIBUTION_MS } from "../infra/main-thread-stall.js";
+import { createYieldBudgetStepStats, runStepsWithYieldBudget } from "../infra/yield-budget.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveCompatibleRuntimePluginRegistry } from "./active-runtime-registry.js";
 import type { PluginCapabilityCatalogHostContext } from "./capability-catalog-context.types.js";
 import { withPluginMetadataSnapshotScope } from "./current-plugin-metadata-snapshot.js";
@@ -260,7 +263,6 @@ async function runPluginLoadStepsAsync(
       step = steps.throw(error);
     }
   }
-  return step.value;
 }
 
 /** Publishes synchronously, then joins every accepted health write before returning to its host. */

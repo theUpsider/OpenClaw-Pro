@@ -7,20 +7,67 @@ import { jsonResult, readStringParam } from "openclaw/plugin-sdk/core";
 import { resolveIntegerOption } from "openclaw/plugin-sdk/number-runtime";
 import type { AnyAgentTool, OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { Type } from "typebox";
+import { buildWorkboardParallelismPatch } from "./card-parallelism.js";
 import { redactClaimToken } from "./card-redaction.js";
+import { buildWorkboardCardUpdatePatch } from "./card-update.js";
+import type { WorkboardClassificationChange } from "./classification-palette.js";
+import { cardBoardId } from "./store-card-helpers.js";
+import type { WorkboardInteractionStamp } from "./store-inputs.js";
 import { normalizeCappedStringList } from "./store-string-lists.js";
 import type { WorkboardStore } from "./store.js";
 import {
+  askField,
+  askKindField,
+  boundCardIdField,
   cardIdField,
   claimTokenField,
   createWorkboardCardMutations,
+  decisionOptionsField,
+  dispatchModeField,
+  maxConcurrentPerOwnerField,
+  maxConcurrentPerOwnerPatchField,
+  parallelizableField,
   strictObject,
+  withDecisionOptions,
+  withWorkboardOperatorAsk,
   workspaceField,
 } from "./tools-card-mutations.js";
 import { createWorkboardOrchestrationTools } from "./tools-orchestration.js";
+import { readVoiceBoardBinding, type VoiceBoardBinding } from "./voice-board-binding.js";
 
 function contextOwner(ctx: OpenClawPluginToolContext | undefined): string {
   return ctx?.agentId || ctx?.sessionKey || ctx?.sessionId || "agent";
+}
+
+/** The calling agent recorded on card events; unlike the owner it never falls back. */
+function contextAgent(ctx: OpenClawPluginToolContext | undefined): string | undefined {
+  return ctx?.agentId?.trim() || undefined;
+}
+
+/**
+ * The interaction link for a card-bound turn: the session key and agent the server
+ * resolved for this invocation, never a tool argument. Only a turn that named one
+ * card (`detail.cardId`) records one, and only the board's dock conversation runs
+ * on this surface; a board-level voice turn, a plain agent edit, an operator write
+ * and the CLI all leave the field absent. Reference data, never authority.
+ */
+function cardBoundInteraction(
+  ctx: OpenClawPluginToolContext | undefined,
+  voiceBoard: VoiceBoardBinding | undefined,
+): Omit<WorkboardInteractionStamp, "at"> | undefined {
+  if (!voiceBoard?.cardId) {
+    return undefined;
+  }
+  const sessionKey = ctx?.sessionKey?.trim();
+  if (!sessionKey) {
+    return undefined;
+  }
+  const agentId = contextAgent(ctx);
+  return {
+    sessionKey,
+    ...(agentId ? { agentId } : {}),
+    surface: "plugin-dock",
+  };
 }
 
 function summarizeCard(card: WorkboardCard) {
@@ -64,6 +111,29 @@ function redactedProofResult(card: WorkboardCard) {
 }
 
 const ScopedClaimTokenField = claimTokenField("Claim token for claimed cards.");
+
+const ReplacesField = Type.Optional(
+  Type.String({
+    description:
+      "Existing classification a new label overwrites when the board already has 10; the slot keeps its color and position.",
+  }),
+);
+
+/** The board palette after a card write, so the model reuses names instead of adding near-duplicates. */
+async function classificationResult(
+  store: WorkboardStore,
+  card: WorkboardCard,
+  change: WorkboardClassificationChange | undefined,
+) {
+  if (!change) {
+    return { classifications: await store.readClassifications(cardBoardId(card)) };
+  }
+  return {
+    classifications: change.classifications,
+    ...(change.added.length > 0 ? { classificationsAdded: change.added } : {}),
+    ...(change.replaced ? { classificationReplaced: change.replaced } : {}),
+  };
+}
 
 const CardIdSchema = strictObject({
   id: cardIdField(),
@@ -271,7 +341,7 @@ export function createWorkboardTools(params: {
           .filter((card) => !tenant || card.metadata?.automation?.tenant === tenant)
           .slice(0, limit)
           .map(summarizeCard);
-        return jsonResult({ cards });
+        return jsonResult(voiceBoard ? { cards, voiceBoard } : { cards });
       },
     },
     {
@@ -281,12 +351,22 @@ export function createWorkboardTools(params: {
         "Create a Workboard card, optionally with parent dependencies, tenant, skills, workspace, and key to prevent duplicate requests. Sessions boards do not hold cards; use workboard_sessions_board_read/update/move for them.",
       parameters: toolSchemas.create,
       execute: async (_toolCallId, rawParams) => {
-        const record = rawParams as Record<string, unknown>;
+        const record = withWorkboardOperatorAsk(
+          withDecisionOptions(rawParams as Record<string, unknown>),
+        );
         normalizeCappedStringList(record.parents, "parents");
+        const reported: { change?: WorkboardClassificationChange } = {};
+        const card = await store.create(
+          record,
+          { ownerId, token: record.token as string | undefined },
+          undefined,
+          (change) => {
+            reported.change = change;
+          },
+        );
         return jsonResult({
-          card: redactClaimToken(
-            await store.create(record, { ownerId, token: record.token as string | undefined }),
-          ),
+          card: redactClaimToken(card),
+          ...(await classificationResult(store, card, reported.change)),
         });
       },
     },
@@ -311,11 +391,14 @@ export function createWorkboardTools(params: {
       label: "Workboard Read",
       description:
         "Read one Workboard card and return bounded worker context with notes, attempts, comments, proof, links, and diagnostics.",
-      parameters: CardIdSchema,
+      parameters: strictObject({
+        id: boundCardIdField(),
+        token: claimTokenField(),
+      }),
       execute: async (_toolCallId, rawParams) => {
-        const record = rawParams as Record<string, unknown>;
-        const id = readStringParam(record, "id", { required: true });
-        const { card, workerContext } = await store.readWithWorkerContext(id);
+        const { card, workerContext } = await store.readWithWorkerContext(
+          await readCardId(rawParams),
+        );
         return jsonResult({
           card: redactClaimToken(card),
           workerContext,

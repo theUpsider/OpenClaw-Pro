@@ -1,9 +1,15 @@
 import { optionalPositiveIntegerSchema } from "openclaw/plugin-sdk/channel-actions";
 import { readPositiveIntegerParam } from "openclaw/plugin-sdk/param-readers";
+import type {
+  OpenClawPluginApi,
+  OpenClawPluginToolContext,
+} from "openclaw/plugin-sdk/plugin-entry";
 import { jsonResult } from "openclaw/plugin-sdk/tool-results";
 import { Type } from "typebox";
+import { createLobsterRegistry, type DecisionEvaluator } from "./decision-bridge.js";
 import {
   createEmbeddedLobsterRunner,
+  loadedLobsterCore,
   resolveLobsterCwd,
   type LobsterRunnerParams,
 } from "./lobster-runner.js";

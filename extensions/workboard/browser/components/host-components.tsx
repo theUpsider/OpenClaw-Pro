@@ -1,5 +1,5 @@
 /** @jsxImportSource @solidjs/web */
-import { Portal, type JSX } from "@solidjs/web";
+import { Portal, dynamic, type JSX } from "@solidjs/web";
 import type { ControlUiComponentHandle, ControlUiHost } from "openclaw/plugin-sdk/control-ui";
 import { createEffect, createMemo, onCleanup } from "solid-js";
 import { workboardHost } from "../host.ts";
@@ -13,6 +13,10 @@ type AppearancePickerProps = Parameters<Components["mountAppearancePicker"]>[1];
 type AppearanceGlyphProps = Parameters<Components["mountAppearanceGlyph"]>[1];
 type SessionSummaryProps = Parameters<Components["mountSessionSummary"]>[1];
 type Styled = { class?: JSX.HTMLAttributes<HTMLElement>["class"]; className?: string };
+type DictationControlProps = Parameters<Components["mountDictationControl"]>[1];
+type ComposerSessionControlsProps = Parameters<Components["mountComposerSessionControls"]>[1];
+type ComposerSendActionProps = Parameters<Components["mountComposerSendAction"]>[1];
+type MarkdownProps = Parameters<Components["mountMarkdown"]>[1];
 
 function hostMount<Props extends object>(
   read: () => Props,
@@ -120,4 +124,39 @@ export function SessionSummary(props: SessionSummaryProps) {
     (container, value) => workboardHost().components.mountSessionSummary(container, value),
   );
   return <div class="workboard-session-summary" ref={mount} />;
+}
+
+export function DictationControl(props: DictationControlProps & Styled) {
+  const mount = hostMount(
+    () => ({ ...props }),
+    (container, value) => workboardHost().components.mountDictationControl(container, value),
+  );
+  return <span class={props.class ?? props.className ?? ""} ref={mount} />;
+}
+
+export function ComposerSessionControls(props: ComposerSessionControlsProps & Styled) {
+  const mount = hostMount(
+    () => ({ ...props }),
+    (container, value) => workboardHost().components.mountComposerSessionControls(container, value),
+  );
+  return <div class={props.class ?? props.className ?? ""} ref={mount} />;
+}
+
+export function ComposerSendAction(props: ComposerSendActionProps & Styled) {
+  const mount = hostMount(
+    () => ({ ...props }),
+    (container, value) => workboardHost().components.mountComposerSendAction(container, value),
+  );
+  return <span class={props.class ?? props.className ?? ""} ref={mount} />;
+}
+
+export function Markdown(props: MarkdownProps) {
+  // The host parses and sanitizes; `class` styles the host's rendered root.
+  const mount = hostMount(
+    () => ({ ...props }),
+    (container, value) => workboardHost().components.mountMarkdown(container, value),
+  );
+  // Inline labels must stay phrasing content inside their control (button/radio).
+  const Container = dynamic(() => (props.inline ? "span" : "div"));
+  return <Container ref={mount} />;
 }

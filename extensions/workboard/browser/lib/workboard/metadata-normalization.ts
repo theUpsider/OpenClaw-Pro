@@ -1,0 +1,475 @@
+import { z } from "zod";
+import { definedFields } from "../../../record-fields.js";
+import { isWorkboardAskText } from "../../../src/workboard-operator-ask.ts";
+import {
+  WORKBOARD_ATTEMPT_STATUSES,
+  WORKBOARD_DIAGNOSTIC_KINDS,
+  WORKBOARD_DIAGNOSTIC_SEVERITIES,
+  WORKBOARD_DISPATCH_MODES,
+  WORKBOARD_EVENT_KINDS,
+  WORKBOARD_EXECUTION_MODES,
+  WORKBOARD_EXECUTION_STATUSES,
+  WORKBOARD_INTERACTION_SURFACES,
+  WORKBOARD_LINK_TYPES,
+  WORKBOARD_NOTIFICATION_KINDS,
+  WORKBOARD_OPERATOR_ASK_KINDS,
+  WORKBOARD_PROOF_STATUSES,
+  WORKBOARD_REVIEW_RESOLUTIONS,
+  WORKBOARD_REVIEW_VERDICT_VALUES,
+  WORKBOARD_STATUSES,
+  WORKBOARD_TEMPLATE_IDS,
+  type WorkboardEvent,
+  type WorkboardExecution,
+  type WorkboardInteraction,
+  type WorkboardMetadata,
+  type WorkboardReviewAnnotation,
+  type WorkboardReviewSession,
+} from "./types.ts";
+
+const optionalStringSchema = z.string().optional().catch(undefined);
+const optionalNumberSchema = z.number().optional().catch(undefined);
+const trimmedRequiredStringSchema = z
+  .string()
+  .transform((value) => value.trim())
+  .pipe(z.string().min(1));
+const invalidArrayItemSchema = z.unknown().transform(() => null);
+
+function tolerantArray<T>(schema: z.ZodType<T>) {
+  return z
+    .array(z.union([schema, invalidArrayItemSchema]))
+    .transform((items) => {
+      const normalized = items.filter((item): item is T => item !== null);
+      return normalized.length ? normalized : undefined;
+    })
+    .optional()
+    .catch(undefined);
+}
+
+function sparseObject<Shape extends z.ZodRawShape>(shape: Shape) {
+  return z.object(shape).transform(definedFields);
+}
+
+const automationNumberSchema = z
+  .custom<number>((value) => typeof value === "number")
+  .optional()
+  .catch(undefined);
+const automationStringsSchema = tolerantArray(z.string().refine((value) => value.trim() !== ""));
+const automationSchema = sparseObject({
+  tenant: optionalStringSchema,
+  boardId: optionalStringSchema,
+  createdByCardId: optionalStringSchema,
+  idempotencyKey: optionalStringSchema,
+  skills: automationStringsSchema,
+  createdCardIds: automationStringsSchema,
+  workspace: sparseObject({
+    kind: z.enum(["scratch", "dir", "worktree"]),
+    path: optionalStringSchema,
+    branch: optionalStringSchema,
+    sourcePath: optionalStringSchema,
+    sourceBranch: optionalStringSchema,
+  })
+    .optional()
+    .catch(undefined),
+  workspaceAccess: z
+    .union([
+      z.object({ unrestricted: z.literal(true) }),
+      z.object({
+        unrestricted: z.literal(false),
+        roots: z
+          .array(z.unknown())
+          .transform((roots) => roots.filter((root): root is string => typeof root === "string")),
+        writable: z.boolean(),
+      }),
+    ])
+    .optional()
+    .catch(undefined),
+  maxRuntimeSeconds: automationNumberSchema,
+  maxRetries: automationNumberSchema,
+  parallelizable: z.boolean().optional().catch(undefined),
+  maxConcurrentPerOwner: automationNumberSchema,
+  // Placement owner; unknown values drop the field so the UI shows a plain
+  // native card instead of guessing at an unrecognized mode.
+  dispatchMode: z.enum(WORKBOARD_DISPATCH_MODES).optional().catch(undefined),
+  scheduledAt: automationNumberSchema,
+  summary: optionalStringSchema,
+  dispatchCount: automationNumberSchema,
+  lastDispatchAt: automationNumberSchema,
+  awaitingAcceptance: z.boolean().optional().catch(undefined),
+  autoCompletedAt: automationNumberSchema,
+  acceptanceSeenAt: automationNumberSchema,
+  restartTombstone: z
+    .object({ sessionKey: z.string(), detectedAt: z.number() })
+    .optional()
+    .catch(undefined),
+  decisionOptions: tolerantArray(
+    sparseObject({
+      label: trimmedRequiredStringSchema,
+      description: optionalStringSchema,
+      recommended: z.boolean().optional().catch(undefined),
+    }),
+  ),
+  // Lenient twin of the server's `ask` rule: the UI only ever displays this text, so a
+  // value the server would refuse drops instead of rendering; the server stays the
+  // single refuser. The 120-character bound comes from the shared ask module.
+  ask: optionalStringSchema.transform((value) => (isWorkboardAskText(value) ? value : undefined)),
+  askKind: z.enum(WORKBOARD_OPERATOR_ASK_KINDS).optional().catch(undefined),
+})
+  .transform((value) => (Object.keys(value).length ? value : undefined))
+  .optional()
+  .catch(undefined);
+
+const diagnosticActionSchema = z.object({
+  kind: z.enum(["claim", "unblock", "promote", "reclaim", "reassign", "add_proof", "open_session"]),
+  label: z.string(),
+});
+
+const workboardExecutionSchema = z
+  .object({
+    id: trimmedRequiredStringSchema,
+    engine: optionalStringSchema.transform((value) => value?.trim() || undefined),
+    mode: z.enum(WORKBOARD_EXECUTION_MODES),
+    status: z.enum(WORKBOARD_EXECUTION_STATUSES).catch("idle"),
+    model: optionalStringSchema.transform((value) => value?.trim() || undefined),
+    sessionKey: optionalStringSchema,
+    runId: optionalStringSchema,
+    startedAt: z.number().refine((value) => value !== 0),
+    updatedAt: optionalNumberSchema,
+  })
+  .transform((value): WorkboardExecution => ({
+    id: value.id,
+    kind: "agent-session",
+    mode: value.mode,
+    status: value.status,
+    startedAt: value.startedAt,
+    updatedAt: value.updatedAt ?? value.startedAt,
+    ...(value.engine ? { engine: value.engine } : {}),
+    ...(value.model ? { model: value.model } : {}),
+    ...(value.sessionKey !== undefined ? { sessionKey: value.sessionKey } : {}),
+    ...(value.runId !== undefined ? { runId: value.runId } : {}),
+  }));
+
+const workboardEventSchema = sparseObject({
+  id: trimmedRequiredStringSchema,
+  kind: z.enum(WORKBOARD_EVENT_KINDS),
+  at: z
+    .number()
+    .finite()
+    .refine((value) => value !== 0),
+  fromStatus: z.enum(WORKBOARD_STATUSES).optional().catch(undefined),
+  toStatus: z.enum(WORKBOARD_STATUSES).optional().catch(undefined),
+  sessionKey: optionalStringSchema,
+  runId: optionalStringSchema,
+  agentId: optionalStringSchema,
+});
+const workboardEventsSchema = tolerantArray(workboardEventSchema);
+
+const attemptSchema = sparseObject({
+  id: z.string(),
+  status: z.enum(WORKBOARD_ATTEMPT_STATUSES).catch("running"),
+  startedAt: z.number(),
+  endedAt: optionalNumberSchema,
+  engine: optionalStringSchema.transform((value) => value?.trim() || undefined),
+  mode: z.enum(WORKBOARD_EXECUTION_MODES).optional().catch(undefined),
+  model: optionalStringSchema,
+  sessionKey: optionalStringSchema,
+  runId: optionalStringSchema,
+  error: optionalStringSchema,
+});
+const commentSchema = sparseObject({
+  id: z.string(),
+  body: z.string(),
+  createdAt: z.number(),
+  updatedAt: optionalNumberSchema,
+});
+const linkSchema = sparseObject({
+  id: z.string(),
+  type: z.enum(WORKBOARD_LINK_TYPES).catch("relates_to"),
+  createdAt: z.number(),
+  targetCardId: optionalStringSchema,
+  title: optionalStringSchema,
+  url: optionalStringSchema,
+});
+const proofSchema = sparseObject({
+  id: z.string(),
+  status: z.enum(WORKBOARD_PROOF_STATUSES).catch("unknown"),
+  createdAt: z.number(),
+  label: optionalStringSchema,
+  command: optionalStringSchema,
+  url: optionalStringSchema,
+  note: optionalStringSchema,
+});
+const artifactSchema = sparseObject({
+  id: z.string(),
+  createdAt: z.number(),
+  label: optionalStringSchema,
+  url: optionalStringSchema,
+  path: optionalStringSchema,
+  mimeType: optionalStringSchema,
+});
+const attachmentSchema = sparseObject({
+  id: z.string(),
+  cardId: z.string(),
+  fileName: z.string(),
+  byteSize: z.number(),
+  createdAt: z.number(),
+  mimeType: optionalStringSchema,
+  note: optionalStringSchema,
+});
+const workerLogSchema = sparseObject({
+  id: z.string(),
+  level: z.enum(["info", "warning", "error"]).catch("info"),
+  message: z.string(),
+  createdAt: z.number(),
+  sessionKey: optionalStringSchema,
+  runId: optionalStringSchema,
+});
+const workerProtocolSchema = sparseObject({
+  state: z.enum(["idle", "running", "completed", "blocked", "violated"]),
+  updatedAt: z.number().catch(() => Date.now()),
+  detail: optionalStringSchema,
+})
+  .optional()
+  .catch(undefined);
+const claimSchema = sparseObject({
+  ownerId: z.string(),
+  token: z.string(),
+  claimedAt: z.number(),
+  lastHeartbeatAt: z.number(),
+  expiresAt: optionalNumberSchema,
+})
+  .optional()
+  .catch(undefined);
+const diagnosticSchema = z
+  .object({
+    kind: z.enum(WORKBOARD_DIAGNOSTIC_KINDS),
+    severity: z.enum(WORKBOARD_DIAGNOSTIC_SEVERITIES),
+    title: z.string(),
+    detail: optionalStringSchema,
+    firstSeenAt: optionalNumberSchema,
+    lastSeenAt: optionalNumberSchema,
+    count: optionalNumberSchema,
+    actions: tolerantArray(diagnosticActionSchema),
+  })
+  .transform((value) => ({
+    kind: value.kind,
+    severity: value.severity,
+    title: value.title,
+    detail: value.detail ?? value.title,
+    firstSeenAt: value.firstSeenAt ?? Date.now(),
+    lastSeenAt: value.lastSeenAt ?? Date.now(),
+    count: value.count ?? 1,
+    actions: value.actions ?? [],
+  }));
+const notificationSchema = sparseObject({
+  id: z.string(),
+  kind: z.enum(WORKBOARD_NOTIFICATION_KINDS),
+  message: z.string(),
+  createdAt: z.number(),
+  sequence: optionalNumberSchema,
+  sessionKey: optionalStringSchema,
+  runId: optionalStringSchema,
+});
+const staleSchema = z
+  .object({
+    detectedAt: optionalNumberSchema,
+    lastSessionUpdatedAt: optionalNumberSchema,
+    reason: optionalStringSchema,
+  })
+  .transform((value) => ({
+    detectedAt: value.detectedAt ?? Date.now(),
+    ...(value.lastSessionUpdatedAt !== undefined
+      ? { lastSessionUpdatedAt: value.lastSessionUpdatedAt }
+      : {}),
+    reason: value.reason ?? "Session has not reported recent activity.",
+  }))
+  .optional()
+  .catch(undefined);
+
+/**
+ * The session editing the card: reference data only, never authority. Tolerant like
+ * its neighbours: a malformed field drops the whole link, an unknown surface drops
+ * the surface. A live timestamp pair is required, so a partial write shows nothing.
+ */
+const interactionSchema = z
+  .object({
+    sessionKey: trimmedRequiredStringSchema,
+    agentId: optionalStringSchema.transform((value) => value?.trim() || undefined),
+    startedAt: z
+      .number()
+      .finite()
+      .refine((value) => value !== 0),
+    updatedAt: z
+      .number()
+      .finite()
+      .refine((value) => value !== 0),
+    surface: z.enum(WORKBOARD_INTERACTION_SURFACES).optional().catch(undefined),
+  })
+  .transform((value): WorkboardInteraction => ({
+    sessionKey: value.sessionKey,
+    startedAt: value.startedAt,
+    updatedAt: Math.max(value.startedAt, value.updatedAt),
+    ...(value.agentId ? { agentId: value.agentId } : {}),
+    ...(value.surface ? { surface: value.surface } : {}),
+  }))
+  .optional()
+  .catch(undefined);
+
+/**
+ * The review case on a card: annotated documents, each annotation with its own
+ * resolution, and one overall verdict. Tolerant like its neighbours, because this is a
+ * mirror and never the enforcer: the store refuses an over-bound or rule-breaking write,
+ * so the board only has to keep rendering a foreign or older payload instead of breaking
+ * on it. A malformed entry is dropped whole, and an unknown anchor or verdict word drops
+ * that field, never the card's other data.
+ */
+const reviewAnchorSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("pdf-rect"),
+    page: z.number().finite().int().min(1),
+    rect: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+  }),
+  z.object({
+    kind: z.literal("text-quote"),
+    quote: trimmedRequiredStringSchema,
+    hash: trimmedRequiredStringSchema,
+    page: z.number().finite().int().min(1).optional(),
+  }),
+  z.object({
+    kind: z.literal("text-range"),
+    start: z.number().finite().int().min(0),
+    end: z.number().finite().int().min(0),
+    hash: trimmedRequiredStringSchema,
+  }),
+]);
+
+/** Drops entries a schema rejects whole, unlike `tolerantArray`, which only drops non-objects. */
+function reviewEntries<T>(schema: z.ZodType<T | null>) {
+  return z
+    .array(z.unknown())
+    .transform((items) => {
+      const kept = items.flatMap((item) => {
+        const result = schema.safeParse(item);
+        return result.success && result.data !== null ? [result.data] : [];
+      });
+      return kept.length ? kept : undefined;
+    })
+    .optional()
+    .catch(undefined);
+}
+
+// An anchor that cannot be read whole drops the annotation: a quote without its hash or a
+// rectangle with three corners points at nothing.
+const reviewAnnotationSchema: z.ZodType<WorkboardReviewAnnotation | null> = z
+  .object({
+    id: trimmedRequiredStringSchema,
+    documentRef: trimmedRequiredStringSchema,
+    anchor: z.unknown(),
+    body: trimmedRequiredStringSchema,
+    author: trimmedRequiredStringSchema,
+    createdAt: z
+      .number()
+      .finite()
+      .refine((value) => value !== 0),
+    resolvedAt: optionalNumberSchema,
+    resolution: z.enum(WORKBOARD_REVIEW_RESOLUTIONS).optional().catch(undefined),
+  })
+  .transform((value): WorkboardReviewAnnotation | null => {
+    const anchor = reviewAnchorSchema.safeParse(value.anchor);
+    return anchor.success
+      ? definedFields({
+          id: value.id,
+          documentRef: value.documentRef,
+          anchor: anchor.data,
+          body: value.body,
+          author: value.author,
+          createdAt: value.createdAt,
+          resolvedAt: value.resolvedAt,
+          resolution: value.resolvedAt ? value.resolution : undefined,
+        })
+      : null;
+  });
+
+const reviewDocumentSchema: z.ZodType<
+  NonNullable<WorkboardReviewSession["documents"]>[number] | null
+> = z
+  .object({
+    ref: trimmedRequiredStringSchema,
+    label: trimmedRequiredStringSchema,
+    sourceHash: trimmedRequiredStringSchema,
+  })
+  .transform((value) => value);
+
+const reviewVerdictSchema = z
+  .object({
+    verdict: z.enum(WORKBOARD_REVIEW_VERDICT_VALUES),
+    note: optionalStringSchema,
+    decidedAt: z
+      .number()
+      .finite()
+      .refine((value) => value !== 0),
+    decidedBy: trimmedRequiredStringSchema,
+    unresolvedAnnotationIds: z.array(z.string()),
+    documentHashes: z.record(z.string(), z.string()),
+  })
+  .transform(definedFields)
+  .optional()
+  .catch(undefined);
+
+const reviewSchema = z
+  .object({
+    id: trimmedRequiredStringSchema,
+    cardId: trimmedRequiredStringSchema,
+    documents: reviewEntries(reviewDocumentSchema),
+    annotations: reviewEntries(reviewAnnotationSchema),
+    overall: reviewVerdictSchema,
+  })
+  .transform(definedFields)
+  .optional()
+  .catch(undefined);
+
+const workboardMetadataSchema = z
+  .object({
+    attempts: tolerantArray(attemptSchema),
+    comments: tolerantArray(commentSchema),
+    links: tolerantArray(linkSchema),
+    proof: tolerantArray(proofSchema),
+    artifacts: tolerantArray(artifactSchema),
+    attachments: tolerantArray(attachmentSchema),
+    workerLogs: tolerantArray(workerLogSchema),
+    workerProtocol: workerProtocolSchema,
+    automation: automationSchema,
+    claim: claimSchema,
+    diagnostics: tolerantArray(diagnosticSchema),
+    notifications: tolerantArray(notificationSchema),
+    templateId: z.enum(WORKBOARD_TEMPLATE_IDS).optional().catch(undefined),
+    archivedAt: optionalNumberSchema,
+    stale: staleSchema,
+    interaction: interactionSchema,
+    review: reviewSchema,
+    lifecycleStatusSourceUpdatedAt: z
+      .number()
+      .finite()
+      .transform((value) => Math.max(0, Math.trunc(value)))
+      .optional()
+      .catch(undefined),
+    failureCount: optionalNumberSchema,
+  })
+  .transform((value): WorkboardMetadata | undefined => {
+    const metadata = definedFields(value);
+    return Object.keys(metadata).length ? metadata : undefined;
+  });
+
+export function normalizeExecution(value: unknown): WorkboardExecution | undefined {
+  const result = workboardExecutionSchema.safeParse(value);
+  return result.success ? result.data : undefined;
+}
+
+export function normalizeEvents(value: unknown): WorkboardEvent[] {
+  const result = workboardEventsSchema.safeParse(value);
+  return result.success ? (result.data ?? []) : [];
+}
+
+export function normalizeMetadata(value: unknown): WorkboardMetadata | undefined {
+  const result = workboardMetadataSchema.safeParse(value);
+  return result.success ? result.data : undefined;
+}

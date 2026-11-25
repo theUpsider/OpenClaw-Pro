@@ -15,6 +15,7 @@ import { openCardMenu } from "./view.test-support.ts";
 import {
   mountPage,
   observeSessions,
+  cardSessionCalls,
   openBoardEditor,
   openSessionTab,
   openSessionButton,
@@ -349,7 +350,7 @@ it.each([
   async ({ owners, hasMore, totalCount, label }) => {
     const page = mountPage();
     const localKey = "subagent:workboard-default-unresolved";
-    const observe = observeSessions(page, {
+    observeSessions(page, {
       sessions: owners.map((owner) => createGatewaySession({ key: `agent:${owner}:${localKey}` })),
       hasMore,
       totalCount,
@@ -364,7 +365,7 @@ it.each([
     page.fixture.notify();
 
     await afterWorkboardUpdate(() => {
-      expect(observe).toHaveBeenCalledOnce();
+      expect(cardSessionCalls(page)).toHaveLength(1);
       expect(
         page.container
           .querySelector(".workboard-detail .workboard-session-badge")
@@ -390,7 +391,7 @@ it("releases the prior session query when another card takes the drawer", async 
   const first = createWorkboardCard({ id: "first", sessionKey: firstKey });
   const second = createWorkboardCard({ id: "second", sessionKey: secondKey });
   const releaseFirst = vi.fn();
-  const observe = observeSessions(page, {
+  observeSessions(page, {
     sessions: [createGatewaySession({ key: `agent:writer:${secondKey}` })],
     hasMore: false,
   }).mockImplementationOnce((_query, listener) => {
@@ -401,7 +402,7 @@ it("releases the prior session query when another card takes the drawer", async 
   page.workboard.state.detailCardId = first.id;
   page.fixture.connection.connected = true;
   page.fixture.notify();
-  await afterWorkboardUpdate(() => expect(observe).toHaveBeenCalledOnce());
+  await afterWorkboardUpdate(() => expect(cardSessionCalls(page)).toHaveLength(1));
 
   page.workboard.state.detailCardId = second.id;
   page.workboard.notify();
@@ -416,7 +417,7 @@ it("releases the prior session query when another card takes the drawer", async 
     expect.any(HTMLElement),
     expect.objectContaining({ session: { sessionKey: `agent:main:${firstKey}` } }),
   );
-  expect(observe).toHaveBeenCalledTimes(2);
+  expect(cardSessionCalls(page)).toHaveLength(2);
   expect(releaseFirst).toHaveBeenCalledOnce();
 });
 

@@ -46,6 +46,32 @@ export function workboardCardMatchesLifecycleLink(
   return sessionMatches;
 }
 
+/**
+ * False when a lifecycle source names an attempt the card has moved past: a run id
+ * other than the current one, or a session only an older attempt used. Until the
+ * Gateway reports the real run id, the card carries its launch's provisional one, so
+ * a new run id may replace it unless that id belongs to an earlier attempt.
+ */
+export function isCurrentAttemptIdentity(
+  card: WorkboardCard,
+  source: { sessionKey?: string; runId?: string },
+): boolean {
+  const attempts = card.metadata?.attempts ?? [];
+  const runId = cardRunId(card);
+  if (source.runId && runId && source.runId !== runId) {
+    const provisional = card.metadata?.automation?.launch?.provisionalRunId === runId;
+    return provisional && !attempts.some((attempt) => attempt.runId === source.runId);
+  }
+  const sessionKey = cardSessionKey(card);
+  return (
+    !source.sessionKey ||
+    !sessionKey ||
+    source.sessionKey === sessionKey ||
+    source.sessionKey.endsWith(`:${sessionKey}`) ||
+    !attempts.some((attempt) => attempt.sessionKey === source.sessionKey && attempt.runId !== runId)
+  );
+}
+
 export function workboardCardSessionLookupKey(card: WorkboardCard): string {
   const linked = cardSessionKey(card);
   if (linked) {

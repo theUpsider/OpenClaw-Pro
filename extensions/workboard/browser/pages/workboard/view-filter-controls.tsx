@@ -285,7 +285,7 @@ export function FilterSelect<Value extends string>(props: {
     </div>
   );
 }
-function DisplayChoice<Field extends "viewMode" | "layout" | "emptyColumnMode">(props: {
+function DisplayChoice<Field extends "viewMode" | "layout" | "sort" | "emptyColumnMode">(props: {
   state: WorkboardUiState;
   revision?: number;
   onChange?: () => void;
@@ -355,6 +355,17 @@ export function DisplayChoices(props: StatusFilterProps) {
         state={props.state}
         revision={props.revision}
         onChange={props.onChange}
+        field="sort"
+        labelKey="filterSort"
+        options={[
+          ["position", "sortPosition", "chevronsUpDown", "sortPositionHint"],
+          ["created", "sortCreated", "calendarClock", "sortCreatedHint"],
+          ["updated", "sortUpdated", "penLine", "sortUpdatedHint"],
+        ]}
+      />
+      <DisplayChoice
+        state={props.state}
+        revision={props.revision}
         field="emptyColumnMode"
         labelKey="emptyColumns"
         options={[

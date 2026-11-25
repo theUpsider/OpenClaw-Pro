@@ -1,0 +1,174 @@
+# Additive CI workflow for the self-hosted runner on `runner`.
+#
+# This file is intentionally separate from the upstream workflows (ci.yml & co.):
+# it never edits them, so upstream syncs cannot conflict and the upstream
+# aggregate gate is untouched.
+#
+# Runner: repo-scoped, ephemeral, containerised (Docker) self-hosted runner on
+# `runner`, labels `self-hosted, linux, x64, runner`. One job = one fresh container,
+# no docker.sock, no GPU, CPU/RAM bounded.
+#
+# Safety: jobs only execute for pull requests whose head branch lives in THIS
+# repository. Fork / foreign PRs never reach the shared machine.
+#
+# Jobs:
+# - `smoke`: runner provenance + cold install verification.
+# - `gate`: real, deterministic checks — frozen install, typecheck, the workboard
+#   vitest shards (src + browser), and lint of ONLY the files the PR changes, so
+#   new lint problems in the diff become visible while pre-existing repo lint
+#   debt does not block the gate. No artifact uploads, no caches, no extra
+#   packages.
+name: CI (fork / self-hosted)
+
+on:
+  pull_request:
+    branches: [prod]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-fork-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: smoke (runner self-hosted)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64, runner]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prove the job runs on runner
+        run: |
+          echo "runner      : ${RUNNER_NAME:-unknown}"
+          echo "hostname    : $(hostname)"
+          echo "uname       : $(uname -sr)"
+          echo "cpu cores   : $(nproc)"
+          echo "memory      : $(awk '/^MemTotal/{printf "%.0f GiB", $2/1048576}' /proc/meminfo)"
+          echo "job user    : $(id -un) (uid=$(id -u))"
+          echo "cgroup      : $(cat /proc/self/cgroup | head -1)"
+          echo "container   : $(cat /proc/1/cgroup 2>/dev/null | head -1)"
+          test "$(nproc)" -eq 32 || echo "note: expected 32 visible cores on runner"
+
+      - name: Toolchain (Node 24 via setup-node)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Node version
+        run: node --version
+
+      - name: Install (frozen lockfile)
+        run: |
+          corepack enable
+          corepack prepare pnpm@12.15.0 --activate
+          pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Light verification
+        run: |
+          node -e '
+            const p = require("./package.json");
+            if (p.name !== "openclaw") throw new Error("unexpected package: " + p.name);
+            console.log("package ok:", p.name, p.version);
+          '
+          test -f scripts/run-lint.mts
+          test -d test
+          echo "checkout + install verified on the self-hosted runner"
+
+  gate:
+    name: gate (runner self-hosted)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64, runner]
+    timeout-minutes: 45
+    steps:
+      # Depth 2 keeps the pull-request merge commit AND both of its parents, so
+      # the changed-file lint can diff the merge's first parent (the exact target
+      # tree for this run) without fetching anything else.
+      - name: Checkout (with merge parents)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Toolchain (Node 24 via setup-node)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.1"
+          # The gate stays deterministic: no package-manager cache, cold install only.
+          package-manager-cache: false
+
+      - name: Install (frozen lockfile)
+        id: install
+        run: |
+          corepack enable
+          corepack prepare pnpm@12.15.0 --activate
+          pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Typecheck (tsgo core + ui + extensions)
+        id: typecheck
+        run: pnpm tsgo:prod
+
+      - name: Vitest workboard src
+        id: vitest_src
+        run: |
+          node scripts/run-vitest.mjs run \
+            --config test/vitest/vitest.extension-database-workers.config.ts \
+            extensions/workboard/src
+
+      - name: Vitest workboard browser
+        id: vitest_browser
+        run: |
+          node scripts/run-vitest.mjs run \
+            --config test/vitest/vitest.ui.config.ts \
+            extensions/workboard/browser
+
+      # Only the PR's own diff is linted, routed through the lint owners' own
+      # tsconfig groups; full-scope lint stays with the upstream workflows.
+      - name: Lint changed files
+        id: changed_lint
+        run: node scripts/ci-fork-lint-changed.mjs
+
+      - name: Gate summary
+        if: always()
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          TYPECHECK_OUTCOME: ${{ steps.typecheck.outcome }}
+          VITEST_SRC_OUTCOME: ${{ steps.vitest_src.outcome }}
+          VITEST_BROWSER_OUTCOME: ${{ steps.vitest_browser.outcome }}
+          CHANGED_LINT_OUTCOME: ${{ steps.changed_lint.outcome }}
+        run: |
+          set -euo pipefail
+          echo "gate summary (runner self-hosted)"
+          echo "  runner              : ${RUNNER_NAME:-unknown}"
+          echo "  install (frozen)    : ${INSTALL_OUTCOME}"
+          echo "  typecheck tsgo:prod : ${TYPECHECK_OUTCOME}"
+          echo "  vitest workboard src: ${VITEST_SRC_OUTCOME}"
+          echo "  vitest workboard ui : ${VITEST_BROWSER_OUTCOME}"
+          echo "  lint changed files  : ${CHANGED_LINT_OUTCOME}"
+          failed=0
+          for outcome in \
+            "${INSTALL_OUTCOME}" \
+            "${TYPECHECK_OUTCOME}" \
+            "${VITEST_SRC_OUTCOME}" \
+            "${VITEST_BROWSER_OUTCOME}" \
+            "${CHANGED_LINT_OUTCOME}"; do
+            if [ "$outcome" != "success" ]; then
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error title=gate failed::at least one gate step did not succeed; see the step outcomes above"
+            exit 1
+          fi
+          echo "gate passed"

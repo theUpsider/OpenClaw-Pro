@@ -456,6 +456,8 @@ the Gateway name in the account menu.
 
 The client retries ordinary connection loss automatically with randomized backoff: the first
 retry waits 800–960 ms, and sustained failures spread retries across 12.5–15 seconds.
+Backoff restarts at the first delay only after a connection has stayed up for 60 seconds, so a
+connection that keeps dropping shortly after it is established keeps lengthening its waits.
 Server retry hints remain minimum waits and can extend beyond that normal cap, with up to
 20% additional spread. The Gateway's WebSocket ping/pong keepalive detects dead
 peers on the server, but browsers cannot observe those frames or receive a close

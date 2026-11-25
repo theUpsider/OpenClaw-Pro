@@ -26,6 +26,7 @@ export type AgentExecCliOptions = {
   authEnvOnly?: boolean;
   timeout?: string;
   json?: boolean;
+  skillExposureReceipt?: boolean;
 };
 
 /** Resolve the one allowed prompt source for `agent exec`. */

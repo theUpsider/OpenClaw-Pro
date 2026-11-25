@@ -15,6 +15,7 @@ import { workboardEngineSchema } from "./store-engine-schema.js";
 import { workboardTestDatabaseInput } from "./test/database-config.js";
 import { openPostgresFixture } from "./test/postgres-fixture.js";
 import { SCHEMA_VERSION } from "./workboard-schema.js";
+import { WORKBOARD_POSTGRES_MIGRATIONS } from "./workboard-postgres-migrations.js";
 
 const postgresInput = workboardTestDatabaseInput();
 const postgresUrl = postgresInput?.connection;
@@ -331,6 +332,7 @@ describe.skipIf(!postgresUrl)("experimental PostgreSQL workboard admission and r
     const opened = await openDatabase(dbPath);
     const schema = opened.schema;
     await opened.close();
+    // One newer than this build: the store may not be downgraded in place.
     await observer.query(
       `UPDATE ${quoteIdentifier(schema)}.openclaw_schema_meta SET version = ${SCHEMA_VERSION + 1} WHERE store = 'workboard'`,
     );

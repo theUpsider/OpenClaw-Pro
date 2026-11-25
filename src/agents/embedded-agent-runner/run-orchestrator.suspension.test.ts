@@ -566,6 +566,8 @@ describe("embedded run detached session metadata", () => {
       const { params, run, expectNoAgent } = await createRun("detached");
       runAttempt.mockImplementationOnce(async (attempt) => {
         expect(attempt.sessionPersistence).toBe("detached");
+          capabilityToolNames: [],
+          wireToolNames: [],
         return successfulAttempt(params.sessionId);
       });
       await expect(

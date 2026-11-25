@@ -18,6 +18,7 @@ import { parseAgentSessionKey } from "../../../lib/sessions/session-key.ts";
 import { defineSolidBridge, type SolidBridgeElement } from "../../../lib/solid-bridge.ts";
 import type { PaneSessionChangeOptions } from "../chat-pane-shared.ts";
 import { endedWithoutFinishing, isUnfinishedSubagent } from "../chat-spawned-subagent.ts";
+import { formatSubagentModel, type SubagentFacts } from "../subagent-facts.ts";
 import { SubagentsPanelData, type SubagentsPanelRow } from "../subagents-panel-data.ts";
 import {
   SessionPanelGroups,
@@ -26,6 +27,7 @@ import {
   type SessionPanelProps,
 } from "./chat-session-panel.tsx";
 import { ChatSubagentsMobileList, type ChatSubagentMobileItem } from "./chat-subagents-mobile.tsx";
+import "../../../components/agent-row-chip.tsx";
 import "./chat-session-panels.css";
 import "./chat-subagents-panel.css";
 import { ChatSubagentsNative } from "./chat-subagents-native.tsx";
@@ -357,6 +359,53 @@ export const ChatSubagentsPanel = defineSolidBridge<Props>(
                         >
                           {t("common.retry")}
                         </button>
+                        {active() && row().session.activeRunIds?.length === 1 && (
+                          <button
+                            class="chat-subagents__stop"
+                            type="button"
+                            aria-label={stopLabel()}
+                            title={stopTitle()}
+                            disabled={row().stopping || !row().canStop}
+                            onClick={() => void data().stop(row())}
+                          >
+                            <Icon name="square" />
+                          </button>
+                        )}
+                      </div>
+                      <SubagentFactChips facts={row().facts} />
+                      <div class="chat-subagents__metadata">
+                        <span class="chat-subagents__work">
+                          {row().callCount !== undefined && (
+                            <span class="chat-subagents__calls">
+                              {t(
+                                !row().callCount?.exact
+                                  ? "chat.subagentsPanel.callsAtLeast"
+                                  : row().callCount?.count === 1
+                                    ? "chat.subagentsPanel.callsOne"
+                                    : "chat.subagentsPanel.callsMany",
+                                { count: String(row().callCount?.count) },
+                              )}
+                            </span>
+                          )}
+                          {row().callCount !== undefined && activity() && (
+                            <span aria-hidden="true">·</span>
+                          )}
+                          {activity() && (
+                            <span class="chat-subagents__activity" title={activity()}>
+                              {activity()}
+                            </span>
+                          )}
+                        </span>
+                        <span
+                          class="chat-subagents__elapsed"
+                          title={t(
+                            active()
+                              ? "chat.subagentsPanel.elapsed"
+                              : "chat.subagentsPanel.duration",
+                          )}
+                        >
+                          {renderElapsed(row())}
+                        </span>
                       </div>
                     )}
                     <ChatSubagentsNative

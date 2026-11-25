@@ -74,6 +74,8 @@ export function registerSessionsSpawnInputTests({
       { runtime: "acp", lightContext: true },
       "lightContext is only supported for runtime='subagent'.",
     ],
+    ["ACP messaging", { runtime: "acp", allowMessaging: true }, /allowMessaging=true requires/],
+    ["visible messaging", { visible: true, allowMessaging: true }, /allowMessaging=true requires/],
     [
       "ACP blind child",
       { runtime: "acp", blind: true },

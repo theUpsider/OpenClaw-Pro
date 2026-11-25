@@ -77,6 +77,7 @@ const SESSION_ENTRY_RESERVED_SLOT_KEY_LIST = [
   "subagentRole",
   "subagentControlScope",
   "blindPrompt",
+  "subagentMessageToolEnabled",
   "inheritedToolPolicyVersion",
   "inheritedToolPolicySource",
   "inheritedToolDeny",

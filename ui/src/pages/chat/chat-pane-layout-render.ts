@@ -47,6 +47,7 @@ import {
   type SidebarLayout,
   type SidebarSlotId,
 } from "./sidebar-layout.ts";
+import { formatSubagentModel, resolveSubagentFacts, type SubagentFacts } from "./subagent-facts.ts";
 
 type ChatPaneLayoutRenderParams = {
   state: ChatPageHost;

@@ -134,6 +134,10 @@ export function resultText(
     .join("\n");
 }
 
+export function expectCompleted(result: unknown, value: unknown): void {
+  expect(result).toMatchObject({ status: "completed", value });
+}
+
 /** Compare public summaries to independently constructed, normalized guest data. */
 export function expectOriginalCodeModeMarker(marker: unknown, original: unknown): void {
   expect(marker).toMatchObject({

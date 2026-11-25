@@ -119,7 +119,10 @@
       "workboard_worker_log",
       "workboard_protocol_violation",
       "workboard_unblock",
-      "workboard_move"
+      "workboard_move",
+      "workboard_set_parallelism",
+      "workboard_set_dispatch_mode",
+      "workboard_update"
     ]
   },
   "commandAliases": [
@@ -235,12 +238,45 @@
     },
     "workboard_move": {
       "optional": true
+    },
+    "workboard_set_parallelism": {
+      "optional": true
+    },
+    "workboard_set_dispatch_mode": {
+      "optional": true
+    },
+    "workboard_update": {
+      "optional": true
     }
   },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {}
+    "properties": {
+      "fileRoots": {
+        "type": "array",
+        "description": "Operator-configured host directories whose card artifacts may be opened or downloaded from the Control UI. Each entry needs an absolute root; baseUrl (an http(s) origin plus optional path prefix) additionally allows Open links through that file server. Files are always downloaded through the Gateway with an attachment disposition.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["root"],
+          "properties": {
+            "root": {
+              "type": "string",
+              "pattern": "^/",
+              "description": "Absolute canonical host path; the root itself is never a file."
+            },
+            "baseUrl": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://",
+              "not": { "pattern": "[?#]" },
+              "description": "Optional http(s) origin and path prefix that serves this root. Without it, rows under this root are download-only."
+            }
+          }
+        }
+      }
+    }
   },
   "controlUi": {
     "entry": "dist/control-ui/2efb22eddf2e20b1dc8056aa181f78460ecbac562653cf1d15c4387ac6626388/index.js",

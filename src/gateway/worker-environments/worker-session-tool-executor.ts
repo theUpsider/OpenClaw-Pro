@@ -416,6 +416,9 @@ export function createWorkerSessionToolExecutor(
       agentSessionKey: operation.source.sessionKey,
       requesterTurnRunId: operation.identity.runId ?? undefined,
       requesterAgentIdOverride: operation.source.agentId,
+      // The path rules gate reads these two; without them a worker-spawned child would bypass the
+      // requester's restriction, because the gate cannot resolve any model from a bare session key.
+      config: getRuntimeConfig(),
       inheritedToolAllowlist: authorizedTools,
       inheritedToolDenylist: params.inheritedToolDenylist,
       inheritedToolPolicySource: params.inheritedToolPolicySource,
@@ -613,7 +616,12 @@ export async function createWorkerGatewayTools(
     throw new Error("Worker source turn has no operational owner");
   }
   const source = capability.sessionTarget;
-  const toolOptions = { agentSessionKey: source.sessionKey, workerPlacement: true };
+  const toolOptions = {
+    agentSessionKey: source.sessionKey,
+    workerPlacement: true,
+    // The path rules gate needs the config; a worker-spawned child must not bypass it.
+    config: getRuntimeConfig(),
+  };
   const portal = createAvailablePortalTools({
     workerScoped: true,
     sessionPortalTarget: {

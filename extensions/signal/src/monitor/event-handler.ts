@@ -1,7 +1,6 @@
 import { resolveHumanDelayConfig } from "openclaw/plugin-sdk/agent-runtime";
 import {
   createStatusReactionController,
-  DEFAULT_EMOJIS,
   logAckFailure,
   logTypingFailure,
   resolveAckReaction,
@@ -343,8 +342,7 @@ export function createSignalEventHandler(deps: SignalEventHandlerDeps) {
               },
             },
             initialEmoji: ackReaction,
-            // Signal has one reaction slot. A stall warning otherwise reads as terminal failure.
-            emojis: { stallHard: DEFAULT_EMOJIS.stallSoft },
+            presentation: "quiet",
             onError: (err) => {
               logAckFailure({
                 log: logVerbose,

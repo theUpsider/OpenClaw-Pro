@@ -1,3 +1,4 @@
+import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   recordSessionGoalChanged,
   type SessionStateActorType,
@@ -8,10 +9,17 @@ import {
   buildCreatedSessionGoal,
   buildUpdatedSessionGoalObjective,
   buildUpdatedSessionGoalStatus,
+  resolveSessionGoalRevision,
 } from "./goals-transitions.js";
 import { patchSessionEntryCore } from "./session-accessor.js";
 import { withSessionEntryReadOnlyInWorker } from "./session-entry-read-runtime.js";
-import type { SessionEntry, SessionGoal, SessionGoalStatus } from "./types.js";
+import type {
+  SessionEntry,
+  SessionGoal,
+  SessionGoalAttention,
+  SessionGoalStatus,
+  SessionGoalVerification,
+} from "./types.js";
 
 type SessionGoalSnapshot = {
   status: "missing" | "found";
@@ -31,6 +39,8 @@ type SessionGoalStoreOptions = {
 type CreateSessionGoalOptions = SessionGoalStoreOptions & {
   objective: string;
   tokenBudget?: number;
+  /** Per-goal opt-in for adversarial completion verification; captured at creation. */
+  verifyCompletion?: boolean;
 };
 
 type UpdateSessionGoalStatusOptions = SessionGoalStoreOptions & {
@@ -39,6 +49,8 @@ type UpdateSessionGoalStatusOptions = SessionGoalStoreOptions & {
 };
 
 export const MODEL_UPDATABLE_SESSION_GOAL_STATUSES = ["complete", "blocked"] as const;
+
+const goalLog = createSubsystemLogger("sessions/goal");
 
 function nowMs(value: number | undefined): number {
   return typeof value === "number" && Number.isFinite(value) ? value : Date.now();
@@ -75,6 +87,12 @@ export function formatSessionGoalStatus(goal: SessionGoal | undefined): string {
       ? ""
       : `Token budget: ${formatTokenCount(goal.tokensUsed)}/${formatTokenCount(goal.tokenBudget)}`;
   const note = goal.lastStatusNote ? `Note: ${goal.lastStatusNote}` : "";
+  // Automation can stop at a cap without the executor completing the goal. The
+  // status is the durable surface for that stop: the one-shot notice may be
+  // lost to a delivery failure, so the marker is also readable here.
+  const attention = goal.attention
+    ? `Needs attention: goal automation stopped (${goal.attention.reason}); /goal resume to continue.`
+    : "";
   const commands = resolveGoalCommandHint(goal.status);
   return [
     "Goal",
@@ -83,6 +101,7 @@ export function formatSessionGoalStatus(goal: SessionGoal | undefined): string {
     `Tokens used: ${formatTokenCount(goal.tokensUsed)}`,
     ...(budget ? [budget] : []),
     ...(note ? [note] : []),
+    ...(attention ? [attention] : []),
     "",
     `Commands: ${commands}`,
   ].join("\n");
@@ -155,7 +174,11 @@ export async function createSessionGoal(options: CreateSessionGoalOptions): Prom
     (entry) => {
       created = buildCreatedSessionGoal(
         entry,
-        { objective, tokenBudget: options.tokenBudget },
+        {
+          objective,
+          tokenBudget: options.tokenBudget,
+          ...(options.verifyCompletion === true ? { verifyCompletion: true } : {}),
+        },
         now,
       );
       return { goal: created };
@@ -214,6 +237,205 @@ async function updateSessionGoal(
   }
   await recordGoalChange(options, result, summarize(updated));
   return { ...updated };
+}
+
+type GoalVerificationRecordInput = Omit<SessionGoalVerification, "attempts"> & {
+  attempts?: number;
+};
+
+type SessionGoalConditionalPatchOptions = SessionGoalStoreOptions & {
+  goalId: string;
+};
+
+/**
+ * Records one verifier verdict on the goal. Refuses (and reports `false`) when
+ * the goal was replaced, cleared, or moved to another revision while the
+ * verifier ran, so a stale verdict never authorizes completion.
+ *
+ * The write is bookkeeping: it preserves the goal's `updatedAt`, so the
+ * revision the verdict names stays current until real work moves the pursuit.
+ */
+export async function recordSessionGoalVerification(
+  options: SessionGoalConditionalPatchOptions & {
+    revision: string;
+    verification: GoalVerificationRecordInput;
+  },
+): Promise<{ recorded: boolean }> {
+  let recorded = false;
+  const result = await patchSessionEntryCore(
+    { sessionKey: options.sessionKey, storePath: options.storePath },
+    (entry) => {
+      const goal = entry.goal;
+      if (!goal || goal.id !== options.goalId) {
+        return null;
+      }
+      if (resolveSessionGoalRevision(goal) !== options.revision) {
+        return null;
+      }
+      recorded = true;
+      return {
+        goal: {
+          ...goal,
+          verification: {
+            ...options.verification,
+            attempts: Math.max(0, options.verification.attempts ?? 0),
+          },
+        },
+      };
+    },
+    { fallbackEntry: options.fallbackEntry },
+  );
+  return { recorded: Boolean(result && recorded) };
+}
+
+/**
+ * Drops the stored verifier record (verdict and attempt count). Called when an
+ * ordinary user-originated turn ends: the verdict judged an earlier state of the
+ * session's work, and the design requires the next claim to be re-verified
+ * rather than reusing a pass that later work may have undone. An automatic goal
+ * continuation never drops its own verdict — the passing handoff needs it.
+ */
+export async function clearSessionGoalVerification(
+  options: SessionGoalConditionalPatchOptions,
+): Promise<{ cleared: boolean }> {
+  let cleared = false;
+  const result = await patchSessionEntryCore(
+    { sessionKey: options.sessionKey, storePath: options.storePath },
+    (entry) => {
+      const goal = entry.goal;
+      if (!goal || goal.id !== options.goalId || !goal.verification) {
+        return null;
+      }
+      cleared = true;
+      const { verification: _dropped, ...rest } = goal;
+      return { goal: rest };
+    },
+    { fallbackEntry: options.fallbackEntry },
+  );
+  return { cleared: Boolean(result && cleared) };
+}
+
+/**
+ * Increments the automatic-continuation budget. Reports `capped` without
+ * queueing more work once the budget is spent, and `stale` when the goal moved
+ * on. The cap stamps the one-time attention marker in the same write so the
+ * stop notice can be emitted exactly once.
+ */
+export async function advanceSessionGoalContinuation(
+  options: SessionGoalConditionalPatchOptions & { maxTurns: number },
+): Promise<{
+  status: "advanced" | "capped" | "stale";
+  attentionRecorded?: boolean;
+  goal?: SessionGoal;
+}> {
+  // An object holder keeps the union type readable after the patch callback;
+  // a plain `let` would be narrowed to its initializer across the closure.
+  const outcome: {
+    status: "advanced" | "capped" | "stale";
+    attentionRecorded: boolean;
+    goal?: SessionGoal;
+  } = { status: "stale", attentionRecorded: false };
+  let patchApplied = false;
+  const result = await patchSessionEntryCore(
+    { sessionKey: options.sessionKey, storePath: options.storePath },
+    (entry) => {
+      const goal = entry.goal;
+      if (!goal || goal.id !== options.goalId || goal.status !== "active") {
+        return null;
+      }
+      if (goal.continuationTurns >= options.maxTurns) {
+        outcome.status = "capped";
+        if (goal.attention) {
+          return null;
+        }
+        outcome.attentionRecorded = true;
+        patchApplied = true;
+        return {
+          goal: {
+            ...goal,
+            attention: {
+              reason: "continuation-budget" as const,
+              at: nowMs(options.now),
+            },
+          },
+        };
+      }
+      outcome.status = "advanced";
+      patchApplied = true;
+      const next: SessionGoal = {
+        ...goal,
+        // Budget bookkeeping only: the pursuit itself did not change here, but
+        // the counter is part of the revision, so the advanced row is reported
+        // back to callers that must bind state to the turn this queue creates.
+        continuationTurns: goal.continuationTurns + 1,
+      };
+      outcome.goal = next;
+      return { goal: next };
+    },
+    { fallbackEntry: options.fallbackEntry },
+  );
+  if (!patchApplied) {
+    // Either the goal moved on, or the marker was already stamped by an
+    // earlier caller: both mean this call changed nothing.
+    return { status: result ? "capped" : "stale", attentionRecorded: false };
+  }
+  return outcome.status === "capped"
+    ? { status: outcome.status, attentionRecorded: outcome.attentionRecorded }
+    : { status: outcome.status, ...(outcome.goal ? { goal: outcome.goal } : {}) };
+}
+
+/**
+ * Stamps the one-time "needs attention" marker that stops automatic turns.
+ * Only the first caller writes, so the visible message is emitted once.
+ */
+export async function markSessionGoalAttention(
+  options: SessionGoalConditionalPatchOptions & {
+    reason: SessionGoalAttention["reason"];
+    detail?: string;
+    summary: string;
+  },
+): Promise<{ recorded: boolean }> {
+  let recorded = false;
+  const result = await patchSessionEntryCore(
+    { sessionKey: options.sessionKey, storePath: options.storePath },
+    (entry) => {
+      const goal = entry.goal;
+      if (!goal || goal.id !== options.goalId || goal.status !== "active") {
+        return null;
+      }
+      if (goal.attention) {
+        return null;
+      }
+      recorded = true;
+      return {
+        goal: {
+          ...goal,
+          attention: {
+            reason: options.reason,
+            at: nowMs(options.now),
+            ...(options.detail ? { detail: options.detail } : {}),
+          },
+        },
+      };
+    },
+    { fallbackEntry: options.fallbackEntry },
+  );
+  if (result && recorded) {
+    // The marker is already durable, so a failed change record would otherwise
+    // leave automation stopped with no visible notice and no trace. Record the
+    // failure; the goal state itself stays exactly as written above.
+    try {
+      await recordGoalChange(options, result, options.summary);
+    } catch (error) {
+      goalLog.warn("goal attention notice could not be recorded", {
+        sessionKey: options.sessionKey,
+        goalId: options.goalId,
+        reason: options.reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return { recorded: Boolean(result && recorded) };
 }
 
 export async function clearSessionGoal(options: SessionGoalStoreOptions): Promise<boolean> {

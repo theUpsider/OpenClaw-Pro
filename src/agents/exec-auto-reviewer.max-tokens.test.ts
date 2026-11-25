@@ -66,6 +66,8 @@ it.each<{ thinking?: Thinking; maxTokens: number; expected: number }>([
   expect(decision).toMatchObject({ decision: "allow-once", risk: "low" });
   expect(budget).toBe(params.expected);
 });
+    // ultra has no dedicated budget; it shares the max budget instead of producing NaN.
+    { thinking: "ultra", maxTokens: 65_536, expected: 33_792 },
 
 it.each([500, 8_192, Number.NaN])(
   "preserves non-reasoning budget with model cap %s",

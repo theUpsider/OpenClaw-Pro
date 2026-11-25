@@ -6,6 +6,8 @@ const enUsage = {
   usage: {
     moreActions: "More actions",
     partialShort: "Partial results",
+    lowerBound:
+      "≥ marks a lower bound: some responses ended before their final usage arrived, so their tokens and cost are partly counted.",
     presets: {
       today: "Today",
       last7d: "7d",

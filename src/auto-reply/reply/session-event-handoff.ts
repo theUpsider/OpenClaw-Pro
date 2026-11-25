@@ -23,6 +23,7 @@ import type { SourceDeliveryOutcome } from "../../infra/outbound/source-delivery
 import { resolveSystemEventQueueKey } from "../../infra/system-event-ownership.js";
 import { claimSystemEventTurn } from "../../infra/system-events.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { pluginInvocationContext } from "../../plugins/plugin-instance-scope.js";
 import { runWithGatewayDetachedWorkContinuation } from "../../process/gateway-work-admission.js";
 import { isCronSessionKey } from "../../routing/session-key.js";
 import { chatRef } from "../../sessions/chat-ref.js";

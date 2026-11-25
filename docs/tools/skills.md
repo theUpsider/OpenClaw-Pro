@@ -961,6 +961,17 @@ Skill and reference files must also be accessible in the run's execution environ
 List and search results cap descriptions at 512 UTF-16 code units without splitting
 surrogate pairs. The source `SKILL.md` and complete skill instructions stay unchanged.
 
+For embedded runs, a finite runtime tool allowlist (`toolsAllow`) narrows the
+callable tools but does not remove the Skills catalog on its own: the catalog is
+gated on the run's final callable reader instead. An agent whose allowlist still
+includes `read` (or an admitted `skills_read` / Code Mode reader) keeps the
+`<available_skills>` blocks and their `location` paths; a policy with no callable
+reader, including an explicit `toolsAllow: []`, renders no catalog at all. Missing
+readers are never added automatically. Code Mode needs an admitted reader
+(`skills_read`); a Code Mode run that only permits `skills_search` is treated as
+reader-less and renders no catalog. Restricted endpoint compaction keeps its own
+fail-closed suppression (`prepared-compaction-runtime.ts`).
+
 Search uses an in-memory lexical index of the prepared catalog. It follows the
 existing [snapshot and refresh rules](/tools/skills#snapshots-and-refresh), with
 no embedding service or persistent search index.

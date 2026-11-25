@@ -19,6 +19,7 @@ CREATE TABLE "workboard_boards" (
   "automation_job_id" text COLLATE "C",
   "default_workspace_json" text COLLATE "C",
   "orchestration_json" text COLLATE "C",
+  "classifications_json" text COLLATE "C",
   "created_at" bigint NOT NULL,
   "updated_at" bigint NOT NULL,
   "archived_at" bigint,
@@ -99,6 +100,7 @@ CREATE TABLE "workboard_card_events" (
   "to_status" text COLLATE "C",
   "session_key" text COLLATE "C",
   "run_id" text COLLATE "C",
+  "agent_id" text COLLATE "C",
   PRIMARY KEY ("id")
 );
 
@@ -181,6 +183,8 @@ CREATE TABLE "workboard_cards" (
   "stale_json" text COLLATE "C",
   "lifecycle_status_source_updated_at" bigint,
   "failure_count" bigint,
+  "interaction_json" text COLLATE "C",
+  "review_json" text COLLATE "C",
   PRIMARY KEY ("id")
 );
 

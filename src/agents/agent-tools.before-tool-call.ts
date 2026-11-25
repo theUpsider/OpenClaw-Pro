@@ -33,6 +33,7 @@ export {
 export {
   buildBlockedToolResult,
   getBeforeToolCallFailureDisposition,
+  recordAdjustedParamsForToolCall,
   recordStructuredReplayTrustForToolCall,
   rewrapToolWithBeforeToolCallHook,
   wrapToolWithBeforeToolCallHook,

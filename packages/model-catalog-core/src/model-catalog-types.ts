@@ -88,6 +88,8 @@ export type ModelCatalogCompatConfig = {
   thinkingFormat?: ModelCatalogThinkingFormat;
   supportedReasoningEfforts?: string[];
   reasoningEffortMap?: Record<string, string>;
+  /** Per-level JSON-number efforts for chat-template routes that take a numeric effort. */
+  numericReasoningEfforts?: Record<string, number>;
   visibleReasoningDetailTypes?: string[];
   /** Thinking level a new session starts at. Its presence makes the row own the thinking profile. */
   defaultThinkingLevel?: string;
@@ -183,7 +185,14 @@ export function listMappedModelThinkingLevels(model: {
   const efforts = compat?.supportedReasoningEfforts;
   const api = resolveOpenAIThinkingApi(model.api);
   const format = compat?.thinkingFormat;
-  const binaryOnly = format === "qwen" || format === "qwen-chat-template" || format === "zai";
+  // A numeric effort map is not a binary control: the route accepts graded numeric efforts.
+  const numericEfforts = asOptionalRecord(compat?.numericReasoningEfforts);
+  const hasNumericEfforts = Object.values(numericEfforts ?? {}).some(
+    (effort) => typeof effort === "number" && Number.isFinite(effort),
+  );
+  const binaryOnly =
+    !hasNumericEfforts &&
+    (format === "qwen" || format === "qwen-chat-template" || format === "zai");
   if (
     !api ||
     (api === "openai-completions" && binaryOnly) ||
@@ -198,6 +207,12 @@ export function listMappedModelThinkingLevels(model: {
       typeof effort === "string" && effort.trim() ? [level.trim().toLowerCase()] : [],
     ),
   );
+  // Numeric mappings declare the same logical ladder; their keys count as mapped levels.
+  for (const [level, effort] of Object.entries(numericEfforts ?? {})) {
+    if (typeof effort === "number" && Number.isFinite(effort)) {
+      mapped.add(level.trim().toLowerCase());
+    }
+  }
   return MODEL_CATALOG_THINKING_LEVELS.filter((level) => mapped.has(level));
 }
 

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { isCoreCanvasHostEnabled } from "../canvas/config.js";
 import { withCoreCanvasNodeCapability } from "../canvas/constants.js";
 import { validateConfiguredBindings } from "../channels/plugins/configured-binding-registry.js";
@@ -16,10 +18,13 @@ import {
 } from "../plugins/lifecycle.js";
 import { PluginLoadFailureError } from "../plugins/loader-shared.js";
 import type { prepareMemoryRuntimeReload } from "../plugins/memory-runtime.js";
+import { resolveInstalledManifestRegistryIndexFingerprint } from "../plugins/manifest-registry-installed.js";
 import { createPluginCache, retirePluginCache, withPluginCache } from "../plugins/plugin-cache.js";
 import { runAfterPluginLifecycleCommit } from "../plugins/plugin-lifecycle-lease.js";
 import { loadPluginLookUpTable } from "../plugins/plugin-lookup-table.js";
+import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.types.js";
 import { withPluginRegistryPreparationScope } from "../plugins/registry-lifecycle.js";
+import type { PluginRegistry } from "../plugins/registry-types.js";
 import { getPluginRegistryVersion } from "../plugins/runtime-state.js";
 import { waitForPluginRegistryRetirement } from "../plugins/runtime.js";
 import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-request-scope.js";
@@ -50,6 +55,60 @@ import {
 import { isChannelStartupSuppressedByEnvironment } from "./server-sidecar-startup-mode.js";
 import type { GatewayPostReadySidecarHandle } from "./server-startup-sidecar-scheduler.js";
 import { listPluginNodeCapabilities } from "./server/plugins-http/route-capability.js";
+
+/**
+ * The metadata-only preflight retained every live record (the loader's input signatures match)
+ * and the fresh scan equals the published snapshot, including fields retention ignores.
+ */
+function isUnchangedPluginGeneration(
+  previousRegistry: PluginRegistry,
+  candidateRegistry: PluginRegistry,
+  previousMetadata: PluginMetadataSnapshot | undefined,
+  nextMetadata: PluginMetadataSnapshot,
+): boolean {
+  return (
+    previousMetadata !== undefined &&
+    previousRegistry.plugins.every((record) => record.status !== "error") &&
+    candidateRegistry.plugins.length === previousRegistry.plugins.length &&
+    candidateRegistry.plugins.every(
+      (record, index) => record === previousRegistry.plugins[index],
+    ) &&
+    previousMetadata.policyHash === nextMetadata.policyHash &&
+    resolveInstalledManifestRegistryIndexFingerprint(previousMetadata.index) ===
+      resolveInstalledManifestRegistryIndexFingerprint(nextMetadata.index) &&
+    isDeepStrictEqual(previousMetadata.manifestRegistry, nextMetadata.manifestRegistry)
+  );
+}
+
+type PendingReloadRetirement = {
+  instances: readonly PluginInstanceHandle[];
+  settled: Promise<unknown>;
+};
+
+// Observation of metadata-owned cleanup only; entries disappear on physical settlement.
+// The metadata owner still owns failures and shutdown joining. This projection keeps its
+// early deferred-consumer receipt from being mistaken for completed resource cleanup.
+const pendingReloadRetirements = new WeakMap<object, Set<PendingReloadRetirement>>();
+
+function observeReloadRetirement<T>(
+  owner: object,
+  instances: readonly PluginInstanceHandle[],
+  retire: () => Promise<T>,
+): Promise<T> {
+  const pending = pendingReloadRetirements.get(owner) ?? new Set<PendingReloadRetirement>();
+  pendingReloadRetirements.set(owner, pending);
+  const settled = Promise.resolve().then(retire);
+  const observation = { instances, settled };
+  pending.add(observation);
+  const release = () => {
+    pending.delete(observation);
+    if (!pending.size) {
+      pendingReloadRetirements.delete(owner);
+    }
+  };
+  void settled.then(release, release);
+  return settled;
+}
 
 export async function reloadGatewayPlugins(
   context: PluginBootstrap.GatewayPluginReloadRuntime,

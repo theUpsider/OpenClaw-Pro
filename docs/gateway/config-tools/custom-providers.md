@@ -179,6 +179,7 @@ migration is needed.
     | `visibleReasoningDetailTypes` | Names reasoning detail block types safe to show in transcripts. |
     | `supportedReasoningEfforts` | Lists the endpoint's accepted reasoning labels. Requests are clamped to this ladder. Unknown models default to `low`, `medium`, and `high`. |
     | `reasoningEffortMap` | Maps OpenClaw thinking labels to endpoint-specific labels. Unknown Completions and Responses routes omit effort for `off` by default; an explicit off mapping can send the endpoint's accepted disable value. |
+    | `numericReasoningEfforts` | Replaces the string effort mapping with JSON numbers for chat-template routes that take a numeric `reasoning_effort`, for example `{ low: 40, medium: 50, high: 70, xhigh: 80, max: 100 }`. A non-empty map sends `chat_template_kwargs.reasoning_effort` for mapped levels, drops the top-level `reasoning_effort`, carries the binary state in `chat_template_kwargs.thinking`, and sends no effort for unmapped levels. Numbers only. |
     | `maxTokensField` | Selects `max_tokens` or `max_completion_tokens`. |
     | `thinkingFormat` | Selects the endpoint's reasoning payload dialect. |
     | `requiresToolResultName` | Requires a tool name on tool-result messages. |

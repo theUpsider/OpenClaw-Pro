@@ -145,6 +145,50 @@ Run-stat fields are additive and may be absent:
 
 The agent run-stat fields appear on `meta.agentMeta` in the `openclaw agent --json` response; the tool summary remains at `meta.toolSummary`.
 
+### Skill exposure receipts
+
+Opt in per invocation with `agent exec --json --skill-exposure-receipt`.
+The default envelope omits both `loadedSkills` and `skillExposure`.
+This option adds bounded evidence for native `skills_read` replies included
+whole in the built-in `openai-completions` request serialization, including
+self-hosted OpenAI-compatible endpoints such as vLLM.
+
+`skillExposure` contains `version: 1`, `status: "available" | "unavailable"`,
+and `scope: "native-skills-read/openai-completions"`. An unavailable receipt
+has an empty `loadedSkills` array and a reason:
+`unsupported_provider`, `no_serialized_request`, `incomplete_collection`, or
+`limit_exceeded`. Native harnesses and transports without the trusted final
+serialization hook report unavailable. Mixed unsupported attempts also fail
+closed. An available receipt with an empty array means no qualifying inclusion
+was established within this scope; it is not an inventory of every possible
+instruction source.
+
+Each `loadedSkills` entry binds the actual skill `name`, `sha256` of the exact
+UTF-8 instruction string returned by its reader, its UTF-8 `bytes`, `runId`,
+`toolCallId`, and the first matching `requestIndex` (one-based) and
+`requestSha256`. Any frontmatter and line endings present in the served string
+are included in the instruction hash. The entire location-wrapped tool reply
+must survive serialization unchanged for the read to qualify. Hashes come from
+that read snapshot and the final serialized request, never a later file reread. The receipt makes no
+file-byte equality claim: readers can serve inline, remote, or decoded content.
+
+Catalogue indexing, ordinary file reads, failed reads, budget or deduplication
+notices, and partial or changed instruction text do not qualify. Code Mode can
+read and discard instructions without exposing them to the provider; nested
+reads are not inferred from the outer program result. The current scope
+requires the native read's own tool-call ID in the serialized tool message.
+
+Collection retains hash metadata only and finishes before the final exec
+envelope. It is limited to 64 distinct native read call IDs, 64 requests,
+256 serialized tool reply hashes, 8 MiB per request, 256 KiB per instruction string,
+256 characters per skill name/tool-call ID, and 4,096 additional UTF-16 units
+for instruction wrapping. Exceeding a bound reports unavailable instead of
+returning partial evidence. The option adds no prompt text, payload fields,
+logs, or durable storage. It proves inclusion in a provider-bound request,
+not server acceptance, external model execution, instruction compliance, or
+authorization. Source/version hash checks and exact-candidate learning
+promotion requirements remain separate and unchanged.
+
 ### Code Mode model matrix
 
 From a source checkout, run the bounded evaluation matrix against any explicit model reference:

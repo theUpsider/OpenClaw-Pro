@@ -1,10 +1,11 @@
 import { vi } from "vitest";
+import type { AgentCommandOpts } from "../agents/command/types.js";
 import type { RuntimeEnv } from "../runtime.js";
 import type { AgentExecRunResult } from "./agent-exec-result.js";
 import { agentExecCommand } from "./agent-exec.js";
 
 export type AgentExecRunnerFixture = (
-  opts: Record<string, unknown>,
+  opts: AgentCommandOpts,
   runtime: RuntimeEnv,
 ) => Promise<AgentExecRunResult | undefined>;
 

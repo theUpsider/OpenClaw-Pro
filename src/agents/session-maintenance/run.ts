@@ -23,6 +23,7 @@ import {
 import type { DatabasePathIdentity } from "../../infra/sqlite-worker-identity.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { getPluginRegistryGatewayOwner } from "../../plugins/registry-lifecycle.js";
+import { pluginInvocationContext } from "../../plugins/plugin-instance-scope.js";
 import {
   getPluginRegistryForContext,
   getPluginRuntimeGatewayRequestScope,

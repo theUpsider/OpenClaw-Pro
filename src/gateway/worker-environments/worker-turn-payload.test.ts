@@ -4,6 +4,11 @@ import {
   WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES as MAX_BYTES,
   WORKER_INFERENCE_MAX_CONTEXT_MESSAGES as MAX_MESSAGES,
 } from "../../../packages/gateway-protocol/src/schema/worker-inference.js";
+import {
+  WORKER_CONTEXT_MAX_RESIDUAL_BYTES,
+  WORKER_PROTOCOL_MAX_NON_IMAGE_PAYLOAD_BYTES,
+  WORKER_MESSAGE_MAX_TEXT_BYTES,
+} from "../../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
 import type { OperationalRunInstanceRef } from "../../agents/admitted-run-context.js";
 import { createTestAdmittedRunContext } from "../../agents/admitted-run-context.test-support.js";
 import { buildRuntimeContextCustomMessage } from "../../agents/embedded-agent-runner/run/runtime-context-prompt.js";
@@ -17,6 +22,7 @@ import {
 } from "../../worker/launch-descriptor.js";
 import { parseNodeWorkerLaunchInput } from "../../worker/node-supervisor-protocol.js";
 import { createWorkerImageHistory } from "../../worker/replay-images.test-support.js";
+import { WORKER_CONNECTION_ENDPOINT_MAX_JSON_BYTES } from "../../worker/worker-connection-endpoint.js";
 import { parseWorkerProcessRequest } from "../../worker/worker-process-protocol.js";
 import { measureNodeWorkerLaunchBytes } from "./node-launch-adapter.js";
 import {
@@ -228,6 +234,102 @@ describe("windowInitialMessages", () => {
 });
 
 describe("fitLaunchDescriptor", () => {
+  it.each(["residual", "non-image"] as const)(
+    "reserves the managed wrapper and maximal typed endpoint for the %s budget",
+    async (budget) => {
+      const operationalRunInstance = createTestAdmittedRunContext("run").operationalRunInstance;
+      const projected = windowInitialMessages([
+        assistantMessage(1, true),
+        ...(budget === "non-image"
+          ? Array.from({ length: 8 }, (_, index) =>
+              userMessage(
+                "x".repeat(WORKER_MESSAGE_MAX_TEXT_BYTES - (index === 0 ? 19 : 0)),
+                index + 2,
+              ),
+            )
+          : []),
+        toolResultMessage({ payload: "" }, 11),
+      ]);
+      if (projected.kind !== "complete") {
+        throw new Error("expected context");
+      }
+      const messages = projected.messages;
+      const owner = messages[0];
+      const result = messages.at(-1);
+      if (owner?.role !== "assistant" || !owner.providerReplay || result?.role !== "toolResult") {
+        throw new Error("expected replay and tool result");
+      }
+      const prefix = "wss://worker.invalid/";
+      const suffix = "/__openclaw__/worker";
+      const endpoint = {
+        kind: "websocket" as const,
+        url: prefix + "\0".repeat(4096 - prefix.length - suffix.length) + suffix,
+        tlsFingerprint: "a".repeat(64),
+        cloudflareAccess: {
+          clientId: "i" + "\0".repeat(4095),
+          clientSecret: "s" + "\0".repeat(4095),
+        },
+      };
+      const endpointBytes = Buffer.byteLength(JSON.stringify(endpoint));
+      const build = (token: string, history: typeof messages) =>
+        buildDescriptor(history, token, operationalRunInstance);
+      const frame = () => ({
+        type: "turn",
+        turnId: "turn",
+        descriptor: {
+          ...build(runtimeIdentityToken.value, messages),
+          connectionEndpoint: endpoint,
+        },
+        idleRetention: true,
+        canonicalWorkspace: true,
+      });
+      const initialBytes = Buffer.byteLength(JSON.stringify(frame()));
+      if (budget === "residual") {
+        const dataBytes =
+          "visible".length + "result".length + "prompt".length + PROVIDER_REPLAY.data.length;
+        result.details = {
+          payload: "x".repeat(
+            WORKER_CONTEXT_MAX_RESIDUAL_BYTES - initialBytes + endpointBytes + dataBytes,
+          ),
+        };
+      } else {
+        owner.providerReplay.data += "x".repeat(
+          WORKER_PROTOCOL_MAX_NON_IMAGE_PAYLOAD_BYTES -
+            initialBytes -
+            (WORKER_CONNECTION_ENDPOINT_MAX_JSON_BYTES - endpointBytes),
+        );
+      }
+      const fit = () =>
+        fitLaunchDescriptorWithRuntimeIdentity({
+          build,
+          measure: measureLaunch,
+          messages,
+          runtimeIdentity: {
+            agentId: "main",
+            sessionKey: "worker:session",
+            operationalRunInstance,
+          },
+        });
+      const fitted = await fit();
+      expect(fitted.kind).toBe("launch");
+      if (fitted.kind !== "launch") {
+        throw new Error("expected fitted plan");
+      }
+      const admitted = { ...frame(), descriptor: { ...fitted.plan, connectionEndpoint: endpoint } };
+      expect(parseWorkerLaunchDescriptor(admitted.descriptor)).toEqual(admitted.descriptor);
+      expect(parseWorkerProcessRequest(admitted)).toEqual(admitted);
+      if (budget === "residual") {
+        result.details = { payload: "x".repeat(WORKER_CONTEXT_MAX_RESIDUAL_BYTES) };
+      } else {
+        owner.providerReplay.data += "x".repeat(
+          WORKER_CONNECTION_ENDPOINT_MAX_JSON_BYTES - endpointBytes + 1,
+        );
+      }
+      expect(() => parseWorkerProcessRequest(frame())).toThrow();
+      await expect(fit()).resolves.toMatchObject({ kind: "provider-replay-unavailable" });
+    },
+  );
+
   it.each([0, 1])("fits the complete transport bound at cap %+i byte(s)", async (delta) => {
     const messages = replayPayload();
     const targetBytes = MAX_BYTES + delta;

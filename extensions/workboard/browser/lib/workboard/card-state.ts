@@ -2,6 +2,7 @@ import { normalizeUniqueTrimmedStringList } from "openclaw/plugin-sdk/string-coe
 import { matchesBoardFilter } from "./board-filter.ts";
 import type {
   WorkboardCard,
+  WorkboardCardDraft,
   WorkboardDependencyState,
   WorkboardMetadata,
   WorkboardStatus,
@@ -204,6 +205,36 @@ export function resetDraftState(state: WorkboardUiState) {
   Object.assign(state, WORKBOARD_DRAFT_DEFAULTS);
   if (resolveStaleEdit) {
     state.mutationReadiness = "ready";
+  }
+}
+
+/**
+ * Writes a spoken draft into the open New card form. Only fields the answer carries
+ * replace the operator's values; absent fields leave them.
+ */
+export function applyWorkboardCardDraft(
+  state: WorkboardUiState,
+  draft: WorkboardCardDraft,
+  defaultAgentId: string,
+) {
+  if (draft.title) {
+    state.draftTitle = draft.title;
+  }
+  if (draft.notes) {
+    state.draftNotes = draft.notes;
+  }
+  if (draft.status) {
+    state.draftStatus = draft.status;
+  }
+  if (draft.priority) {
+    state.draftPriority = draft.priority;
+  }
+  if (draft.labels?.length) {
+    state.draftLabels = draft.labels.join(", ");
+  }
+  if (draft.agentId) {
+    // The form spells the default agent as "", like openCreateModal.
+    state.draftAgentId = draft.agentId === defaultAgentId ? "" : draft.agentId;
   }
 }
 

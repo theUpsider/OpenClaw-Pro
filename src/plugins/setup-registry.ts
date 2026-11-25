@@ -134,6 +134,12 @@ const NOOP_LOGGER: PluginLogger = {
   error() {},
 };
 
+type SetupRegistryCache = {
+  snapshot: PluginMetadataSnapshot | undefined;
+  results: LruCache<PluginSetupRegistry>;
+  recordPositions?: Map<PluginManifestRecord, number>;
+};
+
 // Setup results cannot outlive their module owner or keep a retired graph alive.
 const setupRegistries = new WeakMap<
   PluginCache,
@@ -146,7 +152,7 @@ const setupRegistries = new WeakMap<
   }
 >();
 
-function getSetupRegistryCache() {
+function getSetupRegistryCache(): SetupRegistryCache {
   const owner = getPluginCache();
   const { snapshot } = owner.metadata.current;
   let cached = setupRegistries.get(owner);
@@ -159,6 +165,29 @@ function getSetupRegistryCache() {
     setupRegistries.set(owner, cached);
   }
   return cached;
+}
+
+// Caller-supplied manifests may reuse results only when every record is, by object
+// identity, a record of the snapshot that scopes this cache; equal copies or foreign
+// records return null and register uncached. Positions keep the caller's record order.
+function resolveSnapshotRecordPositions(
+  cache: SetupRegistryCache,
+  manifestRegistry: PluginManifestRegistry,
+): number[] | null {
+  const snapshotRecords = cache.snapshot?.manifestRegistry.plugins;
+  if (!snapshotRecords) {
+    return null;
+  }
+  cache.recordPositions ??= new Map(snapshotRecords.map((record, index) => [record, index]));
+  const positions: number[] = [];
+  for (const record of manifestRegistry.plugins) {
+    const position = cache.recordPositions.get(record);
+    if (position === undefined) {
+      return null;
+    }
+    positions.push(position);
+  }
+  return positions;
 }
 function resolveSetupApiPath(
   rootDir: string,
@@ -251,6 +280,7 @@ function resolveSetupRegistryCacheKey(params?: {
     resolvePluginMetadataEnvFingerprint(env),
     process.cwd(),
     params?.pluginIds ? [...params.pluginIds].toSorted() : null,
+    recordPositions,
   ]);
 }
 

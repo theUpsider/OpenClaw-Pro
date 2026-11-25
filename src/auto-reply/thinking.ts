@@ -205,6 +205,18 @@ function appendCatalogAdvancedThinkingLevels(
       appendProfileLevel(profile, level);
     }
   }
+  // A numeric map declares the same advanced ladder as a declared effort list.
+  for (const [level, effort] of Object.entries(compat?.numericReasoningEfforts ?? {})) {
+    const normalized = normalizeThinkLevel(level);
+    if (
+      typeof effort === "number" &&
+      Number.isFinite(effort) &&
+      (normalized === "xhigh" || normalized === "max") &&
+      thinkingLevelMap?.[normalized] !== null
+    ) {
+      appendProfileLevel(profile, normalized);
+    }
+  }
 }
 
 /** Resolve only provider-owned effort choices, before adding harness modes. */

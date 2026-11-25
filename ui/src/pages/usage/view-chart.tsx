@@ -343,7 +343,9 @@ export function CostBreakdownCompact(props: { totals: UsageTotals; mode: "tokens
         className,
         labelKey,
         percentage: total === 0 ? 0 : (value / total) * 100,
-        formatted: isTokenMode ? formatUsageTokens(value) : formatAnalysisCost(value),
+        formatted: isTokenMode
+          ? formatUsageTokens(value, totals.usageReport)
+          : formatAnalysisCost(value, totals.usageReport),
       };
     });
 
@@ -378,8 +380,8 @@ export function CostBreakdownCompact(props: { totals: UsageTotals; mode: "tokens
       <div class="cost-breakdown-total">
         {t("usage.breakdown.total")}:{" "}
         {state().isTokenMode
-          ? formatUsageTokens(state().totals.totalTokens)
-          : formatAnalysisCost(state().totals.totalCost)}
+          ? formatUsageTokens(state().totals.totalTokens, state().totals.usageReport)
+          : formatAnalysisCost(state().totals.totalCost, state().totals.usageReport)}
       </div>
     </div>
   );

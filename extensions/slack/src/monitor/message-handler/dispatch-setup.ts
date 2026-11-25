@@ -139,7 +139,7 @@ export async function createSlackDispatchSetup(prepared: PreparedSlackMessage) {
     enabled: statusReactionsEnabled,
     adapter: slackStatusAdapter,
     initialEmoji: prepared.ackReactionValue || "eyes",
-    presentation: "acknowledgement",
+    presentation: "quiet",
     onError: (err) => {
       logAckFailure({
         log: logVerbose,

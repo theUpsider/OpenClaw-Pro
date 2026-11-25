@@ -11,6 +11,13 @@ export type {
   ReplyOperationRunState,
   ReplyPreRunRejectionCode,
 } from "../../sessions/session-controller.contracts.js";
+   * Per-turn fact: the reply gate judged that no visible reply is needed. The turn still runs;
+   * only automatic source delivery is suppressed. It lives apart from `suppressDelivery` so the
+   * gate verdict stays attributable; `resolveSourceReplyVisibilityPolicy` folds it into
+   * `suppressDelivery` additively, never clearing sendPolicy or message_tool_only suppression.
+  visibleReplySuppression?: "reply-gate";
+  /** Dispatch owner hook that re-derives its delivery policy when the fact is set mid-turn. */
+  onVisibleReplySuppression?: () => void;
 
 // Carries this invocation's admission decision through reply option spreads so
 // cleanup never infers it from whichever operation is active later.
@@ -110,4 +117,17 @@ export function recordReplyPreRunRejection(
   if (state && rejection) {
     state.preRunRejection ??= rejection;
   }
+}
+
+export function resolveReplyOperationAgentTurn(state: ReplyOperationRunState | undefined) {
+  return isReplyOperationSuperseded(state?.agentTurnOwner) ? "superseded" : state?.agentTurn;
+}
+
+/** Records the reply-gate verdict for this turn and refreshes the dispatch delivery policy. */
+export function suppressVisibleReply(state: ReplyOperationRunState | undefined): void {
+  if (!state) {
+    return;
+  }
+  state.visibleReplySuppression = "reply-gate";
+  state.onVisibleReplySuppression?.();
 }

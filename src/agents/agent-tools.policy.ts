@@ -45,6 +45,7 @@ import {
   resolveStoredSubagentInheritedToolAllowlist,
   resolveStoredSubagentInheritedToolDenylist,
   resolveStoredSubagentCapabilities,
+  resolveStoredSubagentMessageToolEnabled,
   type SessionCapabilityStore,
 } from "./subagents/spawn/subagent-capabilities.js";
 import { createToolPolicyMatcher } from "./tool-policy-match.js";
@@ -86,6 +87,20 @@ const SUBAGENT_TOOL_DENY_LEAF = [
   "sessions_search",
   "sessions_spawn",
 ];
+
+function resolveSubagentDenyListForRole(
+  role: SubagentSessionRole,
+  messageToolEnabled: boolean,
+): string[] {
+  // A spawn-time opt-in lifts only `message`; configured subagent denies still apply after this.
+  const always = messageToolEnabled
+    ? SUBAGENT_TOOL_DENY_ALWAYS.filter((tool) => tool !== "message")
+    : SUBAGENT_TOOL_DENY_ALWAYS;
+  if (role === "leaf") {
+    return [...always, ...SUBAGENT_TOOL_DENY_LEAF];
+  }
+  return [...always];
+}
 
 export function resolveSubagentToolPolicyForSession(
   cfg: OpenClawConfig | undefined,

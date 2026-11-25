@@ -467,6 +467,17 @@ async function verifyExplicitDrainWait(
       expect(instance.disposing).toBe(false);
       instance.retainWork()();
       expect(fixture.rollbackConfigEffects).toHaveBeenCalledOnce();
+      if (outcome === "time out") {
+        // Releasing the held work past the failed budget leaves the generation replaceable.
+        release();
+        await call;
+        await vi.advanceTimersByTimeAsync(0);
+        await expect(fixture.reload()).resolves.toMatchObject({
+          runtime: { pluginIds: ["first"] },
+        });
+        expect(fixture.registryOwner.registry).not.toBe(fixture.previousRegistry);
+        expect(fixture.candidates).toHaveLength(1);
+      }
     } else {
       release();
       await call;
@@ -477,9 +488,12 @@ async function verifyExplicitDrainWait(
     expect(fixture.owner.getReloadStatus()).toBeUndefined();
     expectSiblingUnchanged(fixture);
   } finally {
+    // A regressed bound must not leave the drain pending past teardown.
+    controller.abort(new Error("test teardown"));
     release();
     released.resolve();
     await call;
+    await vi.advanceTimersByTimeAsync(10_000);
     await reloading;
     observation.restore();
     vi.useRealTimers();
@@ -578,6 +592,7 @@ export function registerPluginRetainedWorkReloadTests(
     ["retained work", "time out"],
     ["retained consumer", "complete"],
     ["retained consumer", "cancel"],
+    ["retained consumer", "time out"],
     ["active call", "complete"],
     ["active call", "cancel"],
     ["active call", "time out"],

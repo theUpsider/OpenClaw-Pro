@@ -8,7 +8,6 @@ import {
 } from "../../packages/gateway-protocol/src/client-info.js";
 import {
   WORKER_PROTOCOL_FEATURES,
-  WORKER_PROTOCOL_MAX_PAYLOAD_BYTES,
   WORKER_RPC_SET_VERSION,
 } from "../../packages/gateway-protocol/src/schema/worker-admission.js";
 import {
@@ -20,6 +19,7 @@ import {
   type WorkerInferenceTerminalOutcome,
 } from "../../packages/gateway-protocol/src/schema/worker-inference.js";
 import { createUsageFixture } from "../agents/test-helpers/usage-fixtures.js";
+import { WORKER_MESSAGE_MAX_TEXT_BYTES } from "../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
 import type { Usage } from "../llm/types.js";
 import { createWorkerInferenceStreamAdapter } from "./inference-stream.runtime.js";
 import { createWorkerImageHistory } from "./replay-images.test-support.js";
@@ -131,6 +131,49 @@ function inferenceRequest(context: WorkerInferenceContext): WorkerInferenceStart
     options: {},
   };
 }
+
+it("returns large reasoning, text, signatures and opaque replay as a successful terminal", async () => {
+  const fixture = createAdapterFixture();
+  const message = {
+    role: "assistant" as const,
+    content: [
+      {
+        type: "thinking" as const,
+        thinking: "reason-é\n".repeat(12_000),
+        thinkingSignature: "sig\\".repeat(1000),
+      },
+      { type: "text" as const, text: 'answer"'.repeat(12_000), textSignature: "text-signature" },
+    ],
+    api: "openai-responses",
+    provider: "test",
+    model: "test-model",
+    stopReason: "stop" as const,
+    usage,
+    timestamp: 1,
+    providerReplay: {
+      v: 1 as const,
+      type: "checkpoint",
+      provider: "test",
+      api: "openai-responses",
+      model: "test-model",
+      data: 'opaque-\\"é'.repeat(24_000),
+    },
+  };
+  fixture.start.mockResolvedValue({ type: "done", message });
+  try {
+    const events = [];
+    for await (const event of fixture.stream({
+      modelRef,
+      context: { messages: [] },
+      options: {},
+    })) {
+      events.push(event);
+    }
+    expect(events.at(-1)).toEqual({ type: "done", reason: "stop", message });
+  } finally {
+    fixture.client.dispose();
+  }
+});
 
 it("keeps text and thinking content and signatures in their own stream blocks", async () => {
   const fixture = createAdapterFixture(undefined, [
@@ -249,7 +292,7 @@ it("preserves the provider failure and usage after an oversized partial response
   fixture.start.mockImplementation(async (request, handlers) => {
     const events: WorkerInferenceEventParams["event"][] = [
       { type: "text_start", contentIndex: 0 },
-      { type: "text_delta", contentIndex: 0, delta: "x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES) },
+      { type: "text_delta", contentIndex: 0, delta: "x".repeat(WORKER_MESSAGE_MAX_TEXT_BYTES + 1) },
     ];
     events.forEach((event, index) => handlers?.onEvent?.({ ...request, seq: index + 1, event }));
     return { type: "error", reason: "provider-error", message: "429: rate limit exceeded", usage };
@@ -266,6 +309,39 @@ it("preserves the provider failure and usage after an oversized partial response
       content: [],
     });
     expect(isWorkerTranscriptMessageFrameSafe(result)).toBe(true);
+  } finally {
+    fixture.client.dispose();
+  }
+});
+
+it("rejects an oversized successful reply without truncating it or losing its usage", async () => {
+  const fixture = createAdapterFixture();
+  const reply: Extract<WorkerInferenceTerminalOutcome, { type: "done" }>["message"] = {
+    role: "assistant",
+    content: [{ type: "text", text: "x".repeat(WORKER_MESSAGE_MAX_TEXT_BYTES + 1) }],
+    api: "openai-responses",
+    provider: modelRef.provider,
+    model: modelRef.model,
+    stopReason: "stop",
+    usage,
+    timestamp: 1,
+  };
+  fixture.start.mockResolvedValue({ type: "done", message: reply });
+
+  try {
+    const result = await fixture
+      .stream({ modelRef, context: { messages: [] }, options: {} })
+      .result();
+    expect(result).toMatchObject({
+      stopReason: "error",
+      errorMessage: "Worker inference result exceeds the transcript message limit.",
+      usage,
+      content: [],
+    });
+    expect(isWorkerTranscriptMessageFrameSafe(result)).toBe(true);
+    expect(reply.content).toEqual([
+      { type: "text", text: "x".repeat(WORKER_MESSAGE_MAX_TEXT_BYTES + 1) },
+    ]);
   } finally {
     fixture.client.dispose();
   }

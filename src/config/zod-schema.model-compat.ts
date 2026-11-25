@@ -101,6 +101,12 @@ export const ModelCompatSchema = z
     supportedReasoningEfforts: z.array(z.string().min(1)).optional(),
     /** Per-level reasoning effort overrides, e.g. map "off" to "low" for models that cannot disable thinking. */
     reasoningEffortMap: z.record(z.string().min(1), z.string().min(1)).optional(),
+    /**
+     * Per-level numeric reasoning effort replacements for endpoints that take a JSON number in
+     * `chat_template_kwargs.reasoning_effort`. A non-empty map replaces the string mapping for
+     * every level: levels without an entry send no effort. Numbers only; strings are rejected.
+     */
+    numericReasoningEfforts: z.record(z.string().min(1), z.number()).optional(),
     /** Thinking level a new session starts at. When set, this row owns the thinking profile. */
     defaultThinkingLevel: z.string().min(1).optional(),
     /** Offered thinking levels, in order. When set, this row owns the thinking profile. */

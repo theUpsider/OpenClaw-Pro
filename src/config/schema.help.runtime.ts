@@ -117,7 +117,7 @@ export const RUNTIME_FIELD_HELP: Record<string, string> = {
   "tools.exec.reviewer.model":
     "Optional provider/model override for the exec reviewer agent. Omit to reuse the configured primary model for the target agent.",
   "tools.exec.reviewer.thinking":
-    "Optional reasoning effort for OpenClaw model-backed approval reviews: minimal, low, medium, high, xhigh, or max. Omit to preserve provider defaults. Supported levels are normalized for the selected model. Does not configure native Codex Guardian.",
+    "Optional reasoning effort for OpenClaw model-backed approval reviews: minimal, low, medium, high, xhigh, max, or ultra. Omit to preserve provider defaults. Supported levels are normalized for the selected model: ultra is a harness ceiling above max, so the request carries ultra while the transport lowers it to the highest level that model advertises. Does not configure native Codex Guardian.",
   "tools.exec.reviewer.fastMode":
     "Optional Fast mode for OpenClaw approval reviews: true requests priority processing on supported OpenAI Responses and ChatGPT/OAuth routes; false requests standard processing. Omit to preserve provider defaults. Fast mode may cost more and is subject to provider availability. Does not configure native Codex Guardian.",
   "tools.exec.reviewer.timeoutMs":
@@ -608,6 +608,16 @@ export const RUNTIME_FIELD_HELP: Record<string, string> = {
     "Reviewer overrides keyed by the selected native tool plugin ID. Tool keys encode the raw tool name.",
   "tools.fs.workspaceOnly":
     "Restrict filesystem tools (read/write/edit/apply_patch) to the workspace directory (default: false).",
+  "tools.pathScopes":
+    "Per-model path visibility. While a session runs a matching provider or provider/model, listed paths are refused by the filesystem tools, and in deny+conceal mode they are also removed from directory listings. Keys accept a provider id or provider/model; model-level rules union with provider-level rules. Absent config changes nothing. Search and memory indexes are not filtered yet.",
+  "tools.pathScopes.allowExecWithEntries":
+    "Keep exec and process callable while path rules are active (default: false). Command text is not path-checked, so an open shell can reach a concealed path; leave this false unless the operator accepts that best-effort boundary.",
+  "tools.pathScopes.byModel":
+    "Path rules keyed by provider id (for example anthropic) or provider/model (for example openai/gpt-6-astra). The effective model of the run selects the rules; provider/model unions with the provider key instead of replacing it.",
+  "tools.pathScopes.byModel.*.entries":
+    "Literal paths covered while a session runs this model. Each entry covers the path itself and its whole subtree, and equal-prefix siblings are not covered.",
+  "agents.entries.*.tools.pathScopes":
+    "Per-agent path visibility rules; they union with the global tools.pathScopes block, and deny+conceal wins when both cover the same path.",
   "tools.sessions.visibility":
     'Controls which sessions can be targeted by sessions_list/sessions_history/sessions_search/sessions_send/session_status. ("all" default = any session on the Gateway, including other agents and users; "agent" = any session in the current agent id; "self" = only current; "tree" = current session + spawned subagent sessions). Cross-agent access is on by default and scoped by tools.agentToAgent; use narrower visibility to restrict reads and ordinary sends. Explicit agents.entries.<id>.tools.agentToAgent.send destinations can permit sends without widening reads.',
   "tools.sessions.allowThreadTargets":

@@ -10,7 +10,12 @@ import {
   CardAction,
   type getCardActionState,
 } from "./view-card-actions.tsx";
-import { formatLifecycle, renderLifecycleIcon, type WorkboardProps } from "./view-helpers.tsx";
+import {
+  formatLifecycle,
+  InteractionSpinner,
+  renderLifecycleIcon,
+  type WorkboardProps,
+} from "./view-helpers.tsx";
 import { getSessionStatus, SessionStatusBadge } from "./view-session-status.tsx";
 
 const workboardCardDetailDescriptionId = "workboard-card-detail-description";
@@ -26,6 +31,19 @@ export function CardSessionHeading(props: {
   const sessionStatus = createMemo(() => getSessionStatus(props.card, props.lifecycle));
   const sessionStateLabel = () => formatted().label;
   const sessionEmpty = () => props.lifecycle.state === "unlinked" && !props.action.linkedSessionKey;
+  // The dictation fallback owns the row only when the card has no execution session;
+  // an unresolvable interaction leaves the row exactly as it was before this slice.
+  const interaction = createMemo(() => (sessionEmpty() ? props.action.interaction : undefined));
+  const interactionName = createMemo(
+    () =>
+      interaction()?.session.displayName ??
+      interaction()?.session.label ??
+      // A resolved conversation without a title is still a session; "No session yet"
+      // would contradict the spinner next to it.
+      (interaction() ? t("workboard.fieldSession") : undefined),
+  );
+  const rowTitle = () =>
+    sessionEmpty() ? (interactionName() ?? sessionStateLabel()) : sessionStateLabel();
   return (
     <div class="workboard-detail__execution-main">
       <div class="workboard-detail__session-row" title={formatted().detail}>
@@ -33,10 +51,18 @@ export function CardSessionHeading(props: {
           <span
             class="workboard-detail__session-state-icon"
             role="img"
-            aria-label={sessionStateLabel()}
-            title={sessionStateLabel()}
+            aria-label={rowTitle()}
+            title={rowTitle()}
           >
-            {sessionEmpty() ? icons.bot : renderLifecycleIcon(props.lifecycle)}
+            {!sessionEmpty() ? (
+              renderLifecycleIcon(props.lifecycle)
+            ) : interaction()?.state === "live" ? (
+              <InteractionSpinner />
+            ) : interaction() ? (
+              icons.messageSquare
+            ) : (
+              icons.bot
+            )}
           </span>
         ) : undefined}
         <div class="workboard-detail__session-copy">
@@ -45,7 +71,7 @@ export function CardSessionHeading(props: {
             id={props.tab === "overview" ? workboardCardDetailDescriptionId : undefined}
           >
             {sessionEmpty()
-              ? t("workboard.detailNoSessionYet")
+              ? (interactionName() ?? t("workboard.detailNoSessionYet"))
               : (props.lifecycle.session?.displayName ??
                 props.lifecycle.session?.label ??
                 (props.action.linkedSessionKey ? t("workboard.fieldSession") : formatted().label))}
@@ -53,7 +79,19 @@ export function CardSessionHeading(props: {
           {!sessionEmpty() && sessionStatus().detail ? (
             <p class="workboard-detail__session-description" textContent={sessionStatus().detail} />
           ) : undefined}
-          {sessionEmpty() && props.action.showStartControls && !props.action.archived ? (
+          {interaction() ? (
+            <p class="workboard-detail__session-help">
+              {t(
+                interaction()?.state === "live"
+                  ? "workboard.interactionRunningHelp"
+                  : "workboard.interactionDoneHelp",
+              )}
+            </p>
+          ) : undefined}
+          {sessionEmpty() &&
+          !interaction() &&
+          props.action.showStartControls &&
+          !props.action.archived ? (
             <p class="workboard-detail__session-help">
               {t("workboard.detailStartSessionHelp", {
                 agent: cardAgentLabel(props.card, props.workboard.agentsList),
@@ -85,7 +123,7 @@ export function CardSessionHeading(props: {
         ) : undefined}
         <OpenSessionCardAction
           workboard={props.workboard}
-          session={props.action.sessionTarget}
+          session={props.action.sessionTarget ?? props.action.interactionTarget}
           options={{ quiet: true }}
         />
       </div>

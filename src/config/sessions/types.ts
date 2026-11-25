@@ -258,7 +258,10 @@ export interface QuotaSuspension {
 
 export type {
   SessionGoal,
+  SessionGoalAttention,
   SessionGoalStatus,
+  SessionGoalVerification,
+  SessionGoalVerificationOutcome,
 } from "../../../packages/gateway-protocol/src/schema/sessions-goal.js";
 
 type SessionEntryCore = SessionEntryProvenance &
@@ -421,6 +424,8 @@ type SessionEntryCore = SessionEntryProvenance &
     subagentControlScope?: "children" | "none";
     /** Spawn-time blind child: its rendered prompt omits its model, identity and workspace path. */
     blindPrompt?: true;
+    /** Spawn-time opt-in that lifts the subagent always-deny of the `message` tool; only `true` grants. */
+    subagentMessageToolEnabled?: true;
     /** Version of the requester tool-policy snapshot captured when this child was spawned. */
     inheritedToolPolicyVersion?: 1;
     /** Sender/channel restriction provenance retained with the inherited tool snapshot. */

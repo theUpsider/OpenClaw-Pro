@@ -24,6 +24,7 @@ import {
   messageFingerprints,
   type PromptHistoryFingerprint,
 } from "./prompt-cache-history.js";
+import type { SkillExposureReceiptCollector } from "../skill-exposure-receipt.js";
 import {
   prepareProviderPrompt,
   type ProviderPromptCachePrefix,
@@ -213,8 +214,13 @@ export function wrapStreamFnWithProviderPromptState(params: {
   recordEvent?: (type: string, data?: Record<string, unknown>) => void;
   /** Last edit before the body is recorded and sent; a session fork replays its parent here. */
   finalizePayload?: (payload: Record<string, unknown>) => void;
+  skillExposure?: { runId: string; collector: SkillExposureReceiptCollector };
 }): StreamFn {
   return async (model, context, options) => {
+    const observeSkillExposure = params.skillExposure?.collector.beginRequest(
+      params.skillExposure.runId,
+      model,
+    );
     params.state.lastAttempt = undefined; // Custom transports must not leave a stale candidate.
     let attempts = 0;
     let promptObservation: ResponsesPromptObservation | undefined;
@@ -284,6 +290,9 @@ export function wrapStreamFnWithProviderPromptState(params: {
         effectiveContextTokenBudget: params.effectiveContextTokenBudget,
         encode: true,
       });
+      if (encoded) {
+        observeSkillExposure?.(encoded.body);
+      }
       const wire = params.state.lastAttempt?.wire;
       if (wire) {
         wire.routeHash = sha256Hex(model.baseUrl).slice(0, 16);

@@ -1,4 +1,5 @@
 import type { EmbeddedAgentRunMeta } from "../agents/embedded-agent.js";
+import type { SkillExposureReceipt } from "../agents/skill-exposure-receipt.js";
 
 type AgentExecPayload = {
   text?: string;
@@ -18,7 +19,8 @@ export type AgentExecRunResult = {
 
 type AgentExecStatus = "ok" | "error" | "timeout";
 
-export type AgentExecEnvelope = ReturnType<typeof classifyAgentExecResult>;
+export type AgentExecEnvelope = ReturnType<typeof classifyAgentExecResult> &
+  Partial<SkillExposureReceipt>;
 
 function projectAgentExecPayload(payload: AgentExecRawPayload): AgentExecPayload {
   return {

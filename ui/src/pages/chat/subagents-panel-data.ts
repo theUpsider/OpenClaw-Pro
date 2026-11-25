@@ -24,6 +24,7 @@ import { requestSharedHistory } from "./chat-history-request.ts";
 import { historySessionId, isHistoryCursor } from "./chat-history-snapshot.ts";
 import { readChatSessionActionAccess } from "./chat-session-action-access.ts";
 import { selectActivityHeadline } from "./components/chat-activity-headline-selection.ts";
+import { resolveSubagentFacts, type SubagentFacts } from "./subagent-facts.ts";
 import {
   readSubagentActivitySnapshot,
   readSubagentToolEvent,
@@ -42,6 +43,7 @@ const MAX_RETAINED_CALLS = 1024;
 export type SubagentsPanelRow = {
   session: GatewaySessionRow;
   depth?: number;
+  facts: SubagentFacts;
   callCount?: { count: number; exact: boolean };
   activity?: string;
   toolDisplayName?: string;
@@ -552,6 +554,7 @@ export class SubagentsPanelData {
       return {
         session,
         depth: this.depths.get(session.key) ?? 0,
+        facts: resolveSubagentFacts(session),
         callCount: metrics ? subagentToolCallCount(metrics) : undefined,
         activity:
           tool?.text ||

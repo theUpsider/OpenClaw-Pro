@@ -1,0 +1,68 @@
+# Public-push gate for OpenClaw Pro.
+#
+# Purpose: no public push without a green sanitize gate. Runs on every pull
+# request into `pro/main`, on every push to `pro/main`, and on demand.
+#
+# The gate script and the hashed denylist live in a PRIVATE repository, fetched
+# through a read-only deploy key, so the plaintext marker rules never enter the
+# public repo. The job fails closed when that source is not configured.
+name: pro-public-gate
+
+on:
+  pull_request:
+    branches: [pro/main]
+  push:
+    branches: [pro/main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pro-public-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: sanitize gate (denylist + secret scan)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch the gate (script + hashed denylist) from the private gate repo
+        env:
+          GATE_KEY: ${{ secrets.PRO_GATE_SSH_KEY }}
+          GATE_REPO: ${{ vars.PRO_GATE_REPO }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GATE_KEY:-}" ] || [ -z "${GATE_REPO:-}" ]; then
+            echo "::error::gate source not configured (PRO_GATE_REPO / PRO_GATE_SSH_KEY); failing closed."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          # GitHub's published ed25519 host key, pinned literally: no keyscan at
+          # run time, so a substituted host key cannot slip in.
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > ~/.ssh/known_hosts
+          printf '%s\n' "$GATE_KEY" > ~/.ssh/gate_key
+          chmod 600 ~/.ssh/gate_key
+          printf '%s\n' \
+            'Host gate-source' \
+            '  HostName github.com' \
+            '  User git' \
+            '  IdentityFile ~/.ssh/gate_key' \
+            '  IdentitiesOnly yes' \
+            '  StrictHostKeyChecking yes' \
+            >> ~/.ssh/config
+          git clone --depth 1 "gate-source:${GATE_REPO}.git" /tmp/pro-gate
+          test -f /tmp/pro-gate/gate_pro.py
+          test -f /tmp/pro-gate/denylist.sha256
+
+      - name: Run the sanitize gate on the candidate tree
+        run: |
+          set -euo pipefail
+          python3 /tmp/pro-gate/gate_pro.py --repo "$GITHUB_WORKSPACE" --ref HEAD

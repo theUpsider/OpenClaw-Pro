@@ -1,6 +1,7 @@
 import { estimateBase64DecodedBytes } from "@openclaw/media-core/base64";
 import { describe, expect, it, vi } from "vitest";
 import type { CliToolResultDelta, CliToolUseStartDelta } from "./cli-output-contracts.js";
+import { CLI_STREAM_JSON_OUTPUT_LIMITS } from "./cli-output-stream-limits.js";
 import { createCliJsonlStreamingParser } from "./cli-output-stream.js";
 import {
   claudeBlockStart,
@@ -154,11 +155,11 @@ describe("createCliJsonlStreamingParser framing", () => {
   it.each([
     {
       name: "whitespace-only records",
-      createLine: () => " ".repeat(4_300_000),
+      createLine: () => " ".repeat(OVER_BUDGET_LINE_CHARS),
     },
     {
       name: "padding around valid JSON",
-      createLine: () => `${" ".repeat(4_300_000)}{}`,
+      createLine: () => `${" ".repeat(OVER_BUDGET_LINE_CHARS)}{}`,
     },
     {
       name: "tool-result IDs",
@@ -175,7 +176,7 @@ describe("createCliJsonlStreamingParser framing", () => {
               { type: "text", text: "note" },
             ],
           },
-        }),
+        }).replace('"message":', `"message":${" ".repeat(OVER_BUDGET_LINE_CHARS)}`),
     },
   ])("charges $name against the Claude raw-output budget", ({ createLine }) => {
     const parser = createClaudeParser();
@@ -183,7 +184,44 @@ describe("createCliJsonlStreamingParser framing", () => {
 
     parser.push(`${line}\n${line}\n`);
 
-    expect(parser.getErrorText()).toContain("JSONL output exceeded 8388608 characters");
+    expect(parser.getErrorText()).toContain(`JSONL output exceeded ${maxTurnRawChars} characters`);
+  });
+
+  it("accepts a turn whose retained stream exceeds the former 8 MiB budget", () => {
+    // Regression guard for the raised budget: one long CLI turn used to abort as
+    // soon as its streamed JSONL crossed 8 MiB. Hold the new budget well above the
+    // old one so only a deliberate reduction can fail this.
+    expect(maxTurnRawChars).toBeGreaterThan(8 * 1024 * 1024);
+    const parser = createCliJsonlStreamingParser({
+      backend: { command: "claude", output: "jsonl", jsonlDialect: "claude-stream-json" },
+      providerId: "claude-cli",
+      onAssistantDelta: () => {},
+    });
+    const chunkChars = 512 * 1024;
+    const line = `${JSON.stringify({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "a".repeat(chunkChars) },
+      },
+    })}\n`;
+    // 32 MiB: safely above the old 8 MiB cap and well below the new one.
+    const frames = Math.ceil((32 * 1024 * 1024) / chunkChars);
+    for (let index = 0; index < frames; index += 1) {
+      parser.push(line);
+    }
+    parser.push(
+      `${JSON.stringify({
+        type: "assistant",
+        message: { id: "final-message", content: [{ type: "text", text: "done" }] },
+      })}\n`,
+    );
+    parser.push(`${JSON.stringify({ type: "result", subtype: "success", result: "done" })}\n`);
+    parser.finish();
+
+    expect(parser.getErrorText()).toBeNull();
+    expect(parser.getOutput()?.text).toContain("done");
   });
 
   it("normalizes empty Claude image data without treating zero omitted bytes as unchanged", () => {
@@ -358,9 +396,9 @@ describe("createCliJsonlStreamingParser framing", () => {
     expect(oversizedLineParser.getErrorText()).toContain("JSONL line exceeded");
 
     const growingPartialLineParser = createParser();
-    growingPartialLineParser.push("a".repeat(4_300_000));
+    growingPartialLineParser.push("a".repeat(OVER_LINE_HALF_CHARS));
     expect(growingPartialLineParser.getErrorText()).toBeNull();
-    growingPartialLineParser.push("a".repeat(4_300_000));
+    growingPartialLineParser.push("a".repeat(OVER_LINE_HALF_CHARS));
     expect(growingPartialLineParser.getErrorText()).toContain("JSONL line exceeded");
 
     const oversizedTextParser = createParser();

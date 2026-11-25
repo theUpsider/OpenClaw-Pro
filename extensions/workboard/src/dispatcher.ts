@@ -40,6 +40,15 @@ import {
 
 const DEFAULT_DISPATCH_MAX_STARTS = 3;
 
+/**
+ * Refusal for a scheduled or explicitly targeted start of an external card. The
+ * mission is still the board's authoritative task, so the message names the mode
+ * and the flow that remains available instead of offering a local fallback.
+ */
+const WORKBOARD_EXTERNAL_DISPATCH_REFUSAL =
+  "Card is placed by an external controller (dispatchMode: external); the local dispatcher does not claim or start it. " +
+  "The external controller claims, heartbeats, and completes it through the normal Workboard claim flow.";
+
 type WorkboardSubagentRuntime = Pick<PluginRuntime["subagent"], "run">;
 type WorkboardWorktreeRuntime = PluginRuntime["worktrees"];
 
@@ -75,6 +84,7 @@ type WorkboardStartFailure = {
 type WorkboardDispatchAndStartResult = WorkboardDispatchResult & {
   started: WorkboardStartedRun[];
   startFailures: WorkboardStartFailure[];
+  skipped: WorkboardDispatchSkip[];
 };
 
 type WorkboardPreparedLaunch = Extract<WorkboardLaunchState, { phase: "prepared" }>;
@@ -149,6 +159,7 @@ async function runWorkboardDispatch(
   );
   const started: WorkboardStartedRun[] = [];
   const startFailures: WorkboardStartFailure[] = [];
+  const skipped: WorkboardDispatchSkip[] = [];
   const cards = await params.store.list();
   const candidates = directCard ? [directCard] : await params.store.list({ boardId });
   const ownerOverride = params.options?.ownerId?.trim() || undefined;
@@ -217,6 +228,9 @@ async function runWorkboardDispatch(
   })();
   if (selection.rejection) {
     startFailures.push(selection.rejection);
+  }
+  if (selection.queued) {
+    skipped.push(selection.queued);
   }
   for (const card of selection.cards) {
     const ownerId = ownerOverride || workboardCardSlotOwner(card, now);
@@ -362,6 +376,9 @@ async function runWorkboardDispatch(
             boardId: cardBoardId(card),
             status: card.status,
             agentId: card.agentId,
+            // Re-read at the claim gate: an edit to external placement between
+            // selection and claim must refuse the native start instead of racing it.
+            externallyDispatched: workboardCardIsExternallyDispatched(card),
             workspace: card.metadata?.automation?.workspace,
             workspaceAccess: card.metadata?.automation?.workspaceAccess,
           },
@@ -454,26 +471,17 @@ async function runWorkboardDispatch(
       if (runCwd && !workspaceAccess.unrestricted) {
         await assertRestrictedTarget(runCwd);
       }
-      const materializedWorkspace = materialized.workspace;
-      if (materializedWorkspace) {
-        const workspaceBase = await params.store.get(card.id);
-        if (!workspaceBase) {
-          throw new Error(`card not found: ${card.id}`);
-        }
-        const materializedCard = await params.store.update(
-          card.id,
-          { workspace: materializedWorkspace, workspaceAccess },
-          { expectedUpdatedAt: workspaceBase.updatedAt },
-        );
-        workspaceMutation = { before: workspaceBase, after: materializedCard };
-      }
+      // Persist the workspace only inside the same claim-checked mutation that
+      // prepares launch. A materialization await can outlive a claim handoff.
       const prepared = await params.store.prepareExecutionLaunch(card.id, {
         requestedSessionKey: sessionKey,
         now,
         scope: { ownerId, token: claimValue },
+        ...(materialized.workspace ? { workspace: materialized.workspace, workspaceAccess } : {}),
         assertOwnerCurrent,
       });
       const launched = prepared.card;
+      workspaceMutation = prepared.workspaceMutation;
       preparedLaunch = prepared.launch;
       const runId = prepared.launch.provisionalRunId;
       assertOwnerCurrent?.();
@@ -569,6 +577,12 @@ async function runWorkboardDispatch(
         continue;
       }
       try {
+        // Reclaim hands the card to another attempt/controller. A failed old
+        // preparation must not block or clean up the new owner's work.
+        const current = await params.store.get(card.id);
+        if (current?.metadata?.claim?.token !== claimValue) {
+          continue;
+        }
         const reason = `Dispatcher could not start worker: ${message}`;
         if (preparedLaunch) {
           await params.store.failPreparedLaunch(card.id, {
@@ -600,10 +614,30 @@ async function runWorkboardDispatch(
     }
   }
 
+  if (!directCardId) {
+    // Report every Ready card still behind a full owner slot, whether the slot was
+    // busy before this pass or taken by a card this pass started.
+    const attempted = new Set([...started, ...startFailures].map((entry) => entry.cardId));
+    for (const card of candidates.toSorted(compareWorkboardReadyCards)) {
+      const ownerId = ownerOverride || workboardCardSlotOwner(card, now);
+      if (
+        card.status === "ready" &&
+        !card.metadata?.archivedAt &&
+        !workboardCardIsExternallyDispatched(card) &&
+        !attempted.has(card.id) &&
+        !workboardCardConsumesOwnerSlot(card, now) &&
+        !workboardOwnerSlotAdmitsCard(startedOwners, ownerId, workboardOwnerSlotLimit(card))
+      ) {
+        skipped.push({ cardId: card.id, title: card.title, ownerId, reason: "owner_busy" });
+      }
+    }
+  }
+
   return {
     ...dispatch,
     started,
     startFailures,
+    skipped,
     count: dispatch.count + started.length + startFailures.length,
   };
 }

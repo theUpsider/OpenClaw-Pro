@@ -244,6 +244,9 @@ describe("Sessions board storage", () => {
       notes: "Prior-schema content",
       labels: ["migration"],
     });
+    // The first card write seeds the board's classification palette, so capture the board after it.
+    const seededBoard = (await stores.boards.lookup(board.id))?.board;
+    expect(seededBoard?.classifications).toEqual([{ name: "migration", color: "red" }]);
     await store.close();
 
     // Model the prior schema's first admission, rather than altering admitted format facts.
@@ -251,11 +254,13 @@ describe("Sessions board storage", () => {
     copyFileSync(`${dbPath}.seed`, dbPath);
     {
       using prior = openNodeSqliteDatabase(dbPath);
-      // These are the only schema additions for Sessions boards; preserve the existing migration receipt.
+      // Model the real prior-schema shape: a pre-palette database has no
+      // classifications_json column at all, so the palette cannot survive the drop.
       prior.exec(`
         DROP TABLE workboard_session_placements;
         ALTER TABLE workboard_boards DROP COLUMN kind;
         ALTER TABLE workboard_boards DROP COLUMN sessions_spec;
+        ALTER TABLE workboard_boards DROP COLUMN classifications_json;
       `);
     }
 

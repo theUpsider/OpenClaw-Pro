@@ -3,12 +3,14 @@ import type {
   WorkboardCard,
   WorkboardDiagnostic,
   WorkboardEvent,
+  WorkboardInteractionSurface,
   WorkboardLaunchState,
   WorkboardResultEvidence,
   WorkboardWorkspace,
   WorkboardWorkspaceAccess,
 } from "@openclaw/workboard-contract";
 import type { WorkboardOwnerSlot } from "./persistence-types.js";
+import type { WorkboardClassificationChange } from "./classification-palette.js";
 
 type WorkboardCardInput = {
   title?: unknown;
@@ -34,10 +36,26 @@ type WorkboardCardInput = {
   workspaceAccess?: unknown;
   maxRuntimeSeconds?: unknown;
   maxRetries?: unknown;
+  /** Opt-in marker for parallel dispatch; only `true` counts. */
+  parallelizable?: unknown;
+  /** Owner slot ceiling for opt-in cards; defaults to 1. */
+  maxConcurrentPerOwner?: unknown;
+  /** Opt-in placement owner: `native` (default) or `external`. */
+  dispatchMode?: unknown;
   scheduledAt?: unknown;
+  /** Decision picker choices; stored in `metadata.automation`, `[]` clears them. */
+  decisionOptions?: unknown;
+  /** One line naming what the operator must supply; `""` clears it. */
+  ask?: unknown;
+  /** Why the card waits on the operator: `input` or `external`; unknown values are refused. */
+  askKind?: unknown;
+  /** Control UI marks an automatically completed card as seen when it is opened. */
+  acceptanceSeenAt?: unknown;
   startedAt?: unknown;
   completedAt?: unknown;
   parents?: unknown;
+  /** Classification a new label overwrites when the board palette is full. */
+  replaces?: unknown;
 };
 
 export type WorkboardCardPatch = WorkboardCardInput;
@@ -47,6 +65,12 @@ export type WorkboardOwnedCardPatch = WorkboardCardPatch & {
   ownedEvidence?: WorkboardResultEvidence[];
 };
 export type WorkboardUpdateCardOptions = {
+  /**
+   * Who makes the write, for the settle check in `updateCard`: the caller's scope, or
+   * `null` for the operator and the system. A write that settles a pending result must
+   * name one; see `assertCanSettlePendingResult`.
+   */
+  actor?: WorkboardMutationScope | null;
   automationLaunch?: WorkboardLaunchState;
   /** Replaces automation.evidence; built only by Workboard's evidence writers. */
   automationEvidence?: WorkboardResultEvidence[];
@@ -54,10 +78,26 @@ export type WorkboardUpdateCardOptions = {
   enforceStatusHolds?: boolean;
   event?: Omit<WorkboardEvent, "id" | "at">;
   eventAt?: number;
+  /** Agent recorded on the appended event; attribution only, never authority. */
+  agentId?: string;
+  /**
+   * Card-bound interaction to stamp into the card metadata; reference data only,
+   * never authority, and never an execution link. See `WorkboardMutationScope`.
+   */
+  interaction?: WorkboardInteractionStamp;
   expectedUpdatedAt?: number;
   ownerSlot?: WorkboardOwnerSlot;
   preserveProofId?: string;
   preserveNotificationId?: string;
+  /**
+   * Whether *this write* introduces review data, i.e. whether the review budget guard
+   * applies. Resolved by `updateCard` from the patch via `reviewWrittenInPatch`, never
+   * supplied by a caller: the metadata trims that run after `normalizeMetadata` have to
+   * carry it too, or a later unguarded trim would still drop a comment or a proof to
+   * make room for the review (R27/A9).
+   */
+  reviewWritten?: boolean;
+  onClassifications?: (change: WorkboardClassificationChange) => void;
 };
 export type WorkboardCommentInput = { body?: unknown };
 export type WorkboardLinkInput = {
@@ -103,6 +143,8 @@ export type WorkboardClaimOptions = {
     boardId: string;
     status: WorkboardCard["status"];
     agentId?: string;
+    /** Placement owner the dispatcher selected the card under; a native start never claims otherwise. */
+    externallyDispatched?: boolean;
     workspace?: WorkboardWorkspace;
     workspaceAccess?: WorkboardWorkspaceAccess;
   };
@@ -138,6 +180,12 @@ export type WorkboardVerifyInput = {
 };
 export type WorkboardBlockInput = WorkboardMutationScope & {
   reason?: unknown;
+  /** Choices the blocked card offers the operator; omitted keeps the stored ones. */
+  decisionOptions?: unknown;
+  /** One line naming what the operator must supply; `""` clears it. */
+  ask?: unknown;
+  /** Why the card waits on the operator: `input` or `external`; unknown values are refused. */
+  askKind?: unknown;
 };
 export type WorkboardDispatchResult = {
   promoted: WorkboardCard[];
@@ -145,6 +193,13 @@ export type WorkboardDispatchResult = {
   blocked: WorkboardCard[];
   orchestrated: WorkboardCard[];
   count: number;
+};
+/** A card a dispatch pass left in its owner's lane queue because the slot is full; not a failure. */
+export type WorkboardDispatchSkip = {
+  cardId: string;
+  title: string;
+  ownerId: string;
+  reason: "owner_busy";
 };
 export type WorkboardListOptions = {
   boardId?: unknown;

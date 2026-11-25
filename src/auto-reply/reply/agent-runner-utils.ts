@@ -507,6 +507,7 @@ export async function buildEmbeddedRunExecutionParams(params: {
     skillLibraryAuthoring: params.run.skillLibraryAuthoring,
     provider: params.provider,
     model: params.model,
+    workContext: snapshot.run.workContext,
     modelHasVision,
     ...(modelThinkingCapability ? { modelThinkingCapability } : {}),
     requestedRouteResolution: "resolved" as const,

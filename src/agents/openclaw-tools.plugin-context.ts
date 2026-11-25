@@ -62,6 +62,7 @@ export type OpenClawPluginToolOptions = Pick<
   /** Plugin whose runtime tool grant this run carries (a plugin-started fork). */
   runtimePluginToolOwnerId?: string;
 };
+  | "workContext"
 
 export function resolveOpenClawPluginToolInputs(params: {
   options?: OpenClawPluginToolOptions;
@@ -135,6 +136,7 @@ export function resolveOpenClawPluginToolInputs(params: {
           ? [options.approvalReviewerDeviceId]
           : undefined,
       toolBindings: options?.toolBindings,
+      workContext: options?.workContext,
       activeProjectKeys: options?.activeProjectKeys,
       conversationRecall: options?.conversationRecall,
       activeModel,

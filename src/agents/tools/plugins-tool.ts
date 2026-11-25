@@ -6,7 +6,10 @@ import { captureExecRequestOwners } from "../../infra/exec-request-context.js";
 import { boundedJsonUtf8Bytes } from "../../infra/json-utf8-bytes.js";
 import type { PluginRuntimeApplication } from "../../plugins/lifecycle.js";
 import type { listManagedPlugins } from "../../plugins/management-service.js";
-import { formatSelectedEntry } from "../../plugins/reload-entry-guidance.js";
+import {
+  formatSelectedEntry,
+  RELOAD_GENERATION_NOTICE,
+} from "../../plugins/reload-entry-guidance.js";
 import { resolveReplyRunForCurrentSessionId } from "../../sessions/session-controller.identity.js";
 import { findSessionControllerOperationByRunId } from "../../sessions/session-controller.queries.js";
 import { captureAgentPluginRuntimeRefresh } from "../plugin-runtime-refresh.js";
@@ -28,8 +31,8 @@ function pluginsToolResult(payload: Record<string, unknown>, refreshUnavailable 
     restartRequired === true
       ? "Restart the Gateway to load changed plugin code; do not repeat the completed mutation."
       : refreshUnavailable
-        ? "The backend change was applied. Start a new conversation to load changed tool definitions in this runtime; do not repeat the mutation."
-        : undefined,
+        ? `The backend change was applied. Start a new conversation to load changed tool definitions in this runtime; do not repeat the mutation. ${RELOAD_GENERATION_NOTICE}`
+        : RELOAD_GENERATION_NOTICE,
     typeof entry === "string" ? formatSelectedEntry(truncateUtf16Safe(entry, 160)) : undefined,
   ]
     .filter(Boolean)

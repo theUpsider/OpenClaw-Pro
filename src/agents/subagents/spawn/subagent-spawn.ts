@@ -109,7 +109,6 @@ export async function spawnSubagentDirect(
     swarmGroupId,
     swarmSchedulerGroupKey,
     swarmLaunchReplayKey,
-    soleImplicitMember,
     reservationPending,
     swarmReservation,
     resolveAdmission,
@@ -318,7 +317,7 @@ export async function spawnSubagentDirect(
     const envelope = buildSubagentSpawnEnvelope({
       completionMode,
       completionTarget: params.completionTarget,
-      soleCollectorChild: soleImplicitMember,
+      soleCollectorChild: requestResolution.resolved.soleImplicitMember,
       spawnMode,
       task: params.task,
       requesterSessionKey: ctx.agentSessionKey,
@@ -381,6 +380,7 @@ export async function spawnSubagentDirect(
       swarmMaxConcurrent: swarmConfig.maxConcurrent,
     });
     const { childLaunch, progressOrigin, spawnedMetadata } = launchContext;
+        messageToolEnabled: admission.childSessionPatch?.subagentMessageToolEnabled === true,
     const recordRequesterParticipation = await recordSubagentSessionSetup({
       cfg,
       childEntry,

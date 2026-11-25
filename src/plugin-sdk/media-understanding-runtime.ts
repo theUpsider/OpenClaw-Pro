@@ -14,6 +14,10 @@ const loadAudioPreflightRuntime = createLazyRuntimeModule(
   () => import("../media-understanding/audio-preflight.js"),
 );
 
+export function formatAudioTranscriptForAgent(transcript: string): string {
+  return `[STT generated (may contain transcription mistakes)]: ${JSON.stringify(transcript)}`;
+}
+
 /** Creates shared preflight transcription and deferred-echo behavior for a channel. */
 export function createChannelPreflightAudio<TAudio>(params: {
   channel: string;

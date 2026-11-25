@@ -639,11 +639,13 @@ export function startGatewayConfigReloader(
     pluginDrainRetry?.abort();
     pluginDrainRetry = undefined;
     deferredPluginApplication = undefined;
+    const pluginInputs = { persistedHash: persistedHash ?? null, nextPluginInstallRecords };
     // No-op plans also publish the runtime snapshot before its applied receipt.
     const applyRuntime = isNoopGatewayReloadPlan(plan) ? opts.onNoopConfigCommit : opts.onHotReload;
     await opts.onConfigChange?.(plan, nextConfig);
     let applicationStatus: void | GatewayHotReloadApplication;
     try {
+      pluginDrain.assertCanApply(plan, pluginInputs);
       applicationStatus = await applyRuntime(plan, nextConfig, ownership, nextSourceConfig);
     } catch (error) {
       ownership.rollbackRuntimeEnv();
@@ -660,6 +662,14 @@ export function startGatewayConfigReloader(
       typeof applicationStatus === "object" && applicationStatus.status === "applied"
         ? applicationStatus.runtime
         : undefined;
+    pluginDrain.applied(plan, runtime, pluginInputs);
+    if (runtime) {
+      completedPluginApplication = {
+        runtime,
+        snapshot: sourceSnapshot,
+        installRecords: nextPluginInstallRecords,
+      };
+    }
     return completeApplication(runtime);
   };
 

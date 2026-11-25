@@ -19,6 +19,7 @@ function getTestApi(): TranslateTestApi {
 
 export function createI18nManagerForTesting(
   load: typeof registry.loadLazyLocaleTranslation,
+  loadLocaleConfigHints?: LocaleTranslationLoader,
 ): typeof i18n {
   const spy = vi.spyOn(registry, "loadLazyLocaleTranslation").mockImplementation(load);
   onTestFinished(() => spy.mockRestore());

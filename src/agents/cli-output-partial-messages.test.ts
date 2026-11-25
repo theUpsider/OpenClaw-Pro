@@ -5,6 +5,7 @@ import {
   claudeBlockStop,
   createClaudeParser,
 } from "./cli-output.test-helpers.js";
+import { CLI_STREAM_JSON_OUTPUT_LIMITS } from "./cli-output-stream-limits.js";
 
 const text = { type: "text_delta", text: "a" };
 const input = { type: "input_json_delta", partial_json: "{" };

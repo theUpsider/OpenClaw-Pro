@@ -8,6 +8,8 @@ import { listSelectableAgents } from "../../lib/agents/display.ts";
 import { createElementRefs } from "../../lib/element-refs.ts";
 import {
   groupWorkboardCardsByStatus,
+  buildWorkboardLabelOptions,
+  sortWorkboardCards,
   workboardCardMatchesHealthKey,
 } from "../../lib/workboard/derived.ts";
 import { loadWorkboard } from "../../lib/workboard/loading.ts";
@@ -17,7 +19,11 @@ import {
   WORKBOARD_PRIORITIES,
   type WorkboardCard,
   type WorkboardStatus,
-} from "../../lib/workboard/types.ts";
+} from "../../lib/workboard/index.ts";
+import {
+  needsOperatorAttention,
+  workboardInboxEntries,
+} from "../../lib/workboard/operator-attention.ts";
 import { agentDisplayName, buildAgentFilterOptions } from "./agent-filter.ts";
 import { buildBoardFilterOptions, WORKBOARD_ALL_BOARDS_FILTER } from "./board-filter.ts";
 import { getVisibleDetailCard, CardDetailsPanel } from "./view-card-details.tsx";
@@ -46,6 +52,7 @@ import {
   matchesCardQuery,
   type WorkboardProps,
 } from "./view-helpers.tsx";
+import { InboxToggle, WorkboardInbox, workboardInboxHeadlineCount } from "./view-inbox.tsx";
 import { workboardPopoverRef } from "./view-popover.ts";
 import { boardScrollEdgesRef } from "./view-scroll-fade.ts";
 import { WorkboardSearch } from "./view-search.tsx";
@@ -181,9 +188,15 @@ export function WorkboardView(
       });
     };
     const filtered = cardsForFilters();
+    // The lens intersects every other filter, so its count is what the inbox would show now.
+    const inbox = workboardInboxEntries(filtered);
     const visibleError = workboardErrorMessage(current, props.pageError);
     const selectedCards = current.cards.filter((card) => current.selectedCardIds.has(card.id));
-    const byStatus = groupWorkboardCardsByStatus(filtered, current.statuses);
+    // Sorting is display-only; the store order still drives dispatch.
+    const byStatus = groupWorkboardCardsByStatus(
+      sortWorkboardCards(filtered, current.sort),
+      current.statuses,
+    );
     const visibleStatuses = current.statuses.filter(
       (status) =>
         (!current.statusFilter.size || current.statusFilter.has(status)) &&
@@ -209,6 +222,7 @@ export function WorkboardView(
             .length
         : undefined,
     }));
+    const labelOptions = buildWorkboardLabelOptions(cardsForFilters("label"), current.labelFilter);
     const agentFilterOptions: WorkboardSelectOption[] = agentOptions.map((option) => ({
       value: option.id,
       label: option.label,
@@ -216,6 +230,15 @@ export function WorkboardView(
       icon: option.id === "all" ? "users" : option.id === "default" ? "bot" : undefined,
     }));
     const activeFilters: ActiveFilter[] = [];
+    if (current.attentionInbox) {
+      activeFilters.push({
+        id: "inbox",
+        label: t("workboard.needsYou"),
+        clear: () => {
+          state().attentionInbox = false;
+        },
+      });
+    }
     if (current.query.trim()) {
       activeFilters.push({
         id: "query",
@@ -248,6 +271,13 @@ export function WorkboardView(
         clear: () => state().attentionFilter.clear(),
       });
     }
+    if (current.labelFilter.size) {
+      activeFilters.push({
+        id: "label",
+        label: multiFilterLabel(t("workboard.filterLabels"), current.labelFilter, labelOptions),
+        clear: () => state().labelFilter.clear(),
+      });
+    }
     if (current.donePeriod !== "all") {
       activeFilters.push({
         id: "done-period",
@@ -269,10 +299,27 @@ export function WorkboardView(
         },
       });
     }
+    // Sorting hides nothing, so it does not turn an empty board into a filtered one.
+    const narrowsCards = activeFilters.length > 0 || current.statusFilter.size > 0;
+    // The inbox has its own fixed order, so a column sort chip would misdescribe it.
+    if (current.sort !== "position" && !current.attentionInbox) {
+      activeFilters.push({
+        id: "sort",
+        label: t("workboard.filterChipValue", {
+          field: t("workboard.filterSort"),
+          value: t(
+            current.sort === "created" ? "workboard.sortCreatedHint" : "workboard.sortUpdatedHint",
+          ),
+        }),
+        clear: () => {
+          state().sort = "position";
+        },
+      });
+    }
     const activeFilterCount = activeFilters.length;
     const hasActiveFilters = activeFilterCount > 0 || current.statusFilter.size > 0;
     const activeFiltering =
-      hasActiveFilters ||
+      narrowsCards ||
       Boolean(props.scopeAgentId) ||
       (props.showAgentFilter !== false && current.agentFilter !== "all") ||
       activeBoardFilter !== WORKBOARD_ALL_BOARDS_FILTER;
@@ -311,6 +358,15 @@ export function WorkboardView(
       });
     }
     return {
+      attentionInbox: current.attentionInbox,
+      inbox,
+      // Only an empty inbox needs this: does any card in scope wait on the operator at all?
+      inboxHiddenByFilters:
+        current.attentionInbox &&
+        inbox.length === 0 &&
+        current.cards.some(
+          (card) => matchesWorkboardCardScope(props, card) && needsOperatorAttention(card),
+        ),
       boardOptions,
       activeBoardFilter,
       filtered,
@@ -322,6 +378,7 @@ export function WorkboardView(
       visibleStatuses,
       priorityOptions,
       attentionOptions,
+      labelOptions,
       agentFilterOptions,
       activeFilters,
       activeFilterCount,
@@ -347,16 +404,22 @@ export function WorkboardView(
         Boolean(getVisibleDetailCard(current)),
     };
   });
-  const clearFilters = () => {
+  const clearOtherFilters = () => {
     const current = state();
     current.query = "";
     current.searchOpen = false;
     current.statusFilter.clear();
     current.priorityFilter.clear();
     current.attentionFilter.clear();
+    current.labelFilter.clear();
+    current.sort = "position";
     current.donePeriod = "all";
     current.showArchived = false;
     props.onRequestUpdate?.();
+  };
+  const clearFilters = () => {
+    state().attentionInbox = false;
+    clearOtherFilters();
   };
   const filterPopover = workboardPopoverRef("end");
   return (

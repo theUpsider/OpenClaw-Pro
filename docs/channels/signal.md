@@ -388,7 +388,7 @@ Allowed group messages that do not mention the bot stay silent and are kept only
 
 ## Lifecycle status reactions
 
-Set `messages.statusReactions.enabled: true` to let Signal show the shared queued/thinking/tool/compaction/done/error reaction lifecycle on inbound turns. Signal uses the inbound message timestamp as the reaction target; group reactions are sent with the Signal group ID plus the original sender as the target author.
+Set `messages.statusReactions.enabled: true` to let Signal show the quiet reaction lifecycle on inbound turns: one working reaction (👀) for the whole turn, then ✅ on success or ❌ on error, with no intermediate queued/thinking/tool/compaction emoji. Signal uses the inbound message timestamp as the reaction target; group reactions are sent with the Signal group ID plus the original sender as the target author.
 
 Status reactions also require an ack reaction and a matching `messages.ackReactionScope` (`direct`, `group-all`, `group-mentions`, or `all`). Set `channels.signal.reactionLevel: "off"` to disable Signal status reactions.
 

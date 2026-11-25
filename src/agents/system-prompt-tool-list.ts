@@ -10,13 +10,28 @@ type SystemPromptToolListParams = {
   acpSpawnRuntimeEnabled: boolean;
 };
 
+/**
+ * Render the tool list with stable core ordering and caller-provided names.
+ *
+ * The list is the session's tool SURFACE, not this turn's admission: a name is
+ * listed when it is visible now or callable in the session (a curated
+ * capability). A narrowing of the ADMITTED subset therefore no longer moves
+ * these bytes, while a genuine capability change still does. The list sits ahead
+ * of the conversation history, so any change here invalidates the whole cached
+ * body; the tail `tools:[...]` array stays the authority for what is callable
+ * this turn, and uncurated capability names stay owned by the deferred-schema
+ * directory instead of gaining a bare duplicate line.
+ *
+ * Scope: this stabilizes admission changes only. When a tool stops being
+ * constructed for a turn, the capability basis loses it too and the list moves
+ * with it.
+ */
 /** Server-level guidance an MCP server published in its initialize result. */
 export type McpServerInstruction = {
   server: string;
   instructions: string;
 };
 
-/** Render the visible tool list with stable core ordering and caller-provided names. */
 export function buildSystemPromptToolLines(params: SystemPromptToolListParams): string[] {
   const { visibleTools, availableTools, promptSurface, acpSpawnRuntimeEnabled } = params;
   const coreToolSummaries: Record<string, string> = {
@@ -79,6 +94,10 @@ export function buildSystemPromptToolLines(params: SystemPromptToolListParams): 
     ...coreToolSummaries,
     wait: "Resume a suspended Code Mode exec",
     image: "Analyze images",
+    // Curated so a paired-node computer surface keeps its line when it is a
+    // session capability rather than this turn's admission. Alphabetical extra
+    // placement preserves the line order earlier surfaces already rendered.
+    computer: "Drive a paired node's screen, keyboard, and mouse",
   };
 
   const extraTools = [...visibleTools.keys()].filter((tool) => !toolOrder.includes(tool));

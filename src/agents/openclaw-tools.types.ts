@@ -1,3 +1,4 @@
+import type { ChatWorkContext } from "../../packages/gateway-protocol/src/chat-work-context.js";
 import type { ChatType } from "../channels/chat-type.js";
 import type { InboundEventKind } from "../channels/inbound-event/kind.js";
 import type { ConversationReadInvocationOrigin } from "../channels/plugins/conversation-read-origin.js";
@@ -35,6 +36,8 @@ export type OpenClawSharedToolsOptions = {
   scheduledToolPolicy?: import("./scheduled-tool-policy.js").ScheduledToolPolicyContext;
   /** Complete model-discoverable catalog, prepared by the current host. */
   installedSkills?: readonly InstalledSkill[];
+  /** Host-only opt-in hash facts for exact native instruction-read exposure receipts. */
+  trackSkillExposure?: boolean;
   skillsSnapshot?: SkillSnapshot;
   /**
    * Overrides the originating-channel sender for blocking questions. An actual
@@ -42,6 +45,8 @@ export type OpenClawSharedToolsOptions = {
    */
   questionPrompt?: QuestionPromptDelivery;
   toolBindings?: Readonly<Record<string, unknown>>;
+  /** Captured chat.send work context; quoted reference data, never authority. */
+  workContext?: ChatWorkContext;
   /** Trusted runtime-only authorization for one bounded cross-conversation recall pass. */
   conversationRecall?: ConversationRecallContext;
   /** Host-resolved memory partition shared by plugin tools for this turn. */

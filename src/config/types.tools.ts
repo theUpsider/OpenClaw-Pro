@@ -56,6 +56,28 @@ export type MediaToolsConfig = {
 
 export type ToolProfileId = NonNullable<SchemaToolsConfig["profile"]>;
 
+/** Path rule mode: refuse access, or refuse and hide the path from listings. */
+export type PathScopeModeConfig = "deny" | "deny+conceal";
+
+export type PathScopeEntryConfig = {
+  /** Literal absolute or `~`-prefixed path; covers the path itself and its whole subtree. */
+  path: string;
+  /** Default: `deny+conceal`. */
+  mode?: PathScopeModeConfig;
+};
+
+export type PathScopesByModelConfig = Record<
+  string,
+  { entries?: PathScopeEntryConfig[] } | undefined
+>;
+
+export type PathScopesConfig = {
+  /** Keep exec/process callable while path rules are active (default: false). */
+  allowExecWithEntries?: boolean;
+  /** Rules keyed by provider id or "provider/model". */
+  byModel?: PathScopesByModelConfig;
+};
+
 export type ToolLoopDetectionConfig = NonNullable<SchemaToolsConfig["loopDetection"]>;
 
 export type ToolSearchConfig = NonNullable<SchemaToolsConfig["toolSearch"]>;

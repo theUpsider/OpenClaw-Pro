@@ -5,8 +5,34 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeClaudeCliStreamJsonRecord } from "./cli-output-echoed-binary.js";
 import { readClaudeAttributedSubagentProgressId } from "./cli-output-records.js";
 
-const CLI_STREAM_JSON_DEFAULT_MAX_TURN_RAW_CHARS = 8 * 1024 * 1024;
-const CLI_STREAM_JSON_DEFAULT_MAX_TURN_LINES = 20_000;
+// One long CLI turn (a reasoning-heavy coding run) can legitimately stream tens of
+// MiB of JSONL before it finishes; the earlier 8 MiB char / 20k-line pair aborted
+// such turns at the transport, after the work itself was already done.
+//
+// The char budget is the real memory guard: the parser retains the streamed
+// assistant text, which costs about 2x its character count in RSS (measured on
+// Node 26 without forced GC: 16 MiB retained -> +34 MiB peak RSS, 32 MiB -> +56
+// MiB, 63 MiB -> +114 MiB). 64 MiB therefore bounds one turn at roughly 110-130
+// MiB. The char budget is ALSO the single pending-line cap, so one line may hold
+// up to 64 MiB on its own; framing scans only the new chunk (linear, ~5 ms for
+// 16,384 chunks), so that cannot stall the process.
+//
+// The line budget scales with it to preserve the shipped design point: the old
+// pair allowed ~419 characters per line (8 MiB / 20,000), so typical ~300-char
+// JSONL lines hit the line cap near 6 MiB - BEFORE the char cap - which is why
+// raising only the char budget would have changed nothing. 160,000 lines keeps
+// that same ~419-char crossover (64 MiB / 160,000), so the char cap stays the
+// binding guard for realistic line lengths while a flood of tiny frames (which
+// the parser still bounds by count) is capped as before. Incremental
+// partial-message frames are charged against chars but not against the line
+// budget, so a token-delta-heavy turn cannot trip the line cap first.
+//
+// Concurrency context (host `gateway`, 2026-11-21): subagent maxConcurrent=8 per
+// spawning session; ~100-130 MiB per in-flight turn is comfortable against the
+// gateway's ~19 GiB resident and the host's 30 GiB. The gateway heap is capped
+// well above this, so these caps, not an OOM, remain the first thing to trip.
+const CLI_STREAM_JSON_DEFAULT_MAX_TURN_RAW_CHARS = 64 * 1024 * 1024;
+const CLI_STREAM_JSON_DEFAULT_MAX_TURN_LINES = 160_000;
 export const CLI_STREAM_JSON_OUTPUT_LIMITS = Object.freeze({
   maxTurnRawChars: CLI_STREAM_JSON_DEFAULT_MAX_TURN_RAW_CHARS,
   maxPendingLineChars: CLI_STREAM_JSON_DEFAULT_MAX_TURN_RAW_CHARS,

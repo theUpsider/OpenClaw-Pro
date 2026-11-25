@@ -12,6 +12,7 @@ import { getReplyOperationSessionReader } from "../../sessions/session-controlle
 import { sessionDeliveryChannel } from "../../utils/delivery-context.read.js";
 import { getCommandOwnerAuthority } from "../command-owner-authority.js";
 import { getReplyPayloadMetadata, setReplyPayloadMetadata } from "../reply-payload.js";
+import { SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { ReplyPayload } from "../types.js";
 import { withAgentTurnCompletion } from "./agent-runner-completion.js";
 import {
@@ -414,6 +415,7 @@ export async function finalizeReplyAgentRun(
       return { result: reply, accounting };
     },
   );
+  let goalNotice: string | undefined;
   if (
     context.sessionKey &&
     context.storePath &&
@@ -433,7 +435,20 @@ export async function finalizeReplyAgentRun(
       sourceRunId: context.runId,
       operation: context.replyOperation,
       runFollowup: context.runFollowupTurn,
+      onNotice: (text) => {
+        goalNotice = text;
+      },
     });
   }
-  return context.returnWithQueuedFollowupDrain(result);
+  // A stopped verification loop reports itself once, visibly (opt-in paths only).
+  if (!goalNotice) {
+    return context.returnWithQueuedFollowupDrain(result);
+  }
+  const notice: ReplyPayload = { text: goalNotice };
+  const withNotice = Array.isArray(result)
+    ? [...result, notice]
+    : result === undefined || result.text === SILENT_REPLY_TOKEN
+      ? notice
+      : [result, notice];
+  return context.returnWithQueuedFollowupDrain(withNotice);
 }

@@ -10,6 +10,7 @@ import {
   WorkerTranscriptMessageSchema,
   type WorkerTranscriptMessage,
 } from "../../../packages/gateway-protocol/src/schema/worker-admission.js";
+import { validateWorkerInferenceStartParams } from "../../../packages/gateway-protocol/src/schema/worker-inference.js";
 import { createNoisyPngBuffer } from "../../../test/helpers/image-fixtures.js";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import { buildRuntimeContextCustomMessage } from "../../agents/embedded-agent-runner/run/runtime-context-prompt.js";
@@ -43,7 +44,10 @@ import {
 import { resolveOpenClawAgentSqlitePath } from "../../state/openclaw-agent-db.paths.js";
 import { closeOpenClawStateDatabaseByPathAsync } from "../../state/openclaw-state-db-cache.js";
 import { openOpenClawStateDatabase } from "../../state/openclaw-state-db.js";
-import { createWorkerTranscriptRuntime } from "../../worker/embedded-agent-transcript.runtime.js";
+import {
+  createWorkerTranscriptRuntime,
+  toWorkerInferenceContext,
+} from "../../worker/embedded-agent-transcript.runtime.js";
 import { prepareAgentRunUserTurn } from "../agent-turn/agent-run-user-turn.js";
 import type { AgentTurnContext } from "../agent-turn/types.js";
 import {
@@ -415,6 +419,43 @@ describe("worker transcript commit application", () => {
     );
     expect((await SessionManager.openAsync(sessionTarget)).getEntries()).toEqual([]);
     expect(updates).toEqual([]);
+  });
+
+  it("preserves large reasoning and replay through durable commit, reload and next inference", async () => {
+    const message = expectDefined(createTurnMessages().find((entry) => entry.role === "assistant"));
+    delete message.diagnostics; // Diagnostic projection normalization has separate coverage.
+    message.content = [
+      { type: "thinking", thinking: "é".repeat(60_000), thinkingSignature: "s\\".repeat(1000) },
+      { type: "text", text: 'answer"'.repeat(12_000), textSignature: "text-signature" },
+    ];
+    message.stopReason = "stop";
+    // Provider checkpoints are opaque printable tokens; Unicode/quotes belong
+    // in the visible content fixtures above, not in this provider token field.
+    message.providerReplay = { ...PROVIDER_REPLAY, data: "opaque-replay_token".repeat(24_000) };
+    message.providerReplay.replayIndex = 0;
+    const request = createRequest({ messages: [message] });
+    const first = await committer.commit({ ...ADMITTED_OWNER, request });
+    expect(first.ok).toBe(true);
+    expect(await committer.commit({ ...ADMITTED_OWNER, request })).toEqual(first);
+    const reopened = await SessionManager.openAsync(sessionTarget);
+    const loaded = reopened.buildSessionContext().messages;
+    expect(loaded).toMatchObject([message]);
+    const projected = toWorkerInferenceContext({ messages: loaded });
+    if (projected.kind !== "complete") {
+      throw new Error("expected complete context");
+    }
+    expect(projected.context.messages[0]).toMatchObject(message);
+    expect(
+      validateWorkerInferenceStartParams({
+        runEpoch: RUN_EPOCH,
+        sessionId: SESSION_ID,
+        runId: IDENTITY.runId,
+        turnId: "next",
+        modelRef: { provider: "openai", model: "gpt-5.5" },
+        options: {},
+        context: projected.context,
+      }),
+    ).toBe(true);
   });
 
   it("replays the same tuple without duplicates and rejects a changed payload", async () => {

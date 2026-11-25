@@ -5,6 +5,7 @@ import {
   formatBundledPluginDevReloadWarning,
   resolveBundledPluginDevReloadMode,
 } from "./bundled-plugin-dev-reload.js";
+import { inspectPluginGenerationSources } from "./plugin-generation-source-inspection.js";
 import { getPluginInstance } from "./plugin-instance-scope.js";
 import { getPluginRuntimeEntrySource } from "./plugin-runtime-artifact-binding.js";
 import type { PluginRegistry } from "./registry-types.js";
@@ -68,6 +69,44 @@ export type PluginLifecycleReason =
   | "uninstall"
   | "reload"
   | "metadata";
+
+/** Honest restart notice for a non-bundled plugin whose live code is no longer the
+ *  current source on disk. Unlike bundled code this is rare: an explicit reload
+ *  re-evaluates config/path plugins, so the live generation normally already runs
+ *  the current bytes. It only happens when the running owner was retained (for
+ *  example a recovered generation) while the file changed underneath it. */
+const CONFIG_PLUGIN_CODE_RELOAD_WARNING =
+  "Reloaded plugin code is not the current source on disk. New dispatches after the next Gateway restart will load the edited code; calls already accepted before the reload keep their previous generation's code until they finish.";
+
+/**
+ * True when a non-bundled plugin's captured live code no longer matches the source on
+ * disk. Mirrors the bundled shared-code identity check for the generation-replacement
+ * path, so a config/path plugin that retained code can report restartRequired honestly
+ * instead of implying the swap reached every call.
+ */
+function configPluginCodeIsStale(record: PluginRecord, instance: { sourceDigest?: string }) {
+  const live = instance.sourceDigest;
+  if (!live || !record.rootDir) {
+    return !live;
+  }
+  try {
+    const byEntry = inspectPluginGenerationSources([
+      { pluginId: record.id, rootDir: record.rootDir, entryFile: record.source },
+    ]).sourceDigests[record.id];
+    const byRoot = inspectPluginGenerationSources([
+      { pluginId: record.id, rootDir: record.rootDir },
+    ]).sourceDigests[record.id];
+    // Match the loader's own capture policy either way; only a digest that is neither
+    // available form proves the running code is not the current disk bytes.
+    if (!byEntry && !byRoot) {
+      return true;
+    }
+    return live !== byEntry && live !== byRoot;
+  } catch {
+    // Files unreadable or changed mid-capture: report honestly rather than claim success.
+    return true;
+  }
+}
 
 /** Project the published registry's captured-code facts into its application receipt. */
 export function createPluginRuntimeApplication(params: {

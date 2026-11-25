@@ -39,6 +39,7 @@ import {
   validateWorkerTurnAdmissionParams,
 } from "../../../../packages/gateway-protocol/src/schema/worker-turn-admission.js";
 import { formatErrorMessage } from "../../../infra/errors.js";
+import { isWorkerTranscriptFrameWithinBudget } from "../../../../packages/gateway-protocol/src/worker-transcript-budget.js";
 import type { WorkerConnectionIdentity } from "../../worker-environments/connection-identity.js";
 import type { createWorkerTurnRpc } from "../../worker-environments/worker-turn-rpc.js";
 import {
@@ -232,7 +233,14 @@ export async function dispatchWorkerRequest(params: {
   if (params.request.method === WORKER_PROTOCOL_METHODS[1]) {
     return execute(
       WORKER_TRANSCRIPT_COMMIT_PROTOCOL_FEATURE,
-      validateWorkerTranscriptCommitParams,
+      (value): value is Parameters<WorkerConnectionService["commitTranscript"]>[1] =>
+        validateWorkerTranscriptCommitParams(value) &&
+        isWorkerTranscriptFrameWithinBudget({
+          type: "req",
+          id: params.request.id,
+          method: "worker.transcript.commit",
+          params: value,
+        }),
       (request) => service.commitTranscript(params.identity, request),
       workerTranscriptCommitError("invalid-batch"),
       (failure: WorkerServiceFailure<"commitTranscript">) =>

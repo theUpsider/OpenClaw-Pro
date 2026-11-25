@@ -50,6 +50,8 @@ export type StatusScanOverviewResult = {
         | "failedPlugins"
         | "startupMigrationWarning"
         | "modelReasoningWarning"
+        | "startupRecoveryWarning"
+        | "startupRecoveryTombstoneWarning"
         | "installationReplacementWarning"
         | "utilityModelWarnings"
         | "childRuntime"
@@ -251,6 +253,9 @@ export async function collectStatusScanOverview(params: {
           failedPlugins: status.failedPlugins ?? [],
           startupMigrationWarning: status.startupMigrationWarning,
           modelReasoningWarning: status.modelReasoningWarning,
+          // Recovery diagnostics live in the Gateway process; the CLI's own reader is empty.
+          startupRecoveryWarning: status.startupRecoveryWarning,
+          startupRecoveryTombstoneWarning: status.startupRecoveryTombstoneWarning,
           installationReplacementWarning: status.installationReplacementWarning,
           utilityModelWarnings: status.utilityModelWarnings,
           ...(params.opts.deep && status.childRuntime ? { childRuntime: status.childRuntime } : {}),

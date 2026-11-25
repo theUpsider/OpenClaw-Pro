@@ -621,6 +621,21 @@ export function createPluginReloadCleanup({
       if (retainedWorkQueued) {
         recordWarning("Plugin replacement waited for retained work to finish.");
       }
+      try {
+        if (pluginIds.size) {
+          await drainWithDeadline(pluginIds, signal, reportStatus, "reloading");
+        }
+      } catch (error) {
+        if (error instanceof PluginHostCleanupTimeoutError) {
+          throw new PluginAdmittedWorkTimeoutError(
+            pluginIds,
+            previousInstances(pluginIds),
+            error,
+            admittedWorkTimeoutMs,
+          );
+        }
+        throw error;
+      }
     },
     resumeInstances: () => quiescedInstances.forEach((instance) => instance.resume()),
     drainForRecovery,

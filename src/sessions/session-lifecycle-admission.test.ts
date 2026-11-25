@@ -3,12 +3,18 @@ import { importFreshModule } from "openclaw/plugin-sdk/test-fixtures";
 import { expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { runExclusiveSessionStoreWrite } from "../config/sessions/store-writer.js";
+import { createGatewayActiveWorkSnapshot } from "../infra/gateway-active-work.js";
 import {
+  GatewayDrainingError,
+  getActiveGatewayRootWorkCount,
+  markGatewayRestartDraining,
   resetGatewayWorkAdmission,
+  runWithGatewayIndependentRootWorkContinuation,
   tryBeginGatewayRootWorkAdmission,
   tryBeginGatewaySuspendAdmission,
 } from "../process/gateway-work-admission.js";
 import { cancelSessionEffectHandoff as cancelHandoff } from "./session-controller.lifecycle-observation.js";
+import { runWithGatewayRootWorkAdmissionForTest } from "../process/gateway-work-admission.test-helpers.js";
 import {
   beginSessionEffect as beginAdmission,
   consumeSessionEffectHandoff as consumeHandoff,
@@ -650,4 +656,71 @@ it("shares lifecycle coordination across duplicate module instances", async () =
   } finally {
     lease.release();
   }
+});
+
+it("admits settled-chain session work and owns it in the session registry", async () => {
+  const scope = "store-settled-chain";
+  const go = createDeferred();
+  const admitted = createDeferred<Awaited<ReturnType<typeof beginSessionWorkAdmission> | Error>>();
+  await runWithGatewayRootWorkAdmissionForTest(async () => {
+    await runWithGatewayIndependentRootWorkContinuation(async () => {
+      // Registered inside the continuation root; the chain keeps its settled
+      // lease through ALS after release, the way a channel dispatch continues
+      // after the pump root that admitted it settled.
+      void go.promise
+        .then(() =>
+          beginSessionWorkAdmission({
+            scope,
+            identities: ["session-settled-chain"],
+            assertAllowed: () => {},
+          }),
+        )
+        .then(
+          (lease) => admitted.resolve(lease),
+          (error: unknown) => admitted.resolve(error as Error),
+        );
+    }, "channel:inbound-dispatch");
+  });
+  expect(getActiveGatewayRootWorkCount()).toBe(0);
+
+  go.resolve();
+  const result = await admitted.promise;
+  expect(result).not.toBeInstanceOf(Error);
+  const lease = result as Awaited<ReturnType<typeof beginSessionWorkAdmission>>;
+  try {
+    // The session registry is the owning tracker for this span: suspension
+    // readiness (sessionAdmissions) sees it even though the chain owns no root.
+    expect(getActiveSessionWorkAdmissionCount()).toBeGreaterThan(0);
+    const snapshot = createGatewayActiveWorkSnapshot();
+    expect(snapshot.counts.sessionAdmissions).toBeGreaterThan(0);
+    expect(snapshot.idle).toBe(false);
+  } finally {
+    lease.release();
+  }
+  expect(getActiveSessionWorkAdmissionCount()).toBe(0);
+});
+
+it("refuses settled-chain session work while restart drain is active", async () => {
+  const scope = "store-settled-chain-restart";
+  const go = createDeferred();
+  const attempted = createDeferred<unknown>();
+  await runWithGatewayRootWorkAdmissionForTest(async () => {
+    await runWithGatewayIndependentRootWorkContinuation(async () => {
+      void go.promise.then(() => {
+        attempted.resolve(
+          beginSessionWorkAdmission({
+            scope,
+            identities: ["session-settled-chain-restart"],
+            assertAllowed: () => {},
+          }),
+        );
+      });
+    }, "channel:inbound-dispatch");
+  });
+  markGatewayRestartDraining();
+
+  go.resolve();
+  await expect(attempted.promise).rejects.toBeInstanceOf(GatewayDrainingError);
+  expect(getActiveSessionWorkAdmissionCount()).toBe(0);
+  expect(getActiveGatewayRootWorkCount()).toBe(0);
 });

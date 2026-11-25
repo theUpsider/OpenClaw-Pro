@@ -280,3 +280,22 @@
 .sidebar-markdown :where(details[open] > :not(summary)) {
   padding: 0 12px 10px;
 }
+
+/* Inline Markdown (labels inside a button/radio): phrasing content only, so the
+   root is a <span> and must not carry the block reader's line-height/margins.
+   The label color is owned by the surrounding control, never a second accent. */
+.sidebar-markdown--inline {
+  display: inline;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.sidebar-markdown--inline :where(p) {
+  display: inline;
+  margin: 0;
+}
+
+.sidebar-markdown--inline :where(code) {
+  font-size: 0.9em;
+}

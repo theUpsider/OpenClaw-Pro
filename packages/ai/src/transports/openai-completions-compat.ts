@@ -51,9 +51,13 @@ export type ResolvedOpenAICompletionsCompat = Omit<
   | "openRouterRouting"
   | "sendSessionAffinityHeaders"
   | "reasoningEffortMap"
+  | "numericReasoningEfforts"
   | "supportedReasoningEfforts"
 > &
-  Pick<OpenAICompletionsCompat, "reasoningEffortMap" | "supportedReasoningEfforts"> & {
+  Pick<
+    OpenAICompletionsCompat,
+    "reasoningEffortMap" | "numericReasoningEfforts" | "supportedReasoningEfforts"
+  > & {
     cacheControlFormat?: OpenAICompletionsCompat["cacheControlFormat"];
     cacheControlSystemOnly: boolean;
     cacheControlSharedSystem: boolean;
@@ -353,6 +357,15 @@ export function resolveOpenAICompletionsCompat(
       configured?.supportsReasoningEffort ?? defaults.supportsReasoningEffort,
     supportedReasoningEfforts: configured?.supportedReasoningEfforts,
     reasoningEffortMap: configured?.reasoningEffortMap,
+    numericReasoningEfforts: configured?.numericReasoningEfforts,
+    // Custom OpenAI routes need a declared off effort; inferred Z.AI may be always-thinking.
+    // Explicit Z.AI formats and effort mappings still own their off contract.
+    reasoningEffortForOff:
+      capabilities.usesExplicitProxyLikeEndpoint &&
+      (thinkingFormat === "openai" || thinkingOffControlUndeclared) &&
+      !configured?.supportedReasoningEfforts?.includes("none")
+        ? null
+        : "none",
     thinkingOffControlUndeclared,
     supportsUsageInStreaming:
       configured?.supportsUsageInStreaming ?? defaults.supportsUsageInStreaming,

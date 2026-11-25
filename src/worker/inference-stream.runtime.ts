@@ -280,7 +280,9 @@ export function createWorkerInferenceStreamAdapter(
       settled = true;
       partial.stopReason = reason;
       partial.errorMessage = error instanceof Error ? error.message : String(error);
-      partial.retryAfterMs = retryAfterMs;
+      if (retryAfterMs !== undefined) {
+        partial.retryAfterMs = retryAfterMs;
+      }
       if (usage) {
         partial.usage = usage;
       }

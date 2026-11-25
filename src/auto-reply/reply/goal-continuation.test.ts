@@ -60,6 +60,13 @@ vi.mock("../../agents/embedded-agent-runner/run/attempt.js", () => ({
   runEmbeddedAttempt: vi.fn(async () => createAttemptResult()),
 }));
 
+const coordinator = vi.hoisted(() => ({ decide: vi.fn() }));
+// mock-isolation: This owner test forces the coordinator's bookkeeping to fail
+// without standing up a session store, decision model, or verifier.
+vi.mock("./goal-verification-coordinator.js", () => ({
+  decideGoalTurnEndContinuation: coordinator.decide,
+}));
+
 const children = vi.hoisted(() => vi.fn(async () => [] as unknown[]));
 // mock-isolation: Child custody is supplied without restoring the process registry.
 vi.mock("../../agents/subagents/registry/subagent-registry.js", () => ({
@@ -196,6 +203,7 @@ beforeEach(() => {
   workerPlacement.current.mockReset();
   vi.mocked(enqueueFollowupRun).mockClear();
   vi.mocked(readSessionEntryReadOnlyInWorker).mockResolvedValue(entry());
+  coordinator.decide.mockReset().mockResolvedValue({ queue: true });
 });
 afterEach(async () => {
   for (const mailbox of sessionControllerMailboxes()) {
@@ -488,6 +496,23 @@ describe("Goal queue custody", () => {
     f.operation.fail("run_failed", new Error("delivery failed"));
     f.operation.complete();
     expect(queued.abortSignal?.aborted).toBe(true);
+  });
+  it("finalizes the turn exactly as today when verification bookkeeping throws", async () => {
+    // F8 FAIL-OPEN: a store error after a verifier timeout must not reject turn
+    // finalization. The turn proceeds as if the gate were absent: today's nudge
+    // is queued, nothing is authorized, and no error escapes.
+    const f = fixture();
+    coordinator.decide.mockRejectedValue(new Error("verification store unavailable"));
+    await expect(enqueueGoalContinuation(f.params)).resolves.toBe(true);
+    const queued = vi.mocked(enqueueFollowupRun).mock.calls[0]![1];
+    expect(queued.prompt).toContain("Advance");
+    expect(queued.goalContinuation).toEqual(identity);
+  });
+  it("falls back to today's behavior when only the budget write fails", async () => {
+    const f = fixture();
+    coordinator.decide.mockRejectedValue(new Error("session store closed"));
+    expect(await enqueueGoalContinuation(f.params)).toBe(true);
+    expect(vi.mocked(enqueueFollowupRun)).toHaveBeenCalledTimes(1);
   });
 });
 

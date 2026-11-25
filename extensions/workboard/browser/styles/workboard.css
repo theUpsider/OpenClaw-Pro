@@ -230,6 +230,101 @@
   color: var(--text);
 }
 
+.workboard-voice {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  font-size: var(--control-ui-text-sm);
+  font-weight: 400;
+}
+
+.workboard-voice__error {
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.workboard-voice__sent {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.workboard-voice.workboard-detail__voice {
+  flex-wrap: wrap;
+  justify-self: start;
+}
+
+.workboard-voice-gate {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  border: 1px solid var(--overlay-border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: var(--control-ui-text-sm);
+  line-height: 1.5;
+}
+
+.workboard-voice-gate h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.workboard-voice-gate__attribution {
+  margin: 0;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+
+.workboard-voice-gate__field {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.workboard-voice-gate__field textarea {
+  min-height: 96px;
+  resize: vertical;
+  white-space: pre-wrap;
+}
+
+/* The dialog sits on --bg-elevated, so the input's own fill no longer separates it
+   from its backdrop (1.1:1) and the boundary has to carry the component. --border
+   and --border-strong stay under 2:1 there; --muted is the host's own control-
+   boundary token (settings-native-controls.css) and clears 3:1 in both themes.
+   Same for the secondary action, whose --bg-elevated fill is invisible on this
+   surface: without a boundary it reads as text, not as a button. */
+.workboard-voice-gate .settings-input,
+.workboard-voice-gate .workboard-modal__actions .btn:not(.primary) {
+  border-color: var(--muted);
+}
+
+.workboard-voice-gate .workboard-voice__error {
+  margin: 0;
+}
+
+.workboard-voice-gate .workboard-modal__actions {
+  flex-wrap: wrap;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.workboard-voice-gate .workboard-modal__actions .btn {
+  min-height: 36px;
+}
+
+/* The composer's own controls lead the row; Discard and Send stay at its end. */
+.workboard-voice-gate__session {
+  display: flex;
+  min-width: 0;
+}
+
+.workboard-voice-gate__mic {
+  display: inline-flex;
+  margin-inline-end: auto;
+}
+
 .workboard-page-title {
   display: flex;
   align-items: center;
@@ -617,6 +712,39 @@
   color: var(--text);
   font-size: 1rem;
   font-weight: 600;
+}
+
+.workboard-modal__header-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* The status line scrolls with the fields. It stays mounted so the first message is
+   announced; its spacing sits on its messages, so it takes no room while silent. */
+.workboard-draft__voice-status {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.workboard-draft__voice-status p,
+.workboard-draft__voice-status ul {
+  margin: var(--space-1) 0 0;
+}
+
+.workboard-draft__voice-status > :first-child {
+  margin-top: 0;
+}
+
+.workboard-draft__voice-status > :last-child {
+  margin-bottom: var(--space-2);
+}
+
+.workboard-draft__voice-status ul {
+  padding-left: var(--space-4);
 }
 
 .workboard-card-draft .workboard-draft__accessible-label,
@@ -1612,7 +1740,7 @@
 }
 
 .workboard-board--page.workboard-board--compact {
-  --workboard-column-width: 280px;
+  --workboard-column-width: 248px;
 }
 
 /* Leave the next column in view on phones so the board reads as scrollable. */
@@ -2012,10 +2140,74 @@
   margin-top: var(--space-2);
 }
 
+/* "Needs you" lens. The count uses the needs-you marker's --danger tint only while
+   something waits; the inbox is one board column widened to a reading measure. */
+.workboard-inbox-toggle {
+  flex: none;
+  gap: var(--space-2);
+}
+
+/* Pressed reads like a selected status tab: the ghost toolbar border alone measures under 3:1. */
+.workboard-toolbar .btn.workboard-inbox-toggle[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--text-strong);
+}
+
+.workboard-inbox-toggle__count {
+  display: inline-grid;
+  place-items: center;
+  min-width: var(--space-5);
+  height: var(--space-5);
+  border-radius: var(--radius-full);
+  padding-inline: var(--space-1);
+  background: var(--bg-hover);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.workboard-inbox-toggle__count--waiting {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.workboard-board--page.workboard-board--inbox:not(.workboard-board--list) .workboard-inbox {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: 720px;
+}
+
+.workboard-inbox__why {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  margin: 0 0 var(--space-1);
+  color: var(--muted);
+  font-size: var(--control-ui-text-sm);
+  line-height: 1.4;
+}
+
+.workboard-inbox__reasons {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.workboard-board--list .workboard-inbox__why {
+  margin: 0;
+  padding: var(--space-2) var(--space-3) 0;
+}
+
 .workboard-card {
   --workboard-card-inner-gap: 8px;
   --workboard-card-block-gap: 12px;
   --workboard-card-footer-gap: 16px;
+  /* Needs-you marker: a host status token, so it never takes a classification palette slot.
+     --danger, not --accent: --accent is the card's focus ring and the one filled action. */
+  --workboard-card-attention: var(--danger);
   position: relative;
   min-width: 0;
   max-width: 100%;
@@ -2064,6 +2256,59 @@
   cursor: grabbing;
 }
 
+/* Classification: a leading accent stripe in the primary classification's color.
+   Needs-you draws its own stripe in ::after, so the two never compete for one box and a
+   classified card that needs the operator shows both. */
+.workboard-card--classified::before,
+.workboard-card--needs-you::after {
+  content: "";
+  position: absolute;
+  inset-block: 14px;
+  /* Clears the 2px inset focus ring. */
+  inset-inline-start: 4px;
+  width: 3px;
+  border-radius: var(--radius-full);
+  pointer-events: none;
+}
+
+/* Borders, not backgrounds, so the stripes survive forced-colors mode. Each stripe sets its
+   whole border: on an unclassified card the unset accent would void a shared declaration. */
+.workboard-card--classified::before {
+  border-inline-start: 3px solid var(--workboard-card-accent);
+}
+
+.workboard-card--needs-you::after {
+  border-inline-start: 3px solid var(--workboard-card-attention);
+}
+
+/* Beside the classification stripe (3px + 1px gap). The pair still ends at or before the
+   content edge on every surface; the tightest is page compact (10px inline padding). */
+.workboard-card--classified.workboard-card--needs-you::after {
+  margin-inline-start: 4px;
+}
+
+/* The stripe starts 2px outside the content edge (inset-block = vertical card padding - 2px):
+   page 16px padding -> 14px, widget compact 12px -> 10px, page compact 8px -> 6px.
+   List rows keep their own 8px/2px. A new card padding needs a matching inset here. */
+.workboard-board--compact .workboard-card--classified::before,
+.workboard-board--compact .workboard-card--needs-you::after {
+  inset-block: 10px;
+  inset-inline-start: 3px;
+}
+
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list)
+  .workboard-card--classified::before,
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list)
+  .workboard-card--needs-you::after {
+  inset-block: 6px;
+}
+
+.workboard-board.workboard-board--list .workboard-card--classified::before,
+.workboard-board.workboard-board--list .workboard-card--needs-you::after {
+  inset-block: 8px;
+  inset-inline-start: 2px;
+}
+
 .workboard-truncate-two {
   min-width: 0;
   display: -webkit-box;
@@ -2084,6 +2329,22 @@
   font-size: 11px;
   line-height: 16px;
   white-space: nowrap;
+}
+
+.workboard-card__label--colored {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workboard-card__label--colored::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  border: 3px solid var(--workboard-label-color);
+  box-sizing: border-box;
 }
 
 /* Card title. */
@@ -2587,9 +2848,15 @@
   grid-column: 1 / -1;
 }
 
+.workboard-card__start--queued {
+  color: var(--muted);
+}
+
 .workboard-card__priority,
 .workboard-agent-chip,
-.workboard-card__archived {
+.workboard-card__archived,
+.workboard-card__acceptance,
+.workboard-card__needs-you {
   display: inline-flex;
   align-items: center;
   min-height: 20px;
@@ -2624,6 +2891,14 @@
   color: var(--muted);
 }
 
+/* Fixed width in the list title row too: the title shrinks and truncates, the row never wraps. */
+.workboard-card__needs-you {
+  flex: 0 0 auto;
+  background: color-mix(in srgb, var(--workboard-card-attention) 14%, transparent);
+  color: var(--workboard-card-attention);
+  font-weight: 600;
+}
+
 .workboard-board--compact .workboard-column__cards {
   gap: var(--space-3);
   padding-block: 0;
@@ -2631,6 +2906,117 @@
 
 .workboard-board--compact .workboard-card {
   padding: 12px;
+}
+
+/* Compact page board: tighter columns and cards. Widgets keep the shared compact
+   rules above, list rows keep their own layout, and touch targets keep 44px. */
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list) {
+  gap: var(--space-2);
+}
+
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list)
+  .workboard-column:not(.workboard-column--collapsed) {
+  padding: var(--space-1) var(--space-2) 0;
+}
+
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list)
+  .workboard-column__header {
+  min-height: var(--space-7);
+  padding-bottom: var(--space-1);
+}
+
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list)
+  .workboard-column__header
+  h2 {
+  gap: 6px;
+  font-size: 0.76rem;
+}
+
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list)
+  .workboard-column__cards {
+  gap: 6px;
+  padding-bottom: var(--space-2);
+}
+
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list) .workboard-card {
+  --workboard-card-inner-gap: 6px;
+  --workboard-card-block-gap: 6px;
+  --workboard-card-footer-gap: 8px;
+
+  padding: var(--space-2) 10px;
+  border-radius: var(--radius-sm);
+}
+
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list)
+  .workboard-card__title
+  h3 {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list) .workboard-chip {
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list)
+  .workboard-card__session {
+  min-height: 20px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list)
+  .workboard-card__session
+  .workboard-agent-avatar,
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list)
+  .workboard-card__session
+  .agent-select__avatar {
+  width: 20px;
+  height: 20px;
+}
+
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list) .workboard-card__alert {
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list)
+  :is(.workboard-card__counts, .workboard-card__updated) {
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list)
+  :is(
+    .workboard-card__priority,
+    .workboard-agent-chip,
+    .workboard-card__archived,
+    .workboard-card__acceptance,
+    .workboard-card__needs-you
+  ) {
+  min-height: 16px;
+  font-size: 0.68rem;
+}
+
+.workboard-board--page.workboard-board--compact:not(.workboard-board--list)
+  :is(
+    .workboard-card__session-marker svg,
+    .workboard-card__alert svg,
+    .workboard-card__counts svg,
+    .workboard-card__priority svg
+  ) {
+  width: 11px;
+  height: 11px;
+}
+
+@media (hover: hover) {
+  .workboard-board--page.workboard-board--compact:not(.workboard-board--list)
+    .workboard-card__menu-trigger {
+    width: 24px;
+    height: 24px;
+  }
 }
 
 .workboard-card__session-icon,
@@ -2983,7 +3369,8 @@
 }
 
 .workboard-detail__row > span,
-.workboard-detail__label-group > span {
+.workboard-detail__label-group > span,
+.workboard-detail__voice-row > span {
   color: var(--muted);
   font-size: 0.78rem;
 }
@@ -2995,7 +3382,8 @@
   overflow-wrap: anywhere;
 }
 
-.workboard-detail__label-group {
+.workboard-detail__label-group,
+.workboard-detail__voice-row {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: 64px minmax(0, 1fr);
@@ -3066,10 +3454,249 @@ workboard-inline-text {
 }
 
 .workboard-detail__labels-popover {
-  width: min(300px, calc(100vw - 24px));
+  width: min(320px, calc(100vw - 24px));
   overflow: auto;
   padding: 12px;
   border-radius: var(--radius-lg);
+}
+
+/* Classification palette in the label editor. Token names follow the design contract
+   (tokens.css): semantic aliases over host tokens, no colour space of its own. A slot's
+   colour arrives inline as --palette-slot-color from the host appearance resolver. */
+.workboard-palette {
+  --p-tint-slot: 12%;
+  --p-space-1: 4px;
+  --p-space-2: 8px;
+  --p-space-3: 12px;
+  --p-radius-chip: var(--radius-full);
+  --p-radius-slot: 8px;
+  --p-type-slot: 0.78rem;
+  --p-type-count: 0.72rem;
+  --palette-surface-sunken: transparent;
+  --palette-text: var(--text);
+  --palette-text-muted: var(--muted);
+  --palette-line: var(--border);
+  /* A slot's edge is a control boundary (WCAG 1.4.11, 3:1); --border measures 1.05:1 on the
+     popover. 60% of --text measures 4.09:1 dark, 3.44:1 light, still below the hover edge. */
+  --palette-edge: color-mix(in srgb, var(--text) 60%, transparent);
+  --palette-focus: var(--accent);
+  --palette-slot-color: var(--muted);
+  --palette-negative: var(--danger);
+  --palette-negative-surface: var(--danger-subtle);
+  display: grid;
+  gap: var(--p-space-3);
+  min-width: 0;
+  color: var(--palette-text);
+}
+
+.workboard-palette__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--p-space-2);
+}
+
+.workboard-palette__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.workboard-palette__count {
+  flex: none;
+  color: var(--palette-text-muted);
+  font-size: var(--p-type-count);
+  font-variant-numeric: tabular-nums;
+}
+
+.workboard-palette--full .workboard-palette__count {
+  color: var(--palette-text);
+  font-weight: 600;
+}
+
+.workboard-palette__status,
+.workboard-palette__note {
+  margin: 0;
+  color: var(--palette-text-muted);
+  font-size: var(--p-type-slot);
+  line-height: 1.4;
+}
+
+.workboard-palette__note {
+  font-size: var(--p-type-count);
+}
+
+.workboard-palette__slots {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--p-space-1);
+}
+
+.workboard-palette__unslotted {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--p-space-1);
+}
+
+.workboard-palette__slot {
+  /* Defined per slot so the wash mixes this slot's own colour. */
+  --palette-slot-wash: color-mix(
+    in srgb,
+    var(--palette-slot-color) var(--p-tint-slot),
+    transparent
+  );
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 32px;
+  margin: 0;
+  padding: var(--p-space-1) var(--p-space-2);
+  border: 1px solid var(--palette-edge);
+  border-radius: var(--p-radius-slot);
+  background: var(--palette-surface-sunken);
+  color: var(--palette-text-muted);
+  font: inherit;
+  font-size: var(--p-type-slot);
+  line-height: 1.3;
+  text-align: start;
+}
+
+.workboard-palette__slot--used {
+  background: var(--palette-slot-wash);
+  color: var(--palette-text);
+  cursor: pointer;
+}
+
+.workboard-palette__slot--unslotted {
+  max-width: 100%;
+  border-radius: var(--p-radius-chip);
+  cursor: pointer;
+}
+
+.workboard-palette__slot--free {
+  border-style: dashed;
+}
+
+.workboard-palette__slot[aria-pressed="true"] {
+  border-color: var(--palette-text-muted);
+  color: var(--palette-text);
+}
+
+.workboard-palette__slot--used:not([aria-disabled]):hover,
+.workboard-palette__slot--unslotted:not([aria-disabled]):hover {
+  border-color: var(--palette-text-muted);
+}
+
+.workboard-palette__slot:focus-visible {
+  outline: 2px solid var(--palette-focus);
+  outline-offset: 2px;
+}
+
+.workboard-palette__slot[aria-disabled],
+.workboard-palette--readonly .workboard-palette__slot {
+  cursor: default;
+}
+
+.workboard-palette__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius-full);
+  /* A border, not a background, so the dot survives forced-colors mode. */
+  border: 4px solid var(--palette-slot-color);
+}
+
+.workboard-palette__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workboard-palette__check {
+  display: inline-flex;
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+.workboard-palette__check svg {
+  width: 12px;
+  height: 12px;
+}
+
+.workboard-palette__create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--p-space-1) var(--p-space-2);
+}
+
+.workboard-palette__field {
+  grid-column: 1 / -1;
+  color: var(--palette-text-muted);
+  font-size: var(--p-type-count);
+}
+
+.workboard-palette--error .workboard-palette__create .settings-input {
+  border-color: var(--palette-negative);
+}
+
+.workboard-palette__error {
+  margin: 0;
+  color: var(--palette-negative);
+  font-size: var(--p-type-slot);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.workboard-palette__overwrite {
+  display: grid;
+  gap: var(--p-space-2);
+  padding-top: var(--p-space-3);
+  border-top: 1px solid var(--palette-line);
+}
+
+.workboard-palette__overwrite-title {
+  font-size: var(--p-type-slot);
+  font-weight: 600;
+}
+
+.workboard-palette__overwrite .workboard-palette__field {
+  margin-bottom: calc(-1 * var(--p-space-1));
+}
+
+.workboard-palette__overwrite-warning {
+  margin: 0;
+  padding: var(--p-space-2);
+  border-radius: var(--p-radius-slot);
+  background: var(--palette-negative-surface);
+  color: var(--palette-negative);
+  font-size: var(--p-type-slot);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.workboard-palette__overwrite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.workboard-palette .btn {
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.workboard-palette__replace {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .workboard-detail__text-editor .settings-input {
@@ -3450,6 +4077,11 @@ workboard-inline-text {
 .workboard-detail__events time {
   color: var(--muted);
   font-size: 0.73rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.workboard-detail__event-agent {
+  color: var(--muted);
 }
 
 .workboard-detail__comments li {
@@ -3559,7 +4191,8 @@ workboard-inline-text {
   .workboard-detail__disclosure > summary,
   .workboard-detail__engine-group .workboard-card__start,
   .workboard-detail__labels-popover .settings-input,
-  .workboard-detail__labels-popover .btn {
+  .workboard-detail__labels-popover .btn,
+  .workboard-palette__slot {
     min-height: 44px;
   }
 }
@@ -3772,6 +4405,16 @@ workboard-inline-text {
 
   .workboard-mobile-status {
     display: block;
+  }
+
+  /* The status picker shares its row with the "Needs you" toggle and wraps below it when narrow. */
+  .workboard-toolbar__navigation {
+    gap: var(--space-1) var(--space-2);
+  }
+
+  .workboard-toolbar__navigation > .workboard-mobile-status {
+    width: auto;
+    max-width: 100%;
   }
 
   .workboard-toolbar .btn.workboard-mobile-status__trigger {
@@ -4870,5 +5513,875 @@ workboard-inline-text {
   .workboard-filter-row .picker-select__chevron svg {
     width: 16px;
     height: 16px;
+  }
+}
+
+.workboard-waiting {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  border-inline-start: 3px solid var(--muted);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 60%, var(--bg-elevated));
+  color: var(--text);
+  font-size: 0.84rem;
+  overflow-wrap: anywhere;
+}
+
+.workboard-waiting--decision {
+  border-inline-start-color: var(--accent);
+  font-weight: 600;
+}
+
+/* The waiting sentence renders as Markdown inside this note; keep it one compact
+   line without the block reader's paragraph margins. */
+.workboard-waiting .sidebar-markdown :where(p) {
+  margin: 0;
+}
+
+.workboard-waiting .sidebar-markdown {
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.workboard-decision {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-radius: 6px;
+}
+
+.workboard-decision__hint {
+  color: var(--muted);
+}
+
+.workboard-decision__actions,
+.workboard-artifacts__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.workboard-decision__option {
+  max-width: 100%;
+  white-space: normal;
+  text-align: start;
+}
+
+/* Ask dialog (docs/ui: "Entscheidungskarte als Ask-Dialog"). Options are full rows
+   stacked in the agent's order with a number column. The drawer surface is
+   --bg-elevated, the .btn fill, so every control edge in the panel binds to --muted
+   (5.04:1 dark / 5.45:1 light); --border measures 1.05:1 / 1.27:1 there. */
+.workboard-decision__options {
+  display: grid;
+  gap: 6px;
+}
+
+.workboard-decision__options .workboard-decision__option {
+  display: grid;
+  grid-template-columns: 2ch minmax(0, 1fr);
+  align-content: center;
+  align-items: start;
+  justify-content: stretch;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-color: var(--muted);
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.workboard-decision__option[aria-checked="true"] {
+  border-color: var(--text-strong);
+  box-shadow: inset 3px 0 0 var(--text-strong);
+}
+
+.workboard-decision__option-number {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.workboard-decision__option-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workboard-decision__option-label {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.workboard-decision__recommended {
+  padding: 0 6px;
+  border: 1px solid var(--muted);
+  border-radius: 9999px;
+  color: var(--text);
+  font-size: 0.74rem;
+}
+
+.workboard-decision__option-description {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.workboard-decision__custom-label {
+  margin: 0;
+  color: var(--text);
+}
+
+.workboard-decision__input {
+  resize: vertical;
+}
+
+.workboard-decision__status {
+  color: var(--muted);
+}
+
+.workboard-decision__status:empty {
+  display: none;
+}
+
+.workboard-decision .workboard-decision__input,
+.workboard-decision__actions .btn:not(.primary) {
+  border-color: var(--muted);
+}
+
+.workboard-artifacts__list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workboard-artifacts__row {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  border-radius: 6px;
+  font-size: 0.82rem;
+}
+
+.workboard-artifacts__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workboard-artifacts__type,
+.workboard-artifacts__feedback {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.workboard-artifacts__reference {
+  overflow-wrap: anywhere;
+  user-select: text;
+  font-size: 0.76rem;
+}
+
+/* The drawer surface is --bg-elevated, the same fill as .btn, so the edge carries the
+   control: --border measures 1.05:1 / 1.27:1 there, --muted 5.04:1 / 5.45:1. */
+.workboard-artifacts__action.btn {
+  min-height: 28px;
+  padding: 4px 10px;
+  border-color: var(--muted);
+  font-size: 0.75rem;
+}
+
+/* In-app attachment viewer (docs/ui: "Anhang ansehen"). The dialog sits on --bg-elevated,
+   so the body keeps the drawer's text colour and only the image needs a frame. */
+.workboard-attachment-viewer {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--control-ui-text-sm);
+  line-height: 1.5;
+}
+
+.workboard-attachment-viewer__image {
+  display: block;
+  max-width: 100%;
+  max-height: 60vh;
+  margin: 0 auto;
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+
+/* Like the row actions: the dialog surface is --bg-elevated, so --border would measure
+   1.05:1 / 1.27:1 there; --muted carries the secondary control's edge. */
+.workboard-attachment-viewer .btn {
+  border-color: var(--muted);
+}
+
+/* Share dialog (docs/ui: "Artefakt per Kanal teilen"). It sits on --bg-elevated like the
+   talk gate, so field and secondary-button boundaries bind to --muted (5.04:1 dark /
+   5.45:1 light); --border only separates the footer and carries nothing interactive. */
+.workboard-share {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-6);
+  border: 1px solid var(--overlay-border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: var(--control-ui-text-sm);
+  line-height: 1.5;
+}
+
+.workboard-share h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.workboard-share__intro,
+.workboard-share__help,
+.workboard-share__reason,
+.workboard-share__error {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.workboard-share__help,
+.workboard-share__reason {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.workboard-share__reason:empty {
+  display: none;
+}
+
+.workboard-share__error {
+  color: var(--danger);
+}
+
+.workboard-share__preview,
+.workboard-share__field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.workboard-share__message {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-strong);
+  font-size: 0.76rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.workboard-share__route {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.workboard-share .settings-input,
+.workboard-share .picker-select__trigger,
+.workboard-share .workboard-modal__actions .btn:not(.primary) {
+  border-color: var(--muted);
+}
+
+.workboard-share .settings-input,
+.workboard-share .picker-select__trigger {
+  min-height: 36px;
+}
+
+.workboard-share .workboard-modal__actions {
+  flex-wrap: wrap;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.workboard-share .workboard-modal__actions .btn {
+  min-height: 36px;
+}
+
+@media (min-width: 640px) {
+  .workboard-share__route {
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  }
+}
+
+.workboard-detail__dictation--active {
+  color: var(--accent);
+}
+
+/* Board editor: classification palette. Rows pair a name field with a named-color
+   picker; edges use --muted so the control borders hold 3:1 (WCAG 1.4.11). */
+.workboard-palette-editor {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.workboard-palette-editor legend {
+  padding: 0 0 4px;
+  font-weight: 600;
+}
+
+.workboard-palette-editor__help,
+.workboard-palette-editor__empty,
+.workboard-palette-editor__count {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.workboard-palette-editor__empty {
+  margin: 0;
+}
+
+.workboard-palette-editor__rows {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workboard-palette-editor__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius-md);
+}
+
+.workboard-palette-editor__identity {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.6fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.workboard-palette-editor__name,
+.workboard-palette-editor__color {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  font-size: 0.8rem;
+}
+
+.workboard-palette-editor__field-label {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 500;
+}
+
+.workboard-palette-editor__name .settings-input,
+.workboard-palette-editor__color .settings-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  box-sizing: border-box;
+  /* Control border bound to --muted so it holds 3:1 (WCAG 1.4.11); the host
+     .settings-input default is 1.11:1 on this surface. */
+  border-color: var(--muted);
+}
+
+.workboard-palette-editor__color-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.workboard-palette-editor__dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--palette-swatch-color, var(--muted));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 60%, transparent);
+}
+
+.workboard-palette-editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.workboard-palette-editor__actions .btn {
+  min-height: 30px;
+  padding: 4px 10px;
+  /* Same 3:1 control-border binding as the host's other row actions. */
+  border-color: var(--muted);
+}
+
+.workboard-palette-editor__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.workboard-palette-editor__footer .btn {
+  /* Same 3:1 control-border binding as the row actions. */
+  border-color: var(--muted);
+}
+
+.workboard-palette-editor__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .workboard-palette-editor__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workboard-palette-editor__identity {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.workboard-artifact-preview {
+  display: grid;
+  gap: 12px;
+  max-height: 80vh;
+  overflow: auto;
+  padding: 16px;
+}
+
+.workboard-artifact-preview h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+/* ---- "Needs you" lens: tiered order, collapsed agentless row, card face (2026-11-12) ----
+ * Building blocks of this slice, and the semantic name each one reads:
+ *   Face strip glyph + reason (.workboard-face__strip)   → --text (glyph), --text-strong (reason)
+ *   Face title / question (.workboard-face__title/__question) → --muted (title), --text-strong (question)
+ *   Face option row (.workboard-face__option, chosen one) → --text-strong label, --text-muted
+ *     description; the chosen option is `.btn.primary` (the one filled action, host token)
+ *   Faces' borders and the evidence line                  → --muted (non-text ≥ 3:1) / --text-muted
+ *   "No proof" (…__evidence-none)                         → --danger, text form, never colour alone
+ *   Pending line and Undo (…__pending)                    → --text-muted, `role="status"` announces it
+ *   Unowned summary row (…__unowned-row)                  → --muted, `aria-expanded` carries the state
+ * No new primitive and no new semantic token: this slice only reads what the shield already has.
+ * ------------------------------------------------------------------------------------------- */
+
+/* The lens gives each headline card its own face next to it, so one card can be read and decided
+   without ever opening the drawer. The unowned rest stays one collapsed row below. */
+.workboard-inbox__item {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+
+/* The unowned row is a grid child of the same scroller as the faces, so the whole lens scrolls as
+   one sequence instead of the row floating over the viewport. */
+.workboard-inbox__unowned {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.workboard-inbox__unowned-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--muted);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: var(--control-ui-text-sm);
+  text-align: start;
+  cursor: pointer;
+}
+.workboard-inbox__unowned-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.workboard-inbox__unowned-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.workboard-inbox__unowned-chevron {
+  margin-inline-start: auto;
+  color: var(--muted);
+}
+
+.workboard-inbox__unowned-list {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* The face is a sibling of the card (never a child: the card root is a `role="button"` article).
+   Its own region, its own heading, and its own focus ring. */
+.workboard-face {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--muted);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.workboard-face__strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  color: var(--muted);
+  font-size: var(--control-ui-text-sm);
+}
+
+.workboard-face__glyph {
+  color: var(--text);
+}
+
+.workboard-face__reason {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.workboard-face__priority {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.workboard-face__title {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--control-ui-text-sm);
+  font-weight: 500;
+}
+
+.workboard-face__question {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.workboard-face__hint {
+  margin: 0;
+  color: var(--text-muted, var(--muted));
+  font-size: var(--control-ui-text-sm);
+}
+
+.workboard-face__options {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.workboard-face__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  justify-content: flex-start;
+  text-align: start;
+}
+
+.workboard-face__option-number {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* On the filled recommended option the button paints `--primary-foreground`, and `--muted`
+   over that fill measures 1.41:1 (WCAG 1.4.3 needs 4.5:1): the number would be unreadable.
+   Inherit the button's own foreground there (#ffffff on `--primary` = 4.75:1). */
+.workboard-face__option.primary .workboard-face__option-number {
+  color: inherit;
+}
+
+.workboard-face__option-label {
+  color: inherit;
+}
+
+.workboard-face__option-mark {
+  margin-inline-start: auto;
+  color: inherit;
+  font-size: var(--control-ui-text-sm);
+  font-weight: 600;
+}
+
+.workboard-face__evidence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--control-ui-text-sm);
+}
+
+.workboard-face__evidence-counts {
+  color: var(--text);
+}
+
+.workboard-face__evidence-link {
+  color: var(--accent);
+}
+
+.workboard-face__evidence-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.workboard-face__evidence-none {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.workboard-face__field {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--text-muted, var(--muted));
+  font-size: var(--control-ui-text-sm);
+}
+
+.workboard-face__send-back {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--muted);
+  border-radius: var(--radius-sm);
+}
+
+.workboard-face__send-back legend {
+  padding-inline: var(--space-1);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.workboard-face__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.workboard-face__chip {
+  min-height: 32px;
+}
+
+.workboard-face__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* The face's own controls carry the host's default 1px `--border` outline, which measures
+   1.05:1 on the card surface (WCAG 1.4.11 needs 3:1 for UI boundaries). Bind the outline to
+   `--muted` on this surface only (5.04:1), the same fix the decision panel in the drawer
+   already uses. Scoped to `.workboard-face` so no other surface changes. */
+.workboard-face .btn:not(.primary),
+.workboard-face .workboard-face__field .settings-input {
+  border-color: var(--muted);
+}
+
+.workboard-face__pending {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  min-height: 0;
+  color: var(--text-muted, var(--muted));
+  font-size: var(--control-ui-text-sm);
+}
+
+.workboard-face__pending:empty {
+  display: none;
+}
+
+.workboard-face__undo {
+  min-height: 32px;
+}
+
+.workboard-face__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--control-ui-text-sm);
+}
+
+/* A pending write is announced, not gestured: the only motion is the strip's own transition. */
+@media (prefers-reduced-motion: reduce) {
+  .workboard-face,
+  .workboard-inbox__unowned-row {
+    transition: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------
+ * Karten-Notes: die Konvention als Label/Wert-Liste (2026-11-12)
+ *
+ * Der Parser (`lib/workboard/note-outline.ts`) liest die vorhandene Klartext-Konvention
+ * `Was: / Stand: / Naechster Schritt: / Beleg:`; die Anzeige-Reihenfolge ist fest, die
+ * gespeicherte Zeichenkette bleibt unangetastet. Keine neue Farbwelt: Label und Marker lesen
+ * nur Host-Variablen über die vorhandenen Namen.
+ *
+ * Kontrast (gemessen mit der WCAG-Formel gegen die Drawer-Fläche, Primitive aus `ui/src/styles/base.css`):
+ *   Label `.workboard-notes__label`        → --muted auf --bg-elevated  5,04:1 (dunkel) / 5,45:1 (hell)
+ *   Wert `.workboard-notes__value`         → --text-strong             15,50:1 / 16,60:1
+ *   Preamble/Hinweise                      → --text(-strong) / --muted je nach Rolle, alle ≥ 5:1
+ *   Marker `.workboard-notes__marker`      → --text (9,00:1 / 10,96:1), Rand --muted (5,04:1 ≥ 3:1)
+ *   Fokusring des Aufklapp-Knopfs          → --accent (Host) — kein Farb-Signal allein
+ * --------------------------------------------------------------------------------------- */
+
+.workboard-notes {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.workboard-notes__list {
+  display: grid;
+  grid-template-columns: minmax(9ch, 10ch) minmax(0, 1fr);
+  gap: 8px 14px;
+  margin: 0;
+  min-width: 0;
+}
+
+.workboard-notes__label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.workboard-notes__value {
+  margin: 0;
+  min-width: 0;
+  /* The value column reads as a column of text, not as a full-width line. */
+  max-width: 65ch;
+  color: var(--text-strong);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+/* Authored line breaks are the convention's only formatting; keep them. */
+.workboard-notes__value,
+.workboard-notes__lead,
+.workboard-notes__rest,
+.workboard-notes__preamble {
+  white-space: pre-wrap;
+}
+
+.workboard-notes__preamble {
+  margin: 0;
+  max-width: 65ch;
+  color: var(--text-strong);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.workboard-notes__lead {
+  margin: 0;
+  max-width: 65ch;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.workboard-notes__rest {
+  margin: 0;
+  max-width: 65ch;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.workboard-notes__marker {
+  width: fit-content;
+  margin: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.5;
+  /* Informational, not an error: the muted border and the words carry it, never colour alone. */
+}
+
+.workboard-notes__marker-help {
+  margin: 0;
+  max-width: 65ch;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.workboard-notes__disclosure {
+  min-width: 0;
+}
+
+.workboard-notes__disclosure > summary {
+  width: fit-content;
+  min-height: 32px;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.workboard-notes__disclosure > summary:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* Keyboard operable with a visible focus ring, like the drawer's other disclosures. */
+.workboard-notes__disclosure > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The drawer's optional narrow column; label over value, and the value never breaks 320 px. */
+@media (max-width: 480px) {
+  .workboard-notes__list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .workboard-notes__label {
+    padding-top: 6px;
   }
 }

@@ -12,6 +12,7 @@ import type {
   PluginHookLlmInputEvent,
   PluginHookLlmOutputEvent,
 } from "../../plugins/hook-types.js";
+import { pluginInvocationContext } from "../../plugins/plugin-instance-scope.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import { buildAgentHookContext, type AgentHarnessHookContext } from "./hook-context.js";
 import { takeHookMessageLoader } from "./lifecycle-hook-messages.js";
@@ -76,11 +77,14 @@ async function executeAgentHarnessAgentEndHook(
   }
   try {
     const event = loadMessages ? { ...params.event, messages: await loadMessages() } : params.event;
+    // The completed run's agent_end hooks own fresh plugin calls, not the turn's finite scope.
+    await pluginInvocationContext.exit(() =>
+      hookRunner.runAgentEnd(event, buildAgentHookContext(params.ctx), {
+        unrefTimeout: params.unrefTimeout ?? false,
+      }),
+    );
     // Loaders can capture the whole attempt; pending hooks only need their hydrated messages.
     loadMessages = undefined;
-    await hookRunner.runAgentEnd(event, buildAgentHookContext(params.ctx), {
-      unrefTimeout: params.unrefTimeout ?? false,
-    });
   } catch (error) {
     log.warn(`agent_end hook failed: ${String(error)}`);
   }

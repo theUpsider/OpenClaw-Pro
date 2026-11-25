@@ -283,13 +283,12 @@ export function CardMeta(input: { card: WorkboardCard; archived: boolean }) {
             >
               <For each={labels()} keyed={(label) => label}>
                 {(label) => (
-                  <span
-                    class="workboard-chip workboard-truncate workboard-card__label"
-                    title={label()}
+                  <CardLabelChip
+                    label={label()}
+                    color={input.classification.colors.get(label())}
+                    class="workboard-card__label"
+                  />
                     ref={chips.ref(() => label())}
-                  >
-                    {label()}
-                  </span>
                 )}
               </For>
               <span
@@ -397,12 +396,20 @@ export function CardSession(input: {
   status: SessionStatusPresentation;
 }) {
   const hasSession = createMemo(() => input.lifecycle.state !== "unlinked");
+  // The dictation fallback: only a card without an execution session has one, and only
+  // a dock conversation the window still carries resolves. No session means the card
+  // renders exactly like a card without any session — no marker, no badge, no line.
+  const interaction = createMemo(() =>
+    resolveWorkboardInteraction(input.card, input.workboard.interactionSessions),
+  );
   const sessionName = createMemo(() =>
     hasSession()
       ? (input.lifecycle.session?.displayName ??
         input.lifecycle.session?.label ??
         t("workboard.fieldSession"))
-      : cardAgentLabel(input.card, input.workboard.agentsList),
+      : (interaction()?.session.displayName ??
+        interaction()?.session.label ??
+        cardAgentLabel(input.card, input.workboard.agentsList)),
   );
   return (
     <div class={["workboard-card__session", `workboard-card__session--${input.status.tone}`]}>
@@ -419,6 +426,16 @@ export function CardSession(input: {
             title={input.status.detail}
           >
             <LifecycleIcon lifecycle={input.lifecycle} />
+          </span>
+        ) : null}
+        {!hasSession() && interaction()?.state === "live" ? (
+          <span
+            class="workboard-card__session-marker"
+            role="img"
+            aria-label={t("workboard.interactionRunning")}
+            title={t("workboard.interactionRunning")}
+          >
+            <span class="session-run-spinner" aria-hidden="true" />
           </span>
         ) : null}
         <SessionStatus

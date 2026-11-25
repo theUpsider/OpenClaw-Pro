@@ -11,6 +11,7 @@ import {
   SystemEventQueueFullError,
 } from "../infra/system-events.js";
 import { logWarn } from "../logger.js";
+import { pluginInvocationContext } from "../plugins/plugin-instance-scope.js";
 import { parseAgentSessionKey } from "../routing/session-key.js";
 import { isOneShotRunSessionKey, isSubagentSessionKey } from "../sessions/session-key-utils.js";
 import {

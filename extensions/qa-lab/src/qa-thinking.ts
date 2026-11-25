@@ -14,6 +14,7 @@ export function normalizeQaThinkingLevel(input: unknown): QaThinkingLevel | unde
     case "xhigh":
     case "adaptive":
     case "max":
+    case "ultra":
       return collapsed;
     case "min":
       return "minimal";

@@ -489,6 +489,8 @@ describe.skipIf(!connection)("database port command PostgreSQL conformance", () 
             readBigInts: true,
           });
           migrationTime = db
+            // The owner records the migration under its own current version, so the
+            // pin follows the descriptor instead of a hard-coded number.
             .prepare("SELECT applied_at FROM workboard_schema_migrations WHERE id = ?")
             .get(`schema-${metadata.version}`)?.applied_at;
         }

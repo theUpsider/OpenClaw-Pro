@@ -1,3 +1,4 @@
+import type { ChatWorkContext } from "../../../../packages/gateway-protocol/src/chat-work-context.js";
 import type { ReasoningStreamPayload } from "../../../auto-reply/get-reply-options.types.js";
 import type { ReplyPayload } from "../../../auto-reply/reply-payload.js";
 import type { SessionDeliveryState } from "../../../config/sessions/types.js";
@@ -78,6 +79,8 @@ export type RunEmbeddedAgentParams = Pick<
   /** Explicit sandbox and tool-policy owner when the policy session key is unscoped. */
   sandboxAgentId?: string;
   /** The user, event, automation, or maintenance owner that initiated this run. */
+  /** Captured chat.send work context for plugin tools; quoted reference data, never authority. */
+  workContext?: ChatWorkContext;
   trigger?: EmbeddedRunTrigger;
   /** Store-private runtime authority forwarded only by the cron execution owner. */
   scheduledRuntimeAuthority?: CronRuntimeAuthority;
@@ -222,6 +225,8 @@ export type RunEmbeddedAgentParams = Pick<
   onToolResult?: (payload: ReplyPayload) => void | Promise<void>;
   /** Synchronous private observer for the sanitized per-tool result. */
   onAgentToolResult?: (event: { toolName: string; result: unknown; isError: boolean }) => void;
+  /** Opt-in, invocation-owned evidence from the final provider serialization owner. */
+  skillExposure?: import("../../skill-exposure-receipt.js").SkillExposureReceiptCollector;
   /** Reports a committed generic recovery compaction before its retry starts. */
   onAutoCompactionSucceeded?: (count: number) => void;
   onAgentEvent?: (evt: EmbeddedAgentEvent) => void | Promise<void>;

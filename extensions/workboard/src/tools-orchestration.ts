@@ -3,14 +3,23 @@ import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import { asNonArrayRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { Type } from "typebox";
 import { redactClaimToken, redactDispatchResult } from "./card-redaction.js";
+import type { WorkboardMutationScope } from "./store-inputs.js";
 import type { WorkboardStore } from "./store.js";
 import {
+  askField,
+  askKindField,
+  boundCardIdField,
   cardIdField,
   createWorkboardCardMutations,
   claimTokenField,
+  dispatchModeField,
+  maxConcurrentPerOwnerField,
+  parallelizableField,
   strictObject,
+  withWorkboardOperatorAsk,
   workspaceField,
 } from "./tools-card-mutations.js";
+import { resolveBoundBoardId, type VoiceBoardBinding } from "./voice-board-binding.js";
 
 const CardIdSchema = strictObject({
   id: cardIdField(),
@@ -183,8 +192,11 @@ export function createWorkboardOrchestrationTools(params: {
   store: WorkboardStore;
   ownerId: string;
   runId: string | undefined;
+  voiceBoard?: VoiceBoardBinding;
+  agentId?: string;
+  interaction?: Omit<NonNullable<WorkboardMutationScope["interaction"]>, "at">;
 }): AnyAgentTool[] {
-  const { store, ownerId } = params;
+  const { store, ownerId, voiceBoard, agentId, interaction } = params;
   const { readScopedCardToolParams, scopedCardMutation, claimedCardMutation } =
     createWorkboardCardMutations(store, ownerId, params.runId);
   return [
@@ -341,7 +353,11 @@ export function createWorkboardOrchestrationTools(params: {
       parameters: toolSchemas.dispatch,
       execute: async (_toolCallId, rawParams) => {
         const record = asNonArrayRecord(rawParams);
-        const result = await store.dispatch({ boardId: record.boardId });
+        const boardId =
+          record.boardId !== undefined || !voiceBoard
+            ? record.boardId
+            : resolveBoundBoardId(voiceBoard, "cards", (await store.listBoards()).boards);
+        const result = await store.dispatch({ boardId });
         return jsonResult(redactDispatchResult(result));
       },
     },

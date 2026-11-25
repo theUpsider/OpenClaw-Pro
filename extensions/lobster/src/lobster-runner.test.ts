@@ -5,6 +5,7 @@ import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveLobsterCwd } from "./lobster-runner.js";
 import { createLobsterTool } from "./lobster-tool.js";
+import { DECISION_REJECTION_MARKER } from "./decision-bridge.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const success = { ok: true, status: "ok" as const, output: [], requiresApproval: null };

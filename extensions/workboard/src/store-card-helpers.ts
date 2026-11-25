@@ -339,6 +339,55 @@ export function assertCanMutateClaimedCard(
   }
 }
 
+class WorkboardAcceptanceRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    // The name lets Gateway tool invocation return the actionable message.
+    this.name = "ToolInputError";
+  }
+}
+
+/** The owner a scoped write acts as: the calling agent, else the claim owner its token proved. */
+export function mutationActorId(
+  card: WorkboardCard,
+  scope: WorkboardMutationScope | undefined,
+): string | undefined {
+  return normalizeOptionalString(scope?.ownerId) ?? card.metadata?.claim?.ownerId;
+}
+
+/**
+ * The one settle check: `updateCard` runs it on every card write, so no store method
+ * decides it alone. A write settles a pending result when it changes the card's status
+ * or clears `awaitingAcceptance`: `done` accepts it, anything else sends it back. The
+ * owner that reported it (`autoCompletedBy`) may do neither, or it could shed the marker
+ * and then move the card to `done`. It can still revise the result in place (claim +
+ * complete keeps `review` and re-stamps it). The operator and the system (`null`) and any
+ * other owner can settle it. Results reported by older builds name no reporter, so any
+ * actor settles them. A settling write that names no actor comes from a writer that was
+ * never wired to this check, and it fails instead of settling unchecked.
+ */
+export function assertCanSettlePendingResult(
+  existing: WorkboardCard,
+  next: Pick<WorkboardCard, "status" | "metadata">,
+  actor: WorkboardMutationScope | null | undefined,
+) {
+  const { awaitingAcceptance, autoCompletedBy } = existing.metadata?.automation ?? {};
+  if (
+    !awaitingAcceptance ||
+    (next.status === existing.status && next.metadata?.automation?.awaitingAcceptance)
+  ) {
+    return;
+  }
+  if (actor === undefined) {
+    throw new Error("Workboard write would settle a pending result without naming its actor.");
+  }
+  if (actor && autoCompletedBy && mutationActorId(existing, actor) === autoCompletedBy) {
+    throw new WorkboardAcceptanceRefusedError(
+      `card awaits acceptance of the result ${autoCompletedBy} reported; only the operator or another agent can accept it (done) or send it back. To revise it, claim the card and complete it again.`,
+    );
+  }
+}
+
 export function retryBudgetExhausted(card: WorkboardCard): boolean {
   const maxRetries = card.metadata?.automation?.maxRetries;
   return Boolean(maxRetries && (card.metadata?.failureCount ?? 0) > maxRetries);
@@ -441,6 +490,17 @@ export function computeCardDiagnostics(card: WorkboardCard, now: number): Workbo
       title: "Done card has no proof",
       detail: "The card is marked done without proof or an attached artifact.",
       actions: [{ kind: "add_proof", label: "Add proof" }],
+    });
+  }
+  // Every move to `done` clears `awaitingAcceptance`, so only `review` reaches here.
+  if (card.metadata?.automation?.awaitingAcceptance && card.status === "review") {
+    addDiagnostic({
+      kind: "awaiting_acceptance",
+      severity: "warning",
+      title: "Finished automatically, not accepted yet",
+      detail:
+        "The worker reported this card complete. Review its result and move it to done to accept it.",
+      actions: [{ kind: "open_session", label: "Open session" }],
     });
   }
   if (card.sessionKey && !card.execution && card.status === "running") {

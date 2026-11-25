@@ -118,6 +118,13 @@ export const DEFAULT_EMOJIS = {
   compacting: "🗜️",
 };
 
+/** Quiet presentation: one working reaction for every phase, then a terminal reaction that stays. */
+export const QUIET_STATUS_REACTION_EMOJIS = {
+  working: "👀",
+  done: "✅",
+  error: "❌",
+} as const;
+
 export const DEFAULT_TIMING = {
   debounceMs: 700,
   stallSoftMs: 10_000,
@@ -216,18 +223,30 @@ export function createStatusReactionController(params: {
   enabled: boolean;
   adapter: StatusReactionAdapter;
   initialEmoji: string;
-  /** Acknowledgement keeps one working reaction; only actual errors replace it. */
-  presentation?: "activity" | "acknowledgement";
+  /**
+   * Acknowledgement keeps one working reaction; only actual errors replace it.
+   * Quiet holds QUIET_STATUS_REACTION_EMOJIS.working for every phase regardless of
+   * initialEmoji, then ends on done/error, which restoreInitial() leaves in place.
+   * Only `emojis.done`/`emojis.error` overrides apply to quiet (transport substitutes).
+   */
+  presentation?: "activity" | "acknowledgement" | "quiet";
   emojis?: StatusReactionEmojis;
   timing?: StatusReactionTiming;
   onError?: (err: unknown) => void;
 }): StatusReactionController {
   const { enabled, adapter, initialEmoji, onError } = params;
-  const showActivity = params.presentation !== "acknowledgement";
+  const presentation = params.presentation ?? "activity";
+  const showActivity = presentation === "activity";
+  const quiet = presentation === "quiet";
+  // Non-activity presentations hold this for every phase; restoreInitial() returns to it.
+  const baseEmoji = quiet ? QUIET_STATUS_REACTION_EMOJIS.working : initialEmoji;
 
   const emojis: Required<StatusReactionEmojis> = {
     ...DEFAULT_EMOJIS,
     queued: params.emojis?.queued ?? initialEmoji,
+    ...(quiet
+      ? { done: QUIET_STATUS_REACTION_EMOJIS.done, error: QUIET_STATUS_REACTION_EMOJIS.error }
+      : {}),
     ...params.emojis,
   };
 
@@ -243,6 +262,7 @@ export function createStatusReactionController(params: {
   let terminalHold: { timer: NodeJS.Timeout; resolve: () => void } | null = null;
   let terminalHoldGeneration = 0;
   let finished = false;
+  let keepTerminal = false;
   let chainPromise = Promise.resolve();
   const activeEmojis = new Set<string>();
 
@@ -345,7 +365,7 @@ export function createStatusReactionController(params: {
     if (!enabled || finished) {
       return;
     }
-    const emoji = showActivity ? requestedEmoji : initialEmoji;
+    const emoji = showActivity ? requestedEmoji : baseEmoji;
 
     // Skip duplicate sends while still refreshing stall timers for active phases.
     if (emoji === currentEmoji || emoji === pendingEmoji) {
@@ -382,6 +402,7 @@ export function createStatusReactionController(params: {
     }
 
     finished = true;
+    keepTerminal = quiet;
     clearActivityTimers();
     const holdGeneration = terminalHoldGeneration;
 
@@ -402,6 +423,7 @@ export function createStatusReactionController(params: {
     clearActivityTimers();
     cancelTerminalHold();
     finished = true;
+    keepTerminal = false;
 
     await enqueue(async () => {
       if (adapter.clearReaction) {
@@ -425,7 +447,12 @@ export function createStatusReactionController(params: {
       return;
     }
 
-    const alreadyInitial = currentEmoji === initialEmoji;
+    if (keepTerminal) {
+      // Quiet terminal reactions are the visible outcome; settle without reverting them.
+      await chainPromise;
+      return;
+    }
+    const alreadyInitial = currentEmoji === baseEmoji;
     const pendingBeforeClear = pendingEmoji;
     const hadDebouncedPending = debounceTimer !== null;
     const hasExtraActiveEmoji = activeEmojis.size > (activeEmojis.has(initialEmoji) ? 1 : 0);
@@ -439,14 +466,14 @@ export function createStatusReactionController(params: {
       pendingEmoji = "";
       return;
     }
-    if (!finished && pendingBeforeClear === initialEmoji && !hadDebouncedPending) {
+    if (!finished && pendingBeforeClear === baseEmoji && !hadDebouncedPending) {
       await chainPromise;
       return;
     }
 
     await enqueue(async () => {
-      await applyEmoji(initialEmoji);
-      await removeActiveEmojis({ keepEmoji: initialEmoji });
+      await applyEmoji(baseEmoji);
+      await removeActiveEmojis({ keepEmoji: baseEmoji });
       pendingEmoji = "";
     });
   }
@@ -460,11 +487,12 @@ export function createStatusReactionController(params: {
       clearDebounceTimer();
       pendingEmoji = "";
     },
+    // Holds only delay an immediate restore; quiet terminals are never restored.
     setDone: () =>
-      showActivity
-        ? finishWithEmoji(emojis.done, timing.doneHoldMs)
-        : finishWithEmoji(initialEmoji, 0),
-    setError: () => finishWithEmoji(emojis.error, timing.errorHoldMs),
+      presentation === "acknowledgement"
+        ? finishWithEmoji(initialEmoji, 0)
+        : finishWithEmoji(emojis.done, quiet ? 0 : timing.doneHoldMs),
+    setError: () => finishWithEmoji(emojis.error, quiet ? 0 : timing.errorHoldMs),
     clear,
     restoreInitial,
   };

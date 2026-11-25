@@ -2,6 +2,7 @@ import type { UnifiedModelCatalogSource } from "@openclaw/model-catalog-core/mod
 import { floorPositiveFiniteNumber as normalizeHookTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { uniqueValues } from "@openclaw/normalization-core/string-normalization";
+import type { PluginHookFailurePolicyConfig } from "./hook-failure-policy.js";
 import type { PluginDiagnostic } from "./manifest-types.js";
 import { createNativeSessionCatalogGate } from "./native-session-catalog-registration.js";
 import { getPluginInstance } from "./plugin-instance-scope.js";

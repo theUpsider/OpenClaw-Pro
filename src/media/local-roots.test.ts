@@ -25,8 +25,14 @@ function getAgentScopedMediaLocalRoots(
   config: OpenClawConfig,
   agentId?: string,
   sessionWorkspaceDir?: string,
+  options?: Parameters<typeof getAgentScopedMediaLocalRootsBase>[3],
 ) {
-  return getAgentScopedMediaLocalRootsBase(loadedConfig(config), agentId, sessionWorkspaceDir);
+  return getAgentScopedMediaLocalRootsBase(
+    loadedConfig(config),
+    agentId,
+    sessionWorkspaceDir,
+    options,
+  );
 }
 
 function getAgentScopedMediaLocalRootsForSources(
@@ -118,6 +124,53 @@ describe("local media roots", () => {
     if (minLength !== undefined) {
       expect(roots.length).toBeGreaterThanOrEqual(minLength);
     }
+  });
+
+  // The table above checks state-dir suffixes, which never name the per-agent `workspace-<id>`
+  // root next to a session workspace; these cases pin that root by its exact resolved path.
+  describe("agent workspace next to a session workspace", () => {
+    const stateDir = path.join(testTempRoot, "openclaw-session-agent-workspace-state");
+    const agentWorkspaceDir = path.join(stateDir, "workspace-ops");
+
+    it.each([
+      {
+        name: "keeps the agent workspace for unconfined reads",
+        sessionWorkspaceDir: path.join(testTempRoot, "openclaw-session-project"),
+        options: { workspaceOnly: false },
+        agentWorkspaceReadable: true,
+      },
+      {
+        name: "replaces the agent workspace for workspace-only reads",
+        sessionWorkspaceDir: path.join(testTempRoot, "openclaw-session-project"),
+        options: { workspaceOnly: true },
+        agentWorkspaceReadable: false,
+      },
+      {
+        name: "replaces the agent workspace when the caller states no confinement",
+        sessionWorkspaceDir: path.join(testTempRoot, "openclaw-session-project"),
+        options: undefined,
+        agentWorkspaceReadable: false,
+      },
+      {
+        name: "replaces the agent workspace for a workspace-only sandbox session",
+        sessionWorkspaceDir: path.join(stateDir, "sandboxes", "session-a"),
+        options: { workspaceOnly: true },
+        agentWorkspaceReadable: false,
+      },
+    ] as const)("$name", ({ sessionWorkspaceDir, options, agentWorkspaceReadable }) => {
+      const roots = withStateDir(stateDir, () =>
+        getAgentScopedMediaLocalRoots({}, "ops", sessionWorkspaceDir, options),
+      );
+
+      expectNormalizedRootsContain(roots, [sessionWorkspaceDir]);
+      expect(roots.map(normalizeHostPath).includes(normalizeHostPath(agentWorkspaceDir))).toBe(
+        agentWorkspaceReadable,
+      );
+      expectNormalizedRootsExclude(roots, [
+        path.join(stateDir, "sandboxes"),
+        path.join(stateDir, "workspace"),
+      ]);
+    });
   });
 
   it("does not promote sibling sandbox directories via source-parent expansion", () => {

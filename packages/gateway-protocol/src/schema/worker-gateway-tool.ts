@@ -142,6 +142,20 @@ export const WorkerToolSurfaceSchema = closedObject({
     // Resolved `tools.loopDetection.enabled`; only `false` turns the repeat guard off.
     toolRepeatGuard: Type.Optional(Type.Boolean()),
     memoryFlushWritePath: Type.Optional(Type.String({ minLength: 1, maxLength: 4_096 })),
+    /** Per-model path visibility rules; present only when the run's model has any. */
+    pathScopePolicy: Type.Optional(
+      closedObject({
+        entries: Type.Array(
+          closedObject({
+            path: Type.String({ minLength: 1 }),
+            mode: Type.Enum(["deny", "deny+conceal"]),
+          }),
+          { maxItems: 256 },
+        ),
+        allowExecWithEntries: Type.Boolean(),
+        unresolvedModel: Type.Boolean(),
+      }),
+    ),
     imageSanitization: closedObject({
       maxBytes: Type.Optional(Type.Integer({ minimum: 1 })),
       maxDimensionPx: Type.Optional(Type.Integer({ minimum: 1 })),

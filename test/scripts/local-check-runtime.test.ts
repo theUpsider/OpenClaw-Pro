@@ -5,6 +5,12 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, expect, it, vi } from "vitest";
 import {
+  LOCAL_CHECK_MEMORY_CEILING_BYTES,
+  LOCAL_CHECK_MEMORY_MIN_BYTES,
+  LOCAL_CHECK_MEMORY_RESERVE_BYTES,
+  resolveLocalCheckMemoryLimit,
+} from "../../scripts/lib/local-check-memory-limit.mts";
+import {
   applyLocalOxlintPolicy,
   applyLocalTsgoPolicy,
   ensureRepoNodeModulesLink,

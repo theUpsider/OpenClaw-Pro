@@ -619,6 +619,10 @@ export async function prepareEmbeddedAttemptSessionRuntime(input: {
       trajectoryRecorder = recorder;
     }
   }
+    capabilityToolNames: toolSearchRunPlan.capabilityToolNames,
+    // The post-pin session surface: the tool pin (pinTools -> prepareSessionToolSurface)
+    // already shaped activeSession, so its active names are what the session sends.
+    wireToolNames: activeSession.getActiveToolNames(),
   resources.trajectoryRecorder = trajectoryRecorder;
 
   const transport = await prepareEmbeddedAttemptTransport({

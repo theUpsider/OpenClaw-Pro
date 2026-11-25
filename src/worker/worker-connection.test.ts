@@ -231,6 +231,56 @@ it("settles admitted heartbeat work before stop releases cleanup", async () => {
     release.resolve();
   }
 });
+it("preserves the typed computer screenshot response allowance above 64 KiB", async () => {
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("test gateway did not allocate a TCP port");
+  }
+  const admitted = createDeferred<WebSocket>();
+  server.once("connection", (peer) => {
+    peer.once("message", (data) => {
+      const frame: unknown = JSON.parse(rawDataToString(data));
+      if (!Value.Check(WorkerConnectRequestFrameSchema, frame)) {
+        admitted.reject(new Error("expected worker admission"));
+        return;
+      }
+      sendWorkerHello(peer, frame.id, FRAME_CONNECT_PARAMS.admission);
+      admitted.resolve(peer);
+    });
+  });
+  const connection = createWorkerConnection({
+    endpoint: {
+      kind: "websocket",
+      url: `ws://127.0.0.1:${address.port}${WORKER_PUBLIC_INGRESS_PATH}`,
+    },
+    connectParams: FRAME_CONNECT_PARAMS,
+  });
+  try {
+    const [peer] = await Promise.all([admitted.promise, connection.start()]);
+    const received = once(peer, "message");
+    const pending = connection.requestComputer({ command: "screen.snapshot", paramsJson: "{}" });
+    const [data] = await received;
+    const request: unknown = JSON.parse(rawDataToString(data));
+    if (!request || typeof request !== "object" || !("id" in request)) {
+      throw new Error("expected computer request");
+    }
+    const resultJson = JSON.stringify({ screenshot: "x".repeat(128 * 1024) });
+    peer.send(JSON.stringify({ type: "res", id: request.id, ok: true, payload: { resultJson } }));
+    await expect(pending).resolves.toMatchObject({ ok: true, payload: { resultJson } });
+    expect(peer.readyState).toBe(WebSocket.OPEN);
+  } finally {
+    await connection.stop();
+    for (const peer of server.clients) {
+      peer.terminate();
+    }
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
 function createFrameDispatcher() {
   return new WorkerConnectionFrameDispatcher({
     connectParams: () => FRAME_CONNECT_PARAMS,

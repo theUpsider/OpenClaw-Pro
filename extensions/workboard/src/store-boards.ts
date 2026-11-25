@@ -4,6 +4,7 @@ import type {
   WorkboardCard,
   WorkboardCardCursor,
   WorkboardChange,
+  WorkboardClassification,
   WorkboardListResult,
   WorkboardSessionPlacement,
   WorkboardSessionsBoard,
@@ -11,6 +12,10 @@ import type {
 } from "@openclaw/workboard-contract";
 import { WORKBOARD_STATUSES } from "@openclaw/workboard-contract";
 import { redactClaimToken } from "./card-redaction.js";
+import {
+  normalizeWorkboardClassifications,
+  seedWorkboardClassifications,
+} from "./classification-palette.js";
 import type {
   PersistedWorkboardAttachment,
   PersistedWorkboardBoard,
@@ -190,6 +195,72 @@ export class WorkboardBoardStore extends WorkboardStoreRuntime {
       await this.boardStore.register(id, { version: 1, board });
       return board.kind === "sessions" ? await this.getSessionsBoard(id) : board;
     });
+  }
+
+  /** The board's stored palette; empty while the board is unseeded. Reading never seeds. */
+  async readClassifications(boardId: unknown): Promise<WorkboardClassification[]> {
+    const id = normalizeBoardIdRequired(boardId);
+    return (await this.boardStore.lookup(id))?.board.classifications ?? [];
+  }
+
+  /** Seeds an unseeded board's palette from its cards; a seeded board is returned unchanged. */
+  seedClassifications(boardId: unknown): Promise<WorkboardClassification[]> {
+    return this.enqueueMutation(() =>
+      this.seedClassificationsDirect(normalizeBoardIdRequired(boardId)),
+    );
+  }
+
+  protected async seedClassificationsDirect(
+    boardId: string,
+    boardCards?: readonly WorkboardCard[],
+  ): Promise<WorkboardClassification[]> {
+    const existing = (await this.boardStore.lookup(boardId))?.board;
+    if (existing?.classifications) {
+      return existing.classifications;
+    }
+    if (existing?.kind === "sessions") {
+      // Card writes there fail at insert; leave the Sessions board record untouched.
+      return [];
+    }
+    const seeded = seedWorkboardClassifications(boardCards ?? (await this.list({ boardId })));
+    await this.writeClassificationsDirect(boardId, seeded);
+    return seeded;
+  }
+
+  /**
+   * Operator-facing palette write: replaces the board's whole classification list,
+   * the counterpart of the label editor. Card-driven writes still go through the
+   * per-card gate, so a palette edit never rewrites a card's labels; entries whose
+   * cards keep a stale name stand as plain chips, as after a `replaces` overwrite.
+   * A Sessions board has no palette to edit and is refused.
+   */
+  async setClassifications(
+    boardId: unknown,
+    classifications: unknown,
+  ): Promise<WorkboardClassification[]> {
+    return await this.enqueueMutation(async () => {
+      const id = normalizeBoardIdRequired(boardId);
+      const existing = (await this.boardStore.lookup(id))?.board;
+      if (existing?.kind === "sessions") {
+        throw new Error(`board "${id}" is a Sessions board and keeps no classification palette.`);
+      }
+      const palette = normalizeWorkboardClassifications(classifications);
+      await this.writeClassificationsDirect(id, palette);
+      return palette;
+    });
+  }
+
+  /** The palette's only writer; it shares the board record with metadata upserts. */
+  protected async writeClassificationsDirect(
+    boardId: string,
+    classifications: readonly WorkboardClassification[],
+  ): Promise<void> {
+    const existing = (await this.boardStore.lookup(boardId))?.board;
+    const board = {
+      ...normalizeBoardMetadata({ id: boardId }, existing),
+      classifications: normalizeWorkboardClassifications(classifications),
+    };
+    await this.boardStore.register(boardId, { version: 1, board });
   }
 
   getSessionsBoard(boardId: string): Promise<WorkboardSessionsBoard> {

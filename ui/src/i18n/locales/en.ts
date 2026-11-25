@@ -1428,6 +1428,7 @@ const startupEnglish = {
     common: {
       emptyValue: "—",
       unknown: "unknown",
+      atLeast: "≥ {value}",
     },
     loading: {
       badge: "Loading usage…",
@@ -1635,6 +1636,12 @@ const startupEnglish = {
     subagentSessionDisabled: "Continue in {parent}.",
     processesPanel: { title: "Processes" },
     subagentsPanel: {},
+      facts: "Agent, model and thinking",
+      agent: "Agent",
+      fact: "{label}: {value}",
+      unknown: "unknown",
+      roleOrchestrator: "Orchestrator",
+      roleLeaf: "Leaf",
     parentSession: "the parent session",
     openParentSession: "Open parent session",
     parentSessionUnavailable: "Parent session information is unavailable.",

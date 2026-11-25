@@ -515,7 +515,7 @@ Notes: the reaction is sent immediately after inbound is accepted (pre-reply); o
 
 ### Lifecycle status reactions
 
-Set `messages.statusReactions.enabled: true` to let WhatsApp replace the ack reaction during a turn instead of leaving a static receipt emoji, cycling through states such as queued, thinking, tool activity, compaction, done, and error:
+Set `messages.statusReactions.enabled: true` to let WhatsApp show the quiet lifecycle during a turn instead of leaving a static receipt emoji: one working reaction (👀) for the whole turn, then ✅ on success or ❌ on error. Activity phases (queued, thinking, tool activity, compaction) all share the 👀 working reaction, so no intermediate emoji appears:
 
 ```json5
 {
@@ -527,7 +527,7 @@ Set `messages.statusReactions.enabled: true` to let WhatsApp replace the ack rea
 }
 ```
 
-Notes: `messages.ackReactionScope` still controls eligibility for direct messages and groups; the queued state uses the same effective emoji as plain acknowledgment reactions. WhatsApp has one bot reaction slot per message, so lifecycle updates replace the current reaction in place and restore the acknowledgment after the final done/error state.
+Notes: `messages.ackReactionScope` still controls eligibility for direct messages and groups. The working reaction is always 👀, independent of `messages.ackReaction`. WhatsApp has one bot reaction slot per message, so the working reaction is replaced in place by the terminal ✅/❌, which stays visible instead of restoring the acknowledgment.
 
 A message queued behind an active run keeps its acknowledgment until its follow-up delivers a visible reply. Successful execution alone does not produce a success reaction. If transport retains an unconfirmed delivery, the reaction is cleared without claiming success or failure; later durable retries do not update that cleared reaction. A settled turn without a visible reply, including a silent or `NO_REPLY` turn, shows an error reaction just like direct dispatch. Execution failures, terminal admission skips, Stop cancellations, and messages rejected or removed by the queue-cap policy show an error reaction immediately. Collected and summarized follow-ups retain each message's delivery correlation.
 

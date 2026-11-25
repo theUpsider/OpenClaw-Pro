@@ -3,6 +3,7 @@ import type {
   WorkboardSessionsBoardRead,
   WorkboardSessionsBoardView,
 } from "@openclaw/workboard-contract";
+import { listAgentIds, resolveAgentConfig } from "openclaw/plugin-sdk/agent-runtime";
 import { readStringParam } from "openclaw/plugin-sdk/core";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import {
@@ -159,6 +160,7 @@ const cardsListFilterSchema = z.object({
 const CLI_OWNER_METHODS = new Set([
   "workboard.cards.list",
   "workboard.cards.create",
+  "workboard.cards.update",
   "workboard.cards.move",
   "workboard.cards.dispatch",
   "workboard.cards.dispatchWithOptions",
@@ -267,6 +269,11 @@ export function registerWorkboardGatewayMethods(params: {
   api: OpenClawPluginApi;
   store?: WorkboardStore;
   sessionsBoard?: Pick<WorkboardSessionsBoardService, "read" | "update" | "move">;
+  /** Path-artifact access; the roots are operator configuration, never card metadata. */
+  fileAccess?: {
+    store: WorkboardFileAccessStore;
+    roots: () => readonly WorkboardFileRoot[];
+  };
 }) {
   const { api } = params;
   const assertUploadsAllowed = (client: GatewayMethodContext["client"]) => {
@@ -458,6 +465,21 @@ export function registerWorkboardGatewayMethods(params: {
       );
     });
   }
+  // Spends model tokens, so write scope; it only reads the palette and roster and stores nothing.
+  register("workboard.cards.draft", WRITE_SCOPE, async ({ params: input, context, signal }) => {
+    const { voiceText, boardId } = readCardDraftRequest(input);
+    const config = context.getRuntimeConfig();
+    return await draftWorkboardCard({
+      llm: api.runtime.llm,
+      voiceText,
+      palette: await store.readClassifications(boardId),
+      agents: listAgentIds(config).map((id) => ({
+        id,
+        name: resolveAgentConfig(config, id)?.name,
+      })),
+      signal,
+    });
+  });
   register("workboard.cards.update", WRITE_SCOPE, async (request) => {
     const patch = await prepareWorkspaceInput(request, readPatch(request.params), "patch");
     assertSupportedMetadataKeys(patch.metadata);
@@ -472,6 +494,7 @@ export function registerWorkboardGatewayMethods(params: {
       store.move(readId(input), input.status, input.position, undefined, {
         expectedUpdatedAt: readExpectedUpdatedAt(input),
         assertOwnerCurrent: sessionMutationCommitGuard,
+        labelsRemove: input.labelsRemove,
       }),
     ),
   );
@@ -487,6 +510,13 @@ export function registerWorkboardGatewayMethods(params: {
     }
     return redactCardResult(store.linkCards(parentId, childId));
   });
+  register("workboard.cards.unlinkDependency", WRITE_SCOPE, ({ params: input }) => {
+    const { parentId, childId } = input;
+    if (typeof parentId !== "string" || typeof childId !== "string") {
+      throw new Error("parentId and childId are required.");
+    }
+    return redactCardResult(store.unlinkCards(parentId, childId));
+  });
   cardMutation("proof", (id, input) => store.addProof(id, input));
   cardMutation("artifact", (id, input) => store.addArtifact(id, input));
   register("workboard.cards.claim", WRITE_SCOPE, async ({ params: input }) => {
@@ -494,7 +524,7 @@ export function registerWorkboardGatewayMethods(params: {
     return { ...claimed, card: redactClaimToken(claimed.card) };
   });
   cardMutation("heartbeat", (id, input) => store.heartbeat(id, input));
-  cardMutation("release", (id, input) => store.releaseClaim(id, input));
+  cardMutation("release", (id, input) => store.releaseClaim(id, input, null));
   cardMutation("promote", (id, input) => store.promote(id, input, null));
   cardMutation("reassign", (id, input) => store.reassign(id, input, null));
   cardMutation("reclaim", (id, input) => store.reclaim(id, input, null));
@@ -525,6 +555,16 @@ export function registerWorkboardGatewayMethods(params: {
   register("workboard.boards.upsert", WRITE_SCOPE, async (request) => {
     await resolveGatewayWorkspaceMutationAccess(request, request.params);
     return { board: await store.upsertBoard(request.params) };
+  });
+  // The label editor's palette write: replaces the whole list; never rewrites card labels.
+  register("workboard.boards.classifications", WRITE_SCOPE, async (request) => {
+    const boardId = readStringParam(request.params, "boardId", { required: true });
+    if (!Array.isArray(request.params?.classifications)) {
+      throw new Error("classifications must be an array.");
+    }
+    return {
+      classifications: await store.setClassifications(boardId, request.params.classifications),
+    };
   });
   const sessionsBoard = () => {
     if (!params.sessionsBoard) {
@@ -638,6 +678,28 @@ export function registerWorkboardGatewayMethods(params: {
       store.addAttachment(readId(input), input, undefined, () => assertUploadsAllowed(client)),
     ),
   );
+  const fileAccess = params.fileAccess;
+  register("workboard.artifacts.fileAccess", READ_SCOPE, async ({ params: input, client }) => {
+    if (!fileAccess) {
+      return { files: {} };
+    }
+    // The card owns the paths; the request only names the card.
+    const cardId = readStringParam(input, "cardId", { required: true });
+    const card = await store.get(cardId);
+    if (!card) {
+      throw new Error(`card not found: ${cardId}`);
+    }
+    return {
+      files: await authorizeWorkboardFileAccess({
+        store: fileAccess.store,
+        artifacts: card.metadata?.artifacts ?? [],
+        roots: fileAccess.roots(),
+        connection: client
+          ? { connId: client.connId, connectionSignal: client.connectionSignal }
+          : null,
+      }),
+    };
+  });
   register("workboard.cards.attachments.delete", WRITE_SCOPE, ({ params: input }) => {
     const attachmentId = input.attachmentId;
     if (typeof attachmentId !== "string" || !attachmentId.trim()) {

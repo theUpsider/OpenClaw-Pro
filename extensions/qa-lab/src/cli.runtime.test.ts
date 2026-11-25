@@ -644,6 +644,70 @@ describe("qa cli", () => {
     expect(runQaSuite).not.toHaveBeenCalled();
   });
 
+  it("resolves suite repo-root-relative paths before dispatching", async () => {
+    await parseQa(["suite"], {
+      "repo-root": "/tmp/openclaw-repo",
+      "output-dir": ".artifacts/qa/frontier",
+      "provider-mode": "live-frontier",
+      model: "openai/gpt-5.6-luna",
+      "alt-model": "anthropic/claude-sonnet-4-6",
+      fast: true,
+      "fail-fast": true,
+      thinking: "medium",
+      "cli-auth-mode": "subscription",
+      concurrency: 3,
+      "enable-plugin": ["browser", "memory-core"],
+      scenario: ["approval-turn-tool-followthrough"],
+    });
+
+    expect(runQaSuite).toHaveBeenCalledWith({
+      repoRoot: path.resolve("/tmp/openclaw-repo"),
+      outputDir: path.resolve("/tmp/openclaw-repo", ".artifacts/qa/frontier"),
+      transportId: "qa-channel",
+      channelDriver: undefined,
+      providerMode: "live-frontier",
+      primaryModel: "openai/gpt-5.6-luna",
+      alternateModel: "anthropic/claude-sonnet-4-6",
+      fastMode: true,
+      failFast: true,
+      thinkingDefault: "medium",
+      claudeCliAuthMode: "subscription",
+      concurrency: 3,
+      enabledPluginIds: ["browser", "memory-core"],
+      scenarioIds: ["approval-turn-tool-followthrough"],
+    });
+  });
+
+  it("accepts the ultra thinking level for suite runs", async () => {
+    await parseQa(["suite"], {
+      "repo-root": "/tmp/openclaw-repo",
+      "provider-mode": "live-frontier",
+      model: "openai/gpt-5.6-luna",
+      thinking: "ultra",
+      scenario: ["approval-turn-tool-followthrough"],
+    });
+
+    const suiteArgs = mockFirstObjectArg(runQaSuite);
+    expectFields(suiteArgs, {
+      repoRoot: path.resolve("/tmp/openclaw-repo"),
+      thinkingDefault: "ultra",
+    });
+  });
+
+  it("rejects a near-miss suite thinking level through the CLI error path", async () => {
+    await parseQa(["suite"], {
+      "repo-root": "/tmp/openclaw-repo",
+      "provider-mode": "live-frontier",
+      model: "openai/gpt-5.6-luna",
+      thinking: "ultraa",
+      scenario: ["approval-turn-tool-followthrough"],
+    });
+
+    expect(process.exitCode).toBe(1);
+    expectWriteContains(stderrWrite, "--thinking must be one of");
+    expect(runQaSuite).not.toHaveBeenCalled();
+  });
+
   it.each([
     { isolatesInstances: undefined, requested: 8, expected: 1 },
     { isolatesInstances: true, requested: undefined, expected: 4 },

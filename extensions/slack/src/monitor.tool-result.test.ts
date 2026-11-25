@@ -293,16 +293,17 @@ describe("Slack monitor dispatch", () => {
     await expectAck();
   });
 
-  it("restores the ack reaction when dispatch fails before delivery", async () => {
+  it("keeps the error reaction when dispatch fails before delivery", async () => {
     replyMock.mockRejectedValue(new Error("boom"));
     configureReactions();
     await expect(runMention()).rejects.toThrow("boom");
     expect(sendMock).not.toHaveBeenCalled();
+    const reactionNames = (mock: typeof reactionAddMock) =>
+      mock.mock.calls.map(([args]) => (args as { name: string }).name);
     await vi.waitFor(
       () => {
-        const names = reactionAddMock.mock.calls.map(([args]) => (args as { name: string }).name);
-        expect(names.slice(0, 2)).toEqual(["eyes", "x"]);
-        expect(names.at(-1)).toBe("eyes");
+        expect(reactionNames(reactionAddMock)).toEqual(["eyes", "x"]);
+        expect(reactionNames(slackTestState.reactionRemoveMock)).toEqual(["eyes"]);
       },
       { timeout: 5_000 },
     );

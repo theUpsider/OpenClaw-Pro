@@ -225,20 +225,24 @@ export class WorkboardEnrichmentStore extends WorkboardCoreStore {
           : {}),
         ...(runId || cardRunId(card) ? { runId: runId ?? cardRunId(card) } : {}),
       });
-      return await this.updateCard(card, {
-        ...finished,
-        status: card.status === "done" ? card.status : "blocked",
-        metadata: {
-          ...finished.metadata,
-          workerLogs: [...(card.metadata?.workerLogs ?? []), log].slice(-MAX_CARD_WORKER_LOGS),
-          workerProtocol: {
-            state: "violated",
-            updatedAt: now,
-            detail,
+      return await this.updateCard(
+        card,
+        {
+          ...finished,
+          status: card.status === "done" ? card.status : "blocked",
+          metadata: {
+            ...finished.metadata,
+            workerLogs: [...(card.metadata?.workerLogs ?? []), log].slice(-MAX_CARD_WORKER_LOGS),
+            workerProtocol: {
+              state: "violated",
+              updatedAt: now,
+              detail,
+            },
+            notifications,
           },
-          notifications,
         },
-      });
+        { actor: scope ?? null },
+      );
     });
   }
 }

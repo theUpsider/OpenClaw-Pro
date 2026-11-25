@@ -1,5 +1,6 @@
 /** @jsxImportSource @solidjs/web */
 import { createMemo, For, Show } from "solid-js";
+import { VoiceBoardControl } from "../components/voice-board-control.tsx";
 import { t } from "../i18n/index.ts";
 import {
   workboardCardBoardId,
@@ -227,6 +228,12 @@ export function WorkboardBoardWidget(props: WidgetProps) {
     void props.revision;
     return props.model.cards.filter((card) => matchesBoardFilter(card, filter()));
   });
+  // An unknown boardId still names the board the operator configured on screen.
+  const visibleBoard = createMemo(() => {
+    void props.revision;
+    const id = boardId();
+    return id ? (props.model.boards.find((board) => board.id === id) ?? { id, name: id }) : null;
+  });
   const byStatus = createMemo(() => groupWorkboardCardsByStatus(cards(), props.model.statuses));
   const workboard: WorkboardProps = {
     get host() {
@@ -256,6 +263,7 @@ export function WorkboardBoardWidget(props: WidgetProps) {
         <header class="workboard-widget-board__header">
           <strong>{boardId() ?? t("workboard.allBoards")}</strong>
           <span>{t("workboard.widget.cardCount", { count: String(cards().length) })}</span>
+          <VoiceBoardControl host={props.model.host} board={visibleBoard()} />
           <a href={props.model.host.navigation.pageHref(workboardPageTarget(boardId()))}>
             {t("workboard.widget.openBoard")}
           </a>

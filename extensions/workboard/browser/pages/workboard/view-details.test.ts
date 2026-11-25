@@ -1,5 +1,6 @@
 import "../../test/dom.setup.ts";
 import { expectDefined } from "@openclaw/normalization-core";
+import type { ControlUiDictationControlProps } from "openclaw/plugin-sdk/control-ui";
 import { flush } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
@@ -19,6 +20,7 @@ import {
   requireButton,
   openCardMenu,
   textButton,
+  inlineEditor,
   sessionPicker,
 } from "./view.test-support.ts";
 
@@ -729,5 +731,205 @@ describe("WorkboardView", () => {
       archived: true,
     });
     expect(container.querySelector(".workboard-detail")).toBeNull();
+  });
+});
+
+describe("card overview interactions", () => {
+  it("names unfinished predecessor cards and the lane agent", () => {
+    const parent = createWorkboardCard({ id: "parent", title: "Design API", status: "running" });
+    const card = createWorkboardCard({
+      status: "ready",
+      agentId: "b",
+      metadata: { links: [{ id: "l1", type: "parent", createdAt: 1, targetCardId: "parent" }] },
+    });
+    const { state, container, renderView } = createWorkboardView();
+    state.cards = [parent, card];
+    state.detailCardId = card.id;
+    renderView();
+    expect(container.querySelector(".workboard-waiting")?.textContent).toBe(
+      "Waiting on predecessor cards: Design API",
+    );
+    state.cards = [{ ...parent, status: "done" }, card];
+    renderView();
+    expect(container.querySelector(".workboard-waiting")?.textContent).toBe(
+      "Ready. Waiting for a free lane slot for b.",
+    );
+  });
+
+  it("shows the lane queue position and the escaped slot holder", () => {
+    const holder = createWorkboardCard({
+      id: "holder",
+      title: "  Ship <b>lane</b> view  ",
+      status: "running",
+      agentId: "b",
+    });
+    const ahead = createWorkboardCard({
+      id: "ahead",
+      status: "ready",
+      agentId: "b",
+      position: 1000,
+    });
+    const card = createWorkboardCard({ status: "ready", agentId: "b", position: 2000 });
+    const { state, container, renderView } = createWorkboardView();
+    state.cards = [holder, ahead, card];
+    state.detailCardId = card.id;
+    renderView();
+    const line = container.querySelector(".workboard-waiting");
+    expect(line?.textContent).toBe(
+      "Queued 2 of 2 for b — slot held by Ship <b>lane</b> view.",
+    );
+    expect(line?.querySelector("b")).toBeNull();
+  });
+
+  it("says a gateway restart ended the card's session and names that session", () => {
+    const { state, container, renderView } = createWorkboardView();
+    state.cards = [
+      createWorkboardCard({
+        status: "blocked",
+        metadata: {
+          automation: { restartTombstone: { sessionKey: "agent:main:lost", detectedAt: 3 } },
+        },
+      }),
+    ];
+    state.detailCardId = "card-1";
+    renderView();
+    expect(container.querySelector(".workboard-waiting")?.textContent).toBe(
+      "Blocked: its session ended during a gateway restart and no replacement session was started. Session: agent:main:lost",
+    );
+  });
+
+  it("lists artifacts and attachments as links and copyable paths without inlining media", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const client = createWorkboardTestClient({});
+    const { state, container, renderView } = createWorkboardView({ client });
+    state.cards = [
+      createWorkboardCard({
+        status: "done",
+        metadata: {
+          artifacts: [
+            {
+              id: "a1",
+              createdAt: 1,
+              url: "https://example.test/demo/video.mp4",
+              mimeType: "video/mp4",
+            },
+            {
+              id: "a2",
+              createdAt: 1,
+              label: "Screenshot",
+              path: "/srv/out/shot.png",
+              mimeType: "image/png",
+            },
+            { id: "a3", createdAt: 1, url: "javascript:alert(1)" },
+            {
+              id: "a4",
+              createdAt: 1,
+              label: "Release notes",
+              path: "/srv/out/notes.md",
+              mimeType: "text/markdown",
+            },
+          ],
+          attachments: [
+            {
+              id: "f1",
+              cardId: "card-1",
+              createdAt: 1,
+              fileName: "log.txt",
+              byteSize: 2048,
+              note: "Run log",
+            },
+          ],
+        },
+      }),
+    ];
+    state.detailCardId = "card-1";
+    renderView();
+    const block = expectDefined(
+      container.querySelector<HTMLElement>(".workboard-detail__content .workboard-artifacts"),
+      "artifact block",
+    );
+    const rows = [...block.querySelectorAll<HTMLElement>(".workboard-artifacts__row")];
+    expect(rows.map((row) => row.querySelector("strong")?.textContent)).toEqual([
+      "video.mp4",
+      "Screenshot",
+      "javascript:alert(1)",
+      "Release notes",
+      "log.txt",
+    ]);
+    expect(rows.map((row) => row.querySelector(".workboard-artifacts__type")?.textContent)).toEqual(
+      ["video/mp4", "image/png", "File", "text/markdown", "Attachment · 2 KB"],
+    );
+    const links = [...block.querySelectorAll("a")];
+    expect(links).toHaveLength(1);
+    expect(links[0]?.getAttribute("href")).toBe("https://example.test/demo/video.mp4");
+    expect(links[0]?.target).toBe("_blank");
+    expect(links[0]?.rel).toBe("noopener noreferrer");
+    expect(block.querySelector("img, video")).toBeNull();
+    // The url artifact keeps its Open, and is the only anchor in the block.
+    expect(buttonByLabel(rows[0]!, "Open")).toBeNull();
+    expect(rows[0]?.querySelector("a")?.textContent?.trim()).toBe("Open");
+    expect(rows[1]?.querySelector("code")?.textContent).toBe("/srv/out/shot.png");
+    // The path artifact keeps Copy path; the markdown path artifact keeps its Preview.
+    expect(buttonByLabel(rows[1]!, "Copy path")).not.toBeNull();
+    expect(buttonByLabel(rows[1]!, "Preview Screenshot")).toBeNull();
+    expect(buttonByLabel(rows[3]!, "Copy path")).not.toBeNull();
+    expect(buttonByLabel(rows[3]!, "Preview Release notes")).not.toBeNull();
+    textButton(expectDefined(rows[1], "path row"), "Copy path").click();
+    await waitForFast(() => expect(rows[1]?.textContent).toContain("Copied"));
+    expect(writeText).toHaveBeenCalledWith("/srv/out/shot.png");
+    expect(rows[4]?.textContent).toContain("Run log");
+    // The attachment row now carries Download (a button, so the link count above is unchanged).
+    const attachmentActions = expectDefined(
+      rows[4]?.querySelector<HTMLElement>(".workboard-artifacts__actions"),
+      "attachment actions",
+    );
+    expect(
+      [...attachmentActions.querySelectorAll("button")].map((b) => b.textContent?.trim()),
+    ).toEqual(["Download"]);
+    // A plain file has no in-app viewer, so there is no Open action either.
+    expect(attachmentActions.querySelector("a")).toBeNull();
+  });
+
+  it("appends dictated text to the notes draft and leaves the write to Save", async () => {
+    const card = createWorkboardCard({ notes: "Existing" });
+    const client = createWorkboardTestClient(() => ({
+      card: { ...card, notes: "Existing dictated words", updatedAt: 2 },
+    }));
+    const { state, container, renderView } = createWorkboardView({ client });
+    state.cards = [card];
+    state.detailCardId = card.id;
+    renderView();
+    const editor = await inlineEditor(container, "notes");
+    const input = await editor.open();
+    const microphone = await waitForFast(() =>
+      expectDefined(
+        editor.owner.querySelector<HTMLButtonElement & { props: ControlUiDictationControlProps }>(
+          "[data-test-dictation]",
+        ),
+        "notes microphone",
+      ),
+    );
+    expect(microphone.props.accessibleLabel).toBe("Dictate notes");
+    microphone.props.onStateChange?.({ active: true });
+    flush();
+    expect(editor.owner.querySelector(".workboard-detail__dictation--active")).not.toBeNull();
+    microphone.props.onTranscript("dictated words");
+    flush();
+    expect(input.value).toBe("Existing dictated words");
+    expect(client.request).not.toHaveBeenCalled();
+    microphone.props.onError("Microphone blocked");
+    flush();
+    expect(editor.owner.querySelector(".workboard-voice__error")?.textContent).toBe(
+      "Microphone blocked",
+    );
+    textButton(editor.owner, "Save").click();
+    await waitForFast(() =>
+      expect(client.request).toHaveBeenCalledWith("workboard.cards.update", {
+        id: card.id,
+        expectedUpdatedAt: card.updatedAt,
+        patch: { notes: "Existing dictated words" },
+      }),
+    );
   });
 });
