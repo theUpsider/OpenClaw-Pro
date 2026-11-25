@@ -26,7 +26,7 @@ on:
         required: false
         type: string
       dry_run:
-        description: Plan only; publish neither an image nor a release.
+        description: Build and plan without publishing (no image push, no release).
         required: false
         default: false
         type: boolean
@@ -560,9 +560,11 @@ jobs:
     permissions:
       contents: write
     # Two runs of the same pull request must not race while creating the
-    # release, so serialize per PR and never cancel a release in flight.
+    # release, so serialize per PR in a dedicated group (distinct from the
+    # build group, so a newer build cannot evict a pending release) and never
+    # cancel a release in flight.
     concurrency:
-      group: pro-release-pr-${{ needs.plan.outputs.pr_number }}
+      group: pro-release-publish-pr-${{ needs.plan.outputs.pr_number }}
       cancel-in-progress: false
     steps:
       - name: Create or verify the GitHub release
