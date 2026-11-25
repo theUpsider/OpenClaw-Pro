@@ -65,6 +65,7 @@ jobs:
       label_version: ${{ steps.final.outputs.label_version }}
       image_tags: ${{ steps.final.outputs.image_tags }}
       concurrency_group: ${{ steps.final.outputs.concurrency_group }}
+      cancellable: ${{ steps.final.outputs.cancellable }}
     steps:
       - name: Resolve mode and checkout ref
         id: mode
@@ -197,7 +198,7 @@ jobs:
           selected=""
           for attempt in 1 2 3 4; do
             if pr_json="$(gh api "repos/${REPOSITORY}/commits/${SHA}/pulls" 2>/dev/null)"; then
-              selected="$(jq -c '[.[] | select(.merged_at != null and .base.ref == "pro/main")] | sort_by(.merged_at) | last // empty' <<< "${pr_json}")"
+              selected="$(jq -c --arg sha "${SHA}" '[.[] | select(.merged_at != null and .base.ref == "pro/main" and .merge_commit_sha == $sha)] | sort_by(.merged_at) | last // empty' <<< "${pr_json}")"
               if [ -n "${selected}" ] && [ "${selected}" != "null" ]; then
                 break
               fi
@@ -210,7 +211,7 @@ jobs:
           done
 
           if [ -z "${selected}" ] || [ "${selected}" = "null" ]; then
-            echo "::error::no merged pull request targeting pro/main found for ${SHA}"
+            echo "::error::no merged pull request with merge_commit_sha == ${SHA} targeting pro/main found (rebase merges report a null merge_commit_sha and are rejected on purpose)"
             exit 1
           fi
 
@@ -229,6 +230,7 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
           RUN_ID: ${{ github.run_id }}
+          DRY_RUN: ${{ steps.base.outputs.dry_run }}
         run: |
           set -euo pipefail
           short="${SHA:0:12}"
@@ -237,6 +239,10 @@ jobs:
           image_tags=""
           label_version="${VERSION}"
 
+          # `cancellable` mirrors the concurrency semantics of the build job:
+          # `latest` is "newest wins" and a proof run may cancel an older proof
+          # run for the same PR, while a release must converge and serialize per
+          # pull request, so neither a release nor a dry run is ever cancelled.
           case "${MODE}" in
             release)
               if [ -z "${PR_NUMBER}" ]; then
@@ -247,15 +253,22 @@ jobs:
               primary_tag="${tag}"
               label_version="${tag}"
               image_tags="${IMAGE}:${tag},${IMAGE}:sha-${short}"
-              group="pro-release-${RUN_ID}"
+              cancellable="false"
+              if [ "${DRY_RUN:-false}" = "true" ]; then
+                group="pro-release-dry-${RUN_ID}"
+              else
+                group="pro-release-pr-${PR_NUMBER}"
+              fi
               ;;
             latest)
               primary_tag="latest"
               image_tags="${IMAGE}:latest"
               group="pro-release-latest"
+              cancellable="true"
               ;;
             proof)
               group="pro-release-proof-${EVENT_PR_NUMBER}"
+              cancellable="true"
               ;;
           esac
 
@@ -265,6 +278,7 @@ jobs:
             echo "label_version=${label_version}"
             echo "image_tags=${image_tags}"
             echo "concurrency_group=${group}"
+            echo "cancellable=${cancellable}"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Job summary
@@ -312,7 +326,7 @@ jobs:
       packages: write
     concurrency:
       group: ${{ needs.plan.outputs.concurrency_group }}
-      cancel-in-progress: true
+      cancel-in-progress: ${{ needs.plan.outputs.cancellable == 'true' }}
     outputs:
       digest: ${{ steps.existing.outputs.skip == 'true' && steps.existing.outputs.digest || steps.build.outputs.digest }}
     steps:
@@ -368,18 +382,21 @@ jobs:
         run: |
           set -euo pipefail
           ref="${IMAGE}:${PRIMARY_TAG}"
+          short="${EXPECTED_REVISION:0:12}"
+          sha_ref="${IMAGE}:sha-${short}"
           err_file="$(mktemp)"
 
           # `docker buildx imagetools inspect` exits 1 with "not found" on the
           # registry when the tag is absent, which is the only error we treat
           # as "nothing published yet"; anything else is a hard failure.
           # Method: `docker buildx imagetools inspect --format '{{json .Image}}'`
-          # emits a JSON object keyed by platform (e.g. "linux/amd64"), each with
-          # a `config.Labels` map. Verified empirically against registry images:
-          # jq -r '."linux/amd64".config.Labels."org.opencontainers.image.revision"'.
+          # emits a flat object for a single-platform image (this build pushes
+          # only `linux/amd64`, so `config.Labels` sits at the top level) and a
+          # platform-keyed map for a multi-platform image. The jq expression
+          # below reads both shapes.
           if docker buildx imagetools inspect "${ref}" >/dev/null 2>"${err_file}"; then
             revision="$(docker buildx imagetools inspect --format '{{json .Image}}' "${ref}" \
-              | jq -r '."linux/amd64".config.Labels."org.opencontainers.image.revision" // empty')
+              | jq -r '(."linux/amd64" // .).config.Labels."org.opencontainers.image.revision" // empty')
             if [ -z "${revision}" ]; then
               echo "::error::${ref} exists but org.opencontainers.image.revision could not be read; refusing to skip"
               docker buildx imagetools inspect "${ref}"
@@ -405,6 +422,26 @@ jobs:
             echo "skip=false" >> "${GITHUB_OUTPUT}"
           fi
 
+          # The `sha-*` tag is independently addressable, so verify it when it
+          # already exists: a stale or mismatched image must not be silently
+          # accepted for this SHA. A missing tag is fine here; it is created by
+          # the `ensure_sha` step after the build.
+          if docker buildx imagetools inspect "${sha_ref}" >/dev/null 2>"${err_file}"; then
+            sha_revision="$(docker buildx imagetools inspect --format '{{json .Image}}' "${sha_ref}" \
+              | jq -r '(."linux/amd64" // .).config.Labels."org.opencontainers.image.revision" // empty')"
+            if [ "${sha_revision}" != "${EXPECTED_REVISION}" ]; then
+              echo "::error::${sha_ref} exists for revision '${sha_revision}', expected ${EXPECTED_REVISION}"
+              exit 1
+            fi
+            echo "::notice::${sha_ref} already carries revision ${EXPECTED_REVISION}"
+          elif grep -qi "not found" "${err_file}"; then
+            echo "no existing image at ${sha_ref}; it will be created after the build"
+          else
+            echo "::error::could not inspect ${sha_ref} on the registry:"
+            cat "${err_file}"
+            exit 1
+          fi
+
       - name: Build image
         id: build
         if: steps.existing.outputs.skip != 'true'
@@ -422,10 +459,54 @@ jobs:
             OPENCLAW_DOCKER_BUILD_VERSION=${{ needs.plan.outputs.version }}
             OPENCLAW_EXTENSIONS=diagnostics-otel,codex
           labels: |
-            org.opencontainers.image.source=https://github.com/theUpsider/OpenClaw-Pro
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ needs.plan.outputs.sha }}
             org.opencontainers.image.version=${{ needs.plan.outputs.label_version }}
             org.opencontainers.image.created=${{ needs.plan.outputs.timestamp }}
+
+      - name: Ensure the sha-* tag is present (release only)
+        id: ensure_sha
+        # Runs even when the build was skipped (the image already existed), so a
+        # re-run repairs a missing `sha-*` tag through `imagetools create`
+        # instead of failing the release on the next attempt.
+        if: always() && needs.plan.outputs.publish == 'true' && needs.plan.outputs.mode == 'release' && (steps.build.conclusion == 'success' || steps.existing.outputs.skip == 'true')
+        env:
+          IMAGE: ${{ needs.plan.outputs.image }}
+          PRIMARY_TAG: ${{ needs.plan.outputs.primary_tag }}
+          EXPECTED_REVISION: ${{ needs.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          short="${EXPECTED_REVISION:0:12}"
+          sha_ref="${IMAGE}:sha-${short}"
+          err_file="$(mktemp)"
+
+          verify() {
+            local revision
+            revision="$(docker buildx imagetools inspect --format '{{json .Image}}' "${sha_ref}" \
+              | jq -r '(."linux/amd64" // .).config.Labels."org.opencontainers.image.revision" // empty')"
+            if [ "${revision}" != "${EXPECTED_REVISION}" ]; then
+              echo "::error::${sha_ref} carries revision '${revision}', expected ${EXPECTED_REVISION}"
+              exit 1
+            fi
+            echo "::notice::${sha_ref} carries revision ${EXPECTED_REVISION}"
+          }
+
+          if docker buildx imagetools inspect "${sha_ref}" >/dev/null 2>"${err_file}"; then
+            verify
+            exit 0
+          fi
+
+          if ! grep -qi "not found" "${err_file}"; then
+            echo "::error::could not inspect ${sha_ref} on the registry:"
+            cat "${err_file}"
+            exit 1
+          fi
+
+          # The tag is missing: point it at the image the build just published
+          # under the primary release tag, then re-verify the revision label.
+          echo "::notice::${sha_ref} is missing; creating it from ${IMAGE}:${PRIMARY_TAG}"
+          docker buildx imagetools create --tag "${sha_ref}" "${IMAGE}:${PRIMARY_TAG}"
+          verify
 
       - name: Report proof build artifacts
         if: needs.plan.outputs.mode == 'proof' && steps.existing.outputs.skip != 'true'
@@ -475,6 +556,11 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+    # Two runs of the same pull request must not race while creating the
+    # release, so serialize per PR and never cancel a release in flight.
+    concurrency:
+      group: pro-release-pr-${{ needs.plan.outputs.pr_number }}
+      cancel-in-progress: false
     steps:
       - name: Create or verify the GitHub release
         env:
@@ -519,12 +605,40 @@ jobs:
             exit 1
           fi
 
-          if remote="$(gh api "repos/${REPOSITORY}/commits/${TAG}" --jq .sha 2>/dev/null)"; then
+          # Distinguish a genuinely absent tag from a transient API failure: the
+          # create path below must only run when the tag is really missing.
+          tag_err="$(mktemp)"
+          if remote="$(gh api "repos/${REPOSITORY}/commits/${TAG}" --jq .sha 2>"${tag_err}")"; then
             echo "::error::tag ${TAG} already exists on the remote (${remote}) without a GitHub release"
             exit 1
           fi
+          if ! grep -Eqi "no commit found|not found|HTTP 40[0-9]" "${tag_err}"; then
+            echo "::error::could not check tag ${TAG} on the remote:"
+            cat "${tag_err}"
+            exit 1
+          fi
 
-          prev="$(gh release list --repo "${REPOSITORY}" --limit 1 --exclude-drafts --json tagName --jq '.[0].tagName // empty' 2>/dev/null || true)"
+          # Compare against the newest still-valid release. `gh release list`
+          # order is not a guarantee, so validate up to three candidates with a
+          # compare call and use the first that is an ancestor of this SHA.
+          prev=""
+          candidates="$(gh release list --repo "${REPOSITORY}" --limit 3 --exclude-drafts --json tagName --jq '.[].tagName // empty' 2>/dev/null || true)"
+          while IFS= read -r candidate; do
+            if [ -z "${candidate}" ] || [ "${candidate}" = "${TAG}" ]; then
+              continue
+            fi
+            csha="$(gh api "repos/${REPOSITORY}/commits/${candidate}" --jq .sha 2>/dev/null || true)"
+            if [ -z "${csha}" ]; then
+              continue
+            fi
+            status="$(gh api "repos/${REPOSITORY}/compare/${csha}...${SHA}" --jq .status 2>/dev/null || true)"
+            case "${status}" in
+              ahead|identical)
+                prev="${candidate}"
+                break
+                ;;
+            esac
+          done <<< "${candidates}"
 
           notes="$(mktemp)"
           {
