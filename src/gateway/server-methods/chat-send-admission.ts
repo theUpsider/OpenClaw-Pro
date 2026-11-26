@@ -31,6 +31,7 @@ import { retainGatewayOperatorRun } from "../operator-run-cancellation.js";
 import type { DedupeEntry } from "../server-shared.js";
 import { writePreRegisteredChatAbort } from "./chat-abort-authorization.js";
 import type { ChatAbortSessionSnapshot } from "./chat-aborted-partial.js";
+import { goalAdmissionRefusalError } from "./chat-goal-admission-gate.js";
 import {
   resolveRestartSafeChatAdmission,
   withRestartSafeChatPlacement,
@@ -361,9 +362,7 @@ export async function admitChatSend(params: ChatSendAdmissionParams) {
           storePath: latestSession.storePath,
         });
         if (request.goalOperation && !restartSafeAdmission) {
-          throw new Error(
-            "Goal start or resume requires the built-in OpenClaw runtime and an idle local session with recoverable history. This action is unavailable for native Codex and other external runtimes.",
-          );
+          throw goalAdmissionRefusalError(latestSession.canonicalKey, latestEntry);
         }
         if (retryableClaim && !restartSafeAdmission) {
           throw new Error("chat retry does not match its durable admission");

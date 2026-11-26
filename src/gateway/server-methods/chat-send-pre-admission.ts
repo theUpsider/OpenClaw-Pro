@@ -31,6 +31,7 @@ import {
   abortedPartialPersistenceError,
   withAbortedPartialPersistenceWarning,
 } from "./chat-aborted-partial.js";
+import { respondGoalAdmissionRefusal } from "./chat-goal-admission-gate.js";
 import { resolveDurableChatClaim } from "./chat-restart-recovery.js";
 import {
   ACTIVE_LEAF_CHANGED_ERROR_REASON,
@@ -67,6 +68,11 @@ export function respondChatSendAdmissionError(
   respond: GatewayRequestHandlerOptions["respond"],
 ): void {
   const reason = error instanceof Error ? error.message : undefined;
+  // A Goal refused by an active admission hook carries a typed reason, so the Control UI
+  // classifies it as a definitive rejection rather than an unconfirmed Goal.
+  if (respondGoalAdmissionRefusal(error, respond)) {
+    return;
+  }
   if (reason === "goal-session-busy") {
     respond(
       false,

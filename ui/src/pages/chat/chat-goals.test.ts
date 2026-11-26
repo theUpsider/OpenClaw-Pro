@@ -621,6 +621,30 @@ describe("Goal control requests", () => {
     expect(host.request).toHaveBeenCalledTimes(2);
   });
 
+  it("treats an admission-gate rejection as definitive, not an unconfirmed Goal", async () => {
+    // Regression: a Goal refused while an active execution hook owns admission must not
+    // leave the "Goal update not confirmed / Retry resume" state behind.
+    const pending = createDeferred<never>();
+    const host = goalHost({ "sessions.goal.update": () => pending.promise });
+    const submitted = mutateChatGoal(host, { action: "resume", goalId: goal.id });
+    const captured = chatGoalRecovery(host);
+    pending.reject(
+      new GatewayRequestError({
+        code: "INVALID_REQUEST",
+        message:
+          "Goal start or resume is unavailable while an active execution hook owns admission",
+        details: { code: "GOAL_OPERATION_REJECTED", reason: "admission-gate" },
+      }),
+    );
+    expect(await submitted).toBe(false);
+    expect(host.chatError).toContain("active execution hook");
+    expect(host.chatError).not.toContain("not confirmed");
+    expect(chatGoalRecovery(host)).toBeUndefined();
+    expect(sessionStorage.length).toBe(0);
+    await captured?.onCheck();
+    expect(host.request).toHaveBeenCalledOnce();
+  });
+
   it.each(["goal-invalid"])(
     "retires definitive %s rejection instead of arming a future mutation",
     async (reason) => {
