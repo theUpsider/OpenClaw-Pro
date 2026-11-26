@@ -59,6 +59,8 @@ const rejectedGoalReasons = new Set([
   "goal-rebound",
   "capacity",
   "invalid",
+  // A Goal refused by an active admission hook is definitive here, not an unconfirmed update.
+  "admission-gate",
 ]);
 
 function rejectGoalOperation(host: ChatHost, message: string): false {

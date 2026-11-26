@@ -27,6 +27,8 @@ export const SESSION_GOAL_OPERATION_ERROR_CODES = [
   "capacity",
   "receipt-invalid",
   "invalid",
+  // Goal start/resume refused because an active admission hook owns chat admission.
+  "admission-gate",
 ] as const;
 
 export type SessionGoalOperationErrorCode = (typeof SESSION_GOAL_OPERATION_ERROR_CODES)[number];

@@ -50,6 +50,7 @@ import { deriveGatewaySessionLifecycleSnapshot } from "../session-lifecycle-stat
 import type { WorkerSessionPlacementRecord } from "../worker-environments/placement-record.js";
 import type { WorkerSessionPlacementStore } from "../worker-environments/placement-store.js";
 import { boundedWorkerError } from "../worker-environments/worker-error.js";
+import { goalAdmissionGateError } from "./chat-goal-admission-gate.js";
 import type { GatewayRequestContext } from "./types.js";
 
 const RESTART_SAFE_CHAT_REQUEST_VERIFIER_DOMAIN = "openclaw.chat.restart-retry.v1";
@@ -259,21 +260,36 @@ function hasRestartUnsafeChatWork(params: {
   sessionKey: string;
   agentId: string;
   entry?: SessionEntry;
-}): boolean {
-  if (
+}): { unsafe: boolean; admissionHookOnly: boolean } {
+  // The admission hook is reported as the *sole* blocker only when nothing else blocks,
+  // since removing it would not admit an otherwise ineligible Goal. Callers name the hook
+  // cause only for that case and keep the historical message for every other refusal.
+  const admissionHook =
     findRestartRecoveryUnsafeChatAdmissionHook(
       resolveSessionDispatchKind(params.sessionKey, params.entry),
-    ) !== undefined ||
+    ) !== undefined;
+  const otherUnsafeWork =
     resolveProjectedAgentRunProgressState({
       agentId: params.agentId,
       sessionId: params.sessionId,
       sessionKeys: [params.sessionKey],
     }) !== undefined ||
     listActiveEmbeddedRunSessionIds().includes(params.sessionId) ||
-    replyRunRegistry.isActive(params.activeRunScopeKey)
-  ) {
-    return true;
-  }
+    replyRunRegistry.isActive(params.activeRunScopeKey) ||
+    hasSessionOwnedActiveChatWork(params);
+  return {
+    unsafe: admissionHook || otherUnsafeWork,
+    admissionHookOnly: admissionHook && !otherUnsafeWork,
+  };
+}
+
+function hasSessionOwnedActiveChatWork(params: {
+  context: Pick<GatewayRequestContext, "chatAbortControllers"> &
+    Partial<Pick<GatewayRequestContext, "chatQueuedTurns">>;
+  sessionId: string;
+  sessionKey: string;
+  agentId: string;
+}): boolean {
   for (const runs of [params.context.chatAbortControllers, params.context.chatQueuedTurns]) {
     for (const active of runs?.values() ?? []) {
       if (
@@ -321,6 +337,9 @@ export function resolveRestartSafeChatAdmission(params: {
   context: Pick<GatewayRequestContext, "chatAbortControllers" | "chatQueuedTurns">;
   entry?: SessionEntry;
   acpMeta: SessionEntry["acp"] | null;
+  /** A Goal start/resume: a refusal whose sole blocker is an admission hook throws the
+   * typed, honest admission-gate error; every other refusal is left to the caller. */
+  goalAdmission?: boolean;
   initialSessionEntry?: SessionEntry;
   lifecycleTimestamps?: SessionLifecycleTimestamps;
   now: number;
@@ -373,7 +392,13 @@ export function resolveRestartSafeChatAdmission(params: {
       return undefined;
     }
   }
-  if (hasRestartUnsafeChatWork(params)) {
+  const unsafeWork = hasRestartUnsafeChatWork(params);
+  if (unsafeWork.unsafe) {
+    // A Goal gets the honest hook cause only when the admission hook is the sole blocker;
+    // an otherwise ineligible Goal keeps the historical runtime message in the caller.
+    if (params.goalAdmission && unsafeWork.admissionHookOnly) {
+      throw goalAdmissionGateError();
+    }
     return undefined;
   }
   const retryableClaim = isRetryableUnadoptedChatClaim(entry, params.clientRunId);
