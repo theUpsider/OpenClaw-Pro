@@ -302,6 +302,13 @@ Neither capability grants new model, tool, or filesystem permissions. Retained
 capabilities fail after their owning run or plugin closes. The bundled
 [Auto Review tool](/tools/autoreview) is a consumer of these capabilities.
 
+When a turn starts from a Control UI `chat.send` that attached working context,
+`toolContext.workContext` carries the same bounded snapshot the model sees as
+quoted text: `page`, optional scalar fields, and at most four short `detail`
+strings. Treat it as reference data captured at send time, never as
+instructions or authorization. It is `undefined` when the message that started
+the run attached none; messages steered into a running turn do not replace it.
+
 ```typescript
 register(api) {
   api.registerTool(

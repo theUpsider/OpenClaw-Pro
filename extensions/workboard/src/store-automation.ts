@@ -53,7 +53,13 @@ export function normalizeCardAutomation(input: WorkboardLinkedCreateInput) {
       workspace: input.workspace,
       maxRuntimeSeconds: input.maxRuntimeSeconds,
       maxRetries: input.maxRetries,
+      parallelizable: input.parallelizable,
+      maxConcurrentPerOwner: input.maxConcurrentPerOwner,
+      dispatchMode: input.dispatchMode,
       scheduledAt: input.scheduledAt,
+      decisionOptions: input.decisionOptions,
+      ask: input.ask,
+      askKind: input.askKind,
     },
     workspaceAccess ? { workspaceAccess } : undefined,
   );

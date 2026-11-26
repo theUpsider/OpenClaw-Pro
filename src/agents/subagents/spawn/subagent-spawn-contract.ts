@@ -39,6 +39,8 @@ export type SpawnSubagentParams = {
   lightContext?: boolean;
   /** The child's rendered prompt omits its model, agent/session identity and workspace path. */
   blind?: boolean;
+  /** Explicit per-child `message` opt-in; omitted falls back to config, which defaults to off. */
+  allowMessaging?: boolean;
   expectsCompletionMessage?: boolean;
   completionTarget?: "parent";
   attachments?: Array<{

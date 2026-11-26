@@ -222,8 +222,9 @@ export async function prepareStructuredOutboundPayloadBatch(
       try {
         result = await modifier.apply(postHookPayload);
       } catch (error) {
-        // Modifier handlers are fail-open. Only a host invariant failure can
-        // escape here, and atomic preparation must attribute it before aborting.
+        // Fail-open handler errors are swallowed and fail-closed ones come back as
+        // a suppression, so only a host invariant failure can escape here, and
+        // atomic preparation must attribute it before aborting.
         throw new OutboundPayloadPreparationError(error);
       }
       postHookPayload = copyMetadata(postHookPayload, result.payload);

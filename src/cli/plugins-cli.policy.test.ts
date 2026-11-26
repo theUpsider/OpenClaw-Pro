@@ -243,12 +243,38 @@ it.each([
       if (acceptCapabilities) {
         expect(JSON.parse(logs.join("\n"))).toEqual(receipt);
       } else {
+<<<<<<< OURS/upstream-11.10
         expect(logs).toEqual([]);
       }
     } else {
       for (const id of ids) {
         expect(logs).toContain(
           `${id}: Selected entry: /plugins/${id}/dist/index.js. Rebuild compiled output after source edits.`,
+||||||| BASE/v11.4
+        for (const id of ids) {
+          expect(pluginsCliRuntimeLogs).toContain(
+            `${id}: Selected entry: /plugins/${id}/dist/index.js. Rebuild compiled output after source edits.`,
+          );
+        }
+        expect(pluginsCliRuntimeLogs).toContain(
+          restartRequired
+            ? 'Reloaded registrations for plugin "alpha" (generation 2). Gateway restart required to load edited code.'
+            : ids.length === 1
+              ? 'Reloaded plugin "alpha" (generation 2).'
+              : 'Reloaded plugins "alpha", "beta" (generation 2).',
+=======
+        for (const id of ids) {
+          expect(pluginsCliRuntimeLogs).toContain(
+            `${id}: Selected entry: /plugins/${id}/dist/index.js. Rebuild compiled output after source edits.`,
+          );
+        }
+        expect(pluginsCliRuntimeLogs).toContain(
+          restartRequired
+            ? 'Reloaded registrations for plugin "alpha" (generation 2). Gateway restart required to load edited code.'
+            : ids.length === 1
+              ? 'Reloaded plugin "alpha" (generation 2). New dispatches use the reloaded code; calls already accepted before the reload keep their previous generation\'s code until they finish.'
+              : 'Reloaded plugins "alpha", "beta" (generation 2). New dispatches use the reloaded code; calls already accepted before the reload keep their previous generation\'s code until they finish.',
+>>>>>>> THEIRS/pro-main
         );
       }
       expect(logs).toContain(

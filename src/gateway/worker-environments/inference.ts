@@ -9,6 +9,7 @@ import {
   type WorkerInferenceTerminalFrame,
   type WorkerInferenceTerminalOutcome,
   validateWorkerInferenceEventFrame,
+  validateWorkerInferenceStartParams,
 } from "../../../packages/gateway-protocol/src/schema/worker-inference.js";
 import type { BoundAgentRunSessionTarget } from "../../agents/run-session-target.types.js";
 import { boundedJsonUtf8Bytes } from "../../infra/json-utf8-bytes.js";
@@ -491,7 +492,10 @@ export function createWorkerInferenceManager(options: WorkerInferenceManagerOpti
     ) {
       return { ok: false, reason: "provider-error" };
     }
-    if (!boundedJsonUtf8Bytes(params.request, requestMaxBytes).complete) {
+    if (
+      !validateWorkerInferenceStartParams(params.request) ||
+      !boundedJsonUtf8Bytes(params.request, requestMaxBytes).complete
+    ) {
       return { ok: false, reason: "invalid-context" };
     }
     const serialized = stableStringify(params.request);

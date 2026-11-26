@@ -1,5 +1,4 @@
 /** Native composition entry for ordinary, restricted, and cold provider-hook loading. */
-import { setImmediate as nextTurn } from "node:timers/promises";
 import { resolveAgentDir } from "../agents/agent-scope-config.js";
 import { createExternalAuthRuntime } from "../agents/auth-profiles/external-auth.js";
 import { resolveAuthProfileOrder } from "../agents/auth-profiles/order.js";
@@ -23,6 +22,9 @@ import { createDebugProxyWebSocketAgent, resolveDebugProxySettings } from "../pr
 import { captureWsEvent, captureWsEventAsync } from "../proxy-capture/runtime.js";
 import { createRealtimeTranscriptionWebSocketSession } from "../realtime-transcription/websocket-session.js";
 import { createLazyRuntimeMethod, createLazyRuntimeModule } from "../shared/lazy-runtime.js";
+import { MAIN_THREAD_STALL_ATTRIBUTION_MS } from "../infra/main-thread-stall.js";
+import { createYieldBudgetStepStats, runStepsWithYieldBudget } from "../infra/yield-budget.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveCompatibleRuntimePluginRegistry } from "./active-runtime-registry.js";
 import type { PluginCapabilityCatalogHostContext } from "./capability-catalog-context.types.js";
 import { withPluginMetadataSnapshotScope } from "./current-plugin-metadata-snapshot.js";
@@ -206,6 +208,7 @@ const pendingCachedLoads = new WeakMap<object, Map<string, PendingCachedLoad>>()
 export async function loadOpenClawPluginsAsync(
   options: PluginLoadOptions = {},
 ): Promise<PluginRegistry> {
+<<<<<<< OURS/upstream-11.10
   const load = () => runPluginLoadStepsAsync(loadOpenClawPluginsSteps(options, loaderBindings));
   if (options.activate !== false || !isCachedPluginRegistryLoad(options)) {
     return load();
@@ -259,8 +262,28 @@ async function runPluginLoadStepsAsync(
     } catch (error) {
       step = steps.throw(error);
     }
+||||||| BASE/v11.4
+  const steps = loadOpenClawPluginsSteps(options, loaderBindings);
+  let step = steps.next();
+  while (!step.done) {
+    await nextTurn();
+    step = steps.next();
+=======
+  const stats = createYieldBudgetStepStats();
+  try {
+    return await runStepsWithYieldBudget(loadOpenClawPluginsSteps(options, loaderBindings), {
+      stats,
+    });
+  } finally {
+    if (stats.outliers > 0) {
+      // One line per run, only when the budget could not split a step: it names the step
+      // behind a concurrent main-thread stall without adding per-step logging.
+      (options.logger ?? createSubsystemLogger("plugins")).warn(
+        `[plugins] generation run held the event loop for ${stats.outliers} step(s) >= ${MAIN_THREAD_STALL_ATTRIBUTION_MS}ms; longest ${Math.round(stats.maxStepMs)}ms at ${stats.maxStepLabel ?? "finalization"}`,
+      );
+    }
+>>>>>>> THEIRS/pro-main
   }
-  return step.value;
 }
 
 /** Publishes synchronously, then joins every accepted health write before returning to its host. */

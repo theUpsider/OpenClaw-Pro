@@ -288,9 +288,79 @@ export function CostWindowComparison(props: {
               }}
             </For>
           </div>
+<<<<<<< OURS/upstream-11.10
         </SettingsSection>
       )}
     </Show>
+||||||| BASE/v11.4
+        </div>
+        <div class="cost-window-range-label">
+          {formatDayLabel(rangeStartDate)} – {formatDayLabel(rangeEndDate)}
+        </div>
+      </div>
+      <div class="cost-window-grid">
+        <For each={Array.from(windows.entries())}>
+          {([index, summary]) => {
+            const isRange = index === 0;
+            const label = () =>
+              isRange
+                ? t("usage.costWindows.selectedRange")
+                : summary.days === 1
+                  ? summary.endDate === today
+                    ? t("usage.presets.today")
+                    : formatDayLabel(summary.endDate)
+                  : t("usage.costWindows.lastDays", { count: String(summary.days) });
+            const averageDailyCost = summary.totals.totalCost / summary.days;
+            return (
+              <div class={["cost-window-card", { "cost-window-card--range": isRange }]}>
+                <div class="cost-window-card__label">{label()}</div>
+                <div class="cost-window-card__value">
+                  {formatAnalysisCost(summary.totals.totalCost)}
+                </div>
+                <div class="cost-window-card__meta">
+                  {`${formatUsageTokens(summary.totals.totalTokens)} ${t("usage.metrics.tokens")} · ${formatAnalysisCost(averageDailyCost)} ${t("usage.costWindows.perDay")}`}
+                </div>
+              </div>
+            );
+          }}
+        </For>
+      </div>
+    </section>
+=======
+        </div>
+        <div class="cost-window-range-label">
+          {formatDayLabel(rangeStartDate)} – {formatDayLabel(rangeEndDate)}
+        </div>
+      </div>
+      <div class="cost-window-grid">
+        <For each={Array.from(windows.entries())}>
+          {([index, summary]) => {
+            const isRange = index === 0;
+            const label = () =>
+              isRange
+                ? t("usage.costWindows.selectedRange")
+                : summary.days === 1
+                  ? summary.endDate === today
+                    ? t("usage.presets.today")
+                    : formatDayLabel(summary.endDate)
+                  : t("usage.costWindows.lastDays", { count: String(summary.days) });
+            const averageDailyCost = summary.totals.totalCost / summary.days;
+            return (
+              <div class={["cost-window-card", { "cost-window-card--range": isRange }]}>
+                <div class="cost-window-card__label">{label()}</div>
+                <div class="cost-window-card__value">
+                  {formatAnalysisCost(summary.totals.totalCost, summary.totals.usageReport)}
+                </div>
+                <div class="cost-window-card__meta">
+                  {`${formatUsageTokens(summary.totals.totalTokens, summary.totals.usageReport)} ${t("usage.metrics.tokens")} · ${formatAnalysisCost(averageDailyCost, summary.totals.usageReport)} ${t("usage.costWindows.perDay")}`}
+                </div>
+              </div>
+            );
+          }}
+        </For>
+      </div>
+    </section>
+>>>>>>> THEIRS/pro-main
   );
 }
 
@@ -359,6 +429,9 @@ export function UsageInsights(props: {
       return undefined;
     }
 
+    // A ratio of partial counters is neither exact nor a lower bound: show it only when complete.
+    const report = totals.usageReport;
+    const partial = report?.state === "unavailable";
     const empty = t("usage.common.emptyValue");
     const avgTokens = aggregates.messages.total
       ? Math.round(totals.totalTokens / aggregates.messages.total)
@@ -366,14 +439,21 @@ export function UsageInsights(props: {
     const avgCost = aggregates.messages.total ? totals.totalCost / aggregates.messages.total : 0;
     const cacheBase = totals.input + totals.cacheRead + totals.cacheWrite;
     const cacheHitRate = cacheBase > 0 ? totals.cacheRead / cacheBase : 0;
+<<<<<<< OURS/upstream-11.10
     const cacheHitLabel = cacheBase > 0 ? `${(cacheHitRate * 100).toFixed(1)}%` : empty;
+||||||| BASE/v11.4
+    const cacheHitLabel =
+      cacheBase > 0 ? `${(cacheHitRate * 100).toFixed(1)}%` : t("usage.common.emptyValue");
+=======
+    const cacheHitLabel = cacheBase > 0 && !partial ? `${(cacheHitRate * 100).toFixed(1)}%` : empty;
+>>>>>>> THEIRS/pro-main
     const errorRatePct = stats.errorRate * 100;
     const throughputLabel =
-      stats.throughputTokensPerMin !== undefined
+      stats.throughputTokensPerMin !== undefined && !partial
         ? `${formatUsageTokens(Math.round(stats.throughputTokensPerMin))} ${t("usage.overview.tokensPerMinute")}`
         : t("usage.common.emptyValue");
     const throughputCostLabel =
-      stats.throughputCostPerMin !== undefined
+      stats.throughputCostPerMin !== undefined && !partial
         ? `${formatAnalysisCost(stats.throughputCostPerMin)} ${t("usage.overview.perMinute")}`
         : t("usage.common.emptyValue");
     const avgDurationLabel =
@@ -399,18 +479,45 @@ export function UsageInsights(props: {
       label,
       ...(agent ? { agentId: label } : {}),
       // Usage with no known price is unpriced, never free.
+      // Usage with no known price is unpriced, never free.
       value:
+        entryTotals.totalCost === 0 && entryTotals.missingCostEntries > 0
+          ? t("usage.overview.unpriced")
+          :
         entryTotals.totalCost === 0 && entryTotals.missingCostEntries > 0
           ? t("usage.overview.unpriced")
           : formatAnalysisCost(entryTotals.totalCost),
       // Bars rank by cost, which reflects model, speed tier and cache use better than tokens.
       weight: entryTotals.totalCost || entryTotals.totalTokens / 1e9,
       sub: [
+<<<<<<< OURS/upstream-11.10
         source ?? null,
         formatUsageTokens(entryTotals.totalTokens),
         count === undefined
           ? null
           : `${count.toLocaleString()} ${t("usage.overview.messagesAbbrev")}`,
+||||||| BASE/v11.4
+        showCostShares && entryTotals.usageReport?.state !== "unavailable" && totals.totalCost > 0
+          ? t("usage.overview.costShare", {
+              percent: ((entryTotals.totalCost / totals.totalCost) * 100).toFixed(1),
+            })
+          : null,
+        formatUsageTokens(entryTotals.totalTokens, entryTotals.usageReport),
+        count === undefined ? null : `${count} ${t("usage.overview.messagesAbbrev")}`,
+=======
+        // A share needs a complete entry and a complete denominator.
+        showCostShares &&
+        !partial &&
+        entryTotals.usageReport?.state !== "unavailable" &&
+        entryTotals.totalCost > 0 &&
+        totals.totalCost > 0
+          ? t("usage.overview.costShare", {
+              percent: ((entryTotals.totalCost / totals.totalCost) * 100).toFixed(1),
+            })
+          : null,
+        formatUsageTokens(entryTotals.totalTokens, entryTotals.usageReport),
+        count === undefined ? null : `${count} ${t("usage.overview.messagesAbbrev")}`,
+>>>>>>> THEIRS/pro-main
       ]
         .filter((part): part is string => part !== null)
         .join(" · "),
@@ -484,8 +591,11 @@ export function UsageInsights(props: {
       aggregates,
       throughputLabel,
       throughputCostLabel,
-      avgTokensLabel: formatUsageTokens(avgTokens),
+      avgTokensLabel: formatUsageTokens(avgTokensLabel: partial ? empty : formatUsageTokens(avgTokens)),
       avgCostLabel: formatAnalysisCost(avgCost),
+      avgCostLabel: partial ? empty : formatAnalysisCost(avgCost),
+      partial,
+      report,
       cacheHitLabel,
       totals,
       cacheBase,
@@ -538,8 +648,9 @@ export function UsageInsights(props: {
                   metric="cacheHitRate"
                   hint={t("usage.overview.cacheHint")}
                   value={insights().cacheHitLabel}
-                  sub={`${formatUsageTokens(insights().totals.cacheRead)} ${t("usage.overview.cached")} · ${formatUsageTokens(insights().cacheBase)} ${t("usage.overview.prompt")}`}
+                  sub={`${formatUsageTokens(insights().totals.cacheRead, insights().report)} ${t("usage.overview.cached")} · ${formatUsageTokens(insights().cacheBase, insights().report)} ${t("usage.overview.prompt")}`}
                   tone={
+<<<<<<< OURS/upstream-11.10
                     insights().cacheBase > 0
                       ? insights().cacheHitRate > 0.6
                         ? "good"
@@ -547,6 +658,21 @@ export function UsageInsights(props: {
                           ? "warn"
                           : "bad"
                       : undefined
+||||||| BASE/v11.4
+                    insights().cacheHitRate > 0.6
+                      ? "good"
+                      : insights().cacheHitRate > 0.3
+                        ? "warn"
+                        : "bad"
+=======
+                    insights().partial
+                      ? undefined
+                      : insights().cacheHitRate > 0.6
+                        ? "good"
+                        : insights().cacheHitRate > 0.3
+                          ? "warn"
+                          : "bad"
+>>>>>>> THEIRS/pro-main
                   }
                 />
                 <SummaryStat
@@ -571,8 +697,18 @@ export function UsageInsights(props: {
                       ? "usage.overview.avgCostHintMissing"
                       : "usage.overview.avgCostHint",
                   )}
+<<<<<<< OURS/upstream-11.10
                   value={insights().avgCostLabel}
                   sub={`${formatAnalysisCost(insights().totals.totalCost)} ${normalizeLowercaseStringOrEmpty(t("usage.breakdown.total"))}`}
+||||||| BASE/v11.4
+                  value={formatAnalysisCost(insights().avgCost)}
+                  sub={`${formatAnalysisCost(insights().totals.totalCost)} ${normalizeLowercaseStringOrEmpty(t("usage.breakdown.total"))}`}
+                  class="usage-summary-card--compact"
+=======
+                  value={insights().avgCostLabel}
+                  sub={`${formatAnalysisCost(insights().totals.totalCost, insights().report)} ${normalizeLowercaseStringOrEmpty(t("usage.breakdown.total"))}`}
+                  class="usage-summary-card--compact"
+>>>>>>> THEIRS/pro-main
                 />
                 <SummaryStat
                   hintId="sessions"

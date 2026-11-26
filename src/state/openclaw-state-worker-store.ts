@@ -57,7 +57,13 @@ export function createOpenClawStateWorkerLease(
     context,
     {
       open: (captured) => owner().open(captured),
+<<<<<<< OURS/upstream-11.10
       retainOperation: (store, listener) => owner().retainOperation(store, listener),
+||||||| BASE/v11.4
+      retainOperation: (store, onNativeLost) => owner().retainOperation(store, onNativeLost),
+=======
+      retainOperation: (store, onLost) => owner().retainOperation(store, onLost),
+>>>>>>> THEIRS/pro-main
     },
     finalize,
     onNativeLost,

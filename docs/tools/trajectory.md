@@ -109,6 +109,17 @@ Events are written as JSON Lines with this schema marker:
 }
 ```
 
+### Tool-set telemetry on `session.started`
+
+`session.started` carries three groups of tool-set fields. They measure two different sets; do not read one as the other:
+
+- `toolCount` — the per-turn constructed surface (`effectiveTools.length`); in the 2026-11-09 measurement it matched the request's wire tool count in **59/59** same-turn joins.
+- `clientToolCount` — the number of client-supplied tool definitions on the attempt (`clientToolDefs.length`), a different quantity from `toolCount`.
+- `capabilityToolNames` / `capabilityToolNamesCount` / `capabilityToolNamesHash` — the **admission/allowlist basis**, a strictly larger set: everything the run may reach, including deferred and catalog tools. It does **not** track the wire tool set. In a 2026-11-09 measurement it matched the wire tool count in **0/17** same-turn joins (counts ran 4–147 where the wire ran 0–15; see `/workspace/main/state/workspace-b/reports/tool-flip-attribution-and-mirror-2026-11-09.md`).
+- `wireToolNames` / `wireToolNamesCount` / `wireToolNamesHash` — the constructed session surface at turn start (the pinned tool set the session sends), sorted ascending. They are recorded **before** dispatch, so the prompt-hook cap can still intersect the surface at dispatch time; this is not a byte-for-byte capture of the dispatched array.
+
+For all three name fields, the count and digest cover the full **pre-truncation** set: the runtime array limiter caps recorded arrays at 64 items and the limiter's marker is dropped by the following diagnostic projection, so a long list reads as a plain 64-item array. Compare `…Count` against the recorded array length to detect truncation; the digest is a sha256 of the JSON-framed sorted names.
+
 ## Bundle files
 
 | File                  | Contents                                                                                       |

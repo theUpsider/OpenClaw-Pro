@@ -3,6 +3,7 @@ import type {
   MediaUnderstandingOutput,
 } from "../../packages/media-understanding-common/src/types.js";
 /** Shared inbound message context types used by prompt templating and reply dispatch. */
+import type { ChatWorkContext } from "../../packages/gateway-protocol/src/chat-work-context.js";
 import type { InboundEventKind } from "../channels/inbound-event/kind.js";
 import type { DmScope, ReplyToMode } from "../config/types.base.js";
 import type { GroupToolPolicyConfig } from "../config/types.tools.js";
@@ -388,6 +389,8 @@ export type MsgContext = Partial<CanonicalInboundText> & {
   GatewayUiCommandTarget?: GatewayUiCommandTarget;
   /** Run-scoped plugin tool bindings; never rendered into prompt text. */
   GatewayRunToolBindings?: Readonly<Record<string, unknown>>;
+  /** Captured chat.send work context for plugin tools; quoted reference data, never authority. */
+  GatewayRunWorkContext?: ChatWorkContext;
   /** Gateway device id allowed to review approvals initiated by this turn. */
   ApprovalReviewerDeviceId?: string;
   /** Thread identifier (Telegram topic id or Matrix thread event id). */

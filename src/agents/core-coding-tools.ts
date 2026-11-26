@@ -1,3 +1,4 @@
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { root as fsRoot } from "../infra/fs-safe.js";
 import { canAccess } from "../infra/path-existence.js";
@@ -35,6 +36,15 @@ import { createLazyExecTool } from "./lazy-exec-tool.js";
 import { createLazyProcessTool } from "./lazy-process-tool.js";
 import type { MemoryWriteProvenanceObserver } from "./memory-write-provenance.js";
 import { relativePathInsideSandboxRoot, resolvePathFromInput } from "./path-policy.js";
+import {
+  filterConcealedDirectoryEntries,
+  type ResolvedPathScopePolicy,
+} from "./path-scope-policy.js";
+import {
+  refuseCoveredPath,
+  toHostScopePath,
+  wrapToolWithPathScopeGuard,
+} from "./path-scope-tool-guard.js";
 import { buildSandboxFsMounts } from "./sandbox/fs-paths.js";
 import type { SandboxContext } from "./sandbox/types.js";
 import { resolveReadOnlyWorkspaceSkillMounts } from "./sandbox/workspace-mounts.js";
@@ -192,6 +202,8 @@ type CoreCodingToolsOptions = {
   imageSanitization?: ImageSanitizationLimits;
   modelHasVision?: boolean;
   memoryWriteProvenance?: MemoryWriteProvenanceObserver;
+  /** Per-model path visibility rules; every filesystem tool refuses covered paths through the guard. */
+  pathScopePolicy?: ResolvedPathScopePolicy;
   applyPatchEnabled: boolean;
   applyPatchWorkspaceOnly: boolean;
   applyPatchContainmentSource?: ApplyPatchContainmentSource;
@@ -199,6 +211,14 @@ type CoreCodingToolsOptions = {
   processDefaults: ProcessToolDefaults;
   recordToolPrepStage?: (name: string) => void;
 };
+
+/** Directory entries for a run that configured no workspace boundary of its own. */
+async function defaultReadDirectoryEntries(filePath: string) {
+  return (await readdir(filePath, { withFileTypes: true })).map((entry) => ({
+    name: entry.name,
+    isDirectory: entry.isDirectory(),
+  }));
+}
 
 /** Materialize only the core file and shell families selected by the runtime owner. */
 export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgentTool[] {
@@ -266,36 +286,78 @@ export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgent
                 containerWorkdir: sandbox.containerWorkdir,
                 bridge: sandboxFsBridge,
                 normalizeGuardedPathParams: true,
+                ...(options.pathScopePolicy ? { pathScopePolicy: options.pathScopePolicy } : {}),
               }
+<<<<<<< OURS/upstream-11.10
             : {
                 resolutionCwd: options.codingRoot,
                 containmentSource: options.applyPatchContainmentSource,
                 normalizeGuardedPathParams: true,
                 allowLinkedWorktrees: tool.name !== "ls",
               },
+||||||| BASE/v11.4
+            : { resolutionCwd: options.codingRoot, normalizeGuardedPathParams: true },
+=======
+            : {
+                resolutionCwd: options.codingRoot,
+                normalizeGuardedPathParams: true,
+                ...(options.pathScopePolicy ? { pathScopePolicy: options.pathScopePolicy } : {}),
+              },
+>>>>>>> THEIRS/pro-main
         )
-      : tool;
+      : wrapToolWithPathScopeGuard(tool, {
+          pathScopePolicy: options.pathScopePolicy,
+          resolutionCwd: options.codingRoot,
+          // A sandbox addresses container paths while the rules name host paths; the bridge is what
+          // lets the guard compare the two namespaces instead of missing every rule.
+          ...(sandboxFsBridge ? { bridge: sandboxFsBridge } : {}),
+        });
 
   const base: AnyAgentTool[] = [];
   if (options.includeBaseCodingTools) {
     const readDirectory = sandboxFsBridge?.readDirectory?.bind(sandboxFsBridge);
+    // Concealed entries are removed where the entries exist. Every listing route shares this
+    // projection, so a directory path needs no filtering copy of its own.
+    const concealEntries = <T extends { name: string }>(directoryPath: string, entries: T[]): T[] =>
+      filterConcealedDirectoryEntries(options.pathScopePolicy, directoryPath, entries);
     const listingOperations: LsOperations | undefined = readDirectory
       ? {
-          readDirectory: (filePath, signal) =>
-            readDirectory({ filePath, cwd: sandbox?.containerWorkdir, signal }),
+          readDirectory: async (filePath, signal) =>
+            concealEntries(
+              // A sandbox lists container paths, but the rules are host paths, so the listing is
+              // filtered through the same projection the guard uses — including a remote bridge
+              // that reports no host path and only declares its mount table.
+              sandboxFsBridge
+                ? toHostScopePath(filePath, {
+                    bridge: sandboxFsBridge,
+                    resolutionCwd: sandbox?.containerWorkdir,
+                  })
+                : filePath,
+              await readDirectory({ filePath, cwd: sandbox?.containerWorkdir, signal }),
+            ),
         }
       : options.workspaceOnly && !sandbox
         ? {
             readDirectory: async (filePath) => {
               const root = await fsRoot(options.containmentRoot);
-              return (
-                await root.list(path.relative(options.containmentRoot, filePath), {
-                  withFileTypes: true,
-                })
-              ).map(({ name, isDirectory }) => ({ name, isDirectory }));
+              return concealEntries(
+                filePath,
+                (
+                  await root.list(path.relative(options.containmentRoot, filePath), {
+                    withFileTypes: true,
+                  })
+                ).map(({ name, isDirectory }) => ({ name, isDirectory })),
+              );
             },
           }
-        : undefined;
+        : options.pathScopePolicy && options.pathScopePolicy.entries.length > 0
+          ? {
+              // A plain run still owns its own listing when rules exist, so concealment cannot be
+              // skipped just because no workspace boundary was configured.
+              readDirectory: async (filePath) =>
+                concealEntries(filePath, await defaultReadDirectoryEntries(filePath)),
+            }
+          : undefined;
     if (!sandbox || readDirectory) {
       const ls = createLsTool(options.codingRoot, {
         operations: listingOperations,
@@ -329,6 +391,14 @@ export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgent
           maxBytes: resolveAdaptiveReadMaxBytes(options),
           modelBudget: resolveToolResultBudget(options.modelContextWindowTokens),
           modelHasVision: options.modelHasVision,
+          // The variant search and the "Did you mean" list run inside the read tool, so the rules
+          // are admitted on the file it actually resolved rather than on the raw argument.
+          ...(options.pathScopePolicy
+            ? {
+                assertAdmissible: (absolutePath: string) =>
+                  refuseCoveredPath(options.pathScopePolicy, absolutePath),
+              }
+            : {}),
         });
     const guarded = options.workspaceOnly
       ? wrapToolWorkspaceRootGuardWithOptions(
@@ -340,6 +410,7 @@ export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgent
                 containerWorkdir: sandbox.containerWorkdir,
                 bridge: sandboxFsBridge,
                 readPathValidation: "bridge",
+                ...(options.pathScopePolicy ? { pathScopePolicy: options.pathScopePolicy } : {}),
               }
             : {
                 additionalRoots: hostReadRoots.length > 0 ? hostReadRoots : undefined,
@@ -347,9 +418,15 @@ export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgent
                 allowLinkedWorktrees: true,
                 resolutionCwd: options.codingRoot,
                 normalizeGuardedPathParams: true,
+                ...(options.pathScopePolicy ? { pathScopePolicy: options.pathScopePolicy } : {}),
               },
         )
-      : read;
+      : wrapToolWithPathScopeGuard(read, {
+          pathScopePolicy: options.pathScopePolicy,
+          resolutionCwd: options.codingRoot,
+          // A sandboxed read addresses container paths while the rules name host paths.
+          ...(sandboxFsBridge ? { bridge: sandboxFsBridge } : {}),
+        });
     // Relative read semantics (including optional daily journals) run before
     // the guard forwards its checked absolute path to the filesystem reader.
     const wrapped = sandboxRoot
@@ -411,6 +488,7 @@ export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgent
       createApplyPatchTool({
         cwd: options.codingRoot,
         root: options.containmentRoot,
+        pathScopePolicy: options.pathScopePolicy,
         sandbox:
           sandboxRoot && allowWorkspaceWrites
             ? {

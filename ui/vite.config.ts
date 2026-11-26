@@ -40,6 +40,7 @@ import { controlUiSocialCardPlugin } from "./config/control-ui-social-card.ts";
 import { controlUiSolidPlugin } from "./config/control-ui-solid.ts";
 import { extractControlUiStartupAssetPaths } from "./config/control-ui-startup-assets.ts";
 import { controlUiUpdateCachePlugins } from "./config/control-ui-update-cache.ts";
+import { DEFAULT_THEME_TYPEFACE } from "./src/app/default-typeface.ts";
 import { normalizeControlUiBuildInfo } from "./src/build-info-normalizers.ts";
 import type { ControlUiBuildInfo } from "./src/build-info.ts";
 
@@ -475,6 +476,10 @@ export async function refreshControlUiBuildOutput(
     htmlPath,
     controlUiBuildIdentityHtml(fs.readFileSync(htmlPath, "utf8"), buildInfo, cacheId),
   );
+  // Precache only the default theme's faces. Other fonts and theme styles are
+  // chosen by preferences and cached by the worker on first online use.
+  const offlineTypefaceStylesheet = `fonts/${DEFAULT_THEME_TYPEFACE}.css`;
+  const offlinePublicAssets: string[] = [];
   if (publicDir) {
     for (const asset of publicAssets) {
       const fontStylesheet = asset.startsWith("fonts/") && asset.endsWith(".css");
@@ -484,11 +489,15 @@ export async function refreshControlUiBuildOutput(
       const filePath = path.join(buildOutDir, asset);
       const assetSource = fs.readFileSync(path.join(publicDir, asset), "utf8");
       if (fontStylesheet) {
+        const faces = /url\("([^"/?#]+\.woff2)"\)/gu;
+        if (asset === offlineTypefaceStylesheet) {
+          offlinePublicAssets.push(
+            asset,
+            ...Array.from(assetSource.matchAll(faces), ([, face]) => `fonts/${face}`),
+          );
+        }
         // Relative CSS URLs do not inherit their parent stylesheet's query.
-        const versioned = assetSource.replace(
-          /url\("([^"/?#]+\.woff2)"\)/gu,
-          `url("$1?v=${publicAssetVersion}")`,
-        );
+        const versioned = assetSource.replace(faces, `url("$1?v=${publicAssetVersion}")`);
         fs.writeFileSync(filePath, versioned);
       } else {
         const manifest = JSON.parse(assetSource) as { icons: Array<{ src: string }> };
@@ -517,16 +526,9 @@ export async function refreshControlUiBuildOutput(
     routes: routes.APP_ROUTE_PATHS,
     routePrefixes: routes.APP_ROUTE_OFFLINE_PREFIXES,
     html: fs.readFileSync(path.join(buildOutDir, "index.html"), "utf8"),
-    // Public fonts and theme styles are selected at runtime by preferences.
-    // Keep this bounded build inventory, not all lazy pages, locales, or plugins.
-    assets: [
-      ...new Set([
-        ...selectedBootAssets,
-        ...publicAssets.filter(
-          (asset) => /\.(?:css|woff2)$/u.test(asset) && isControlUiVersionedPublicAsset(asset),
-        ),
-      ]),
-    ]
+    // Keep this bounded build inventory, not all lazy pages, locales, plugins,
+    // fonts, or themes.
+    assets: [...new Set([...selectedBootAssets, ...offlinePublicAssets])]
       .toSorted()
       .map((file) => ({
         path: file.startsWith("assets/")
@@ -867,7 +869,7 @@ export default function controlUiViteConfig(
     return loaded;
   };
   const resolveModulePreloadDependencies: ResolveModulePreloadDependenciesFn = (
-    filename,
+    _filename,
     deps,
     context,
   ) => {
@@ -894,8 +896,14 @@ export default function controlUiViteConfig(
         candidates.add(dependency);
       }
     }
+<<<<<<< OURS/upstream-11.10
     const dependencies = [...candidates].filter((dep) => !loaded.has(dep) && dep !== filename);
     return waitsForStyles && !loaded.has(filename) ? [filename, ...dependencies] : dependencies;
+||||||| BASE/v11.4
+    return pending.filter((dep) => !loaded.has(dep));
+=======
+    return deps.filter((dep) => !loaded.has(dep));
+>>>>>>> THEIRS/pro-main
   };
   return {
     base,

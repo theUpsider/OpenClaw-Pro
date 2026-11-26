@@ -20,9 +20,10 @@ openclaw gateway restart
 
 ```bash
 openclaw workboard list [--board <id>] [--status <status>] [--include-archived] [--json]
-openclaw workboard create <title...> [--notes <text>] [--status <status>] [--priority <priority>] [--agent <id>] [--board <id>] [--labels <items>] [--json]
+openclaw workboard create <title...> [--notes <text>] [--status <status>] [--priority <priority>] [--agent <id>] [--board <id>] [--labels <items>] [--replaces <name>] [--parallelizable] [--max-concurrent-per-owner <count>] [--dispatch-mode <mode>] [--json]
 openclaw workboard show <id> [--json]
 openclaw workboard move <id> --status <status> [--json]
+openclaw workboard update <id> [--labels-add <items>] [--labels-remove <items>] [--replaces <name>] [--parallelizable [value]] [--max-concurrent-per-owner <count>] [--dispatch-mode <mode>] [--json]
 openclaw workboard dispatch [--board <id>] [--max-starts <count>] [--admin] [--url <url>] [--token <token>] [--timeout <ms>] [--json]
 ```
 
@@ -64,15 +65,19 @@ openclaw workboard create "Fix stale worker heartbeat" --priority high --labels 
 openclaw workboard create "Write Workboard docs" --status ready --agent docs-agent --board docs --notes "Cover CLI, slash command, dispatch, and SQLite state."
 ```
 
-| Flag                    | Purpose                                 |
-| ----------------------- | --------------------------------------- |
-| `--notes <text>`        | Initial card notes                      |
-| `--status <status>`     | Initial status, default `todo`          |
-| `--priority <priority>` | Priority, default `normal`              |
-| `--agent <id>`          | Assign the card to an agent or owner id |
-| `--board <id>`          | Store the card on a board namespace     |
-| `--labels <items>`      | Comma-separated labels                  |
-| `--json`                | Print the created card as machine JSON  |
+| Flag                                 | Purpose                                                                           |
+| ------------------------------------ | --------------------------------------------------------------------------------- |
+| `--notes <text>`                     | Initial card notes                                                                |
+| `--status <status>`                  | Initial status, default `todo`                                                    |
+| `--priority <priority>`              | Priority, default `normal`                                                        |
+| `--agent <id>`                       | Assign the card to an agent or owner id                                           |
+| `--board <id>`                       | Store the card on a board namespace                                               |
+| `--labels <items>`                   | Comma-separated labels; classification labels follow the board's palette          |
+| `--replaces <name>`                  | Classification a new label overwrites when the board palette is full (10)         |
+| `--parallelizable`                   | Add the `parallelizable` label so the card can run beside cards of the same owner |
+| `--max-concurrent-per-owner <count>` | Owner slot ceiling for parallelizable cards, default `1`, maximum `16`            |
+| `--dispatch-mode <mode>`             | `native` (default, the local dispatcher places and starts it) or `external`       |
+| `--json`                             | Print the created card as machine JSON                                            |
 
 `create` writes through the selected state owner. The card is immediately visible in the Control UI Workboard tab and to Workboard tools.
 
@@ -100,6 +105,42 @@ openclaw workboard move 7f4a2c10 --status done --json
 
 This command writes through the selected state owner, using Gateway RPC while
 the Gateway is running and exclusive offline ownership when it is stopped.
+
+## `update`
+
+```bash
+openclaw workboard update 7f4a2c10 --labels-add bug,docs
+openclaw workboard update 7f4a2c10 --labels-remove stale --labels-add docs
+openclaw workboard update 7f4a2c10 --labels-add security --replaces chore
+openclaw workboard update 7f4a2c10 --parallelizable --max-concurrent-per-owner 3
+openclaw workboard update 7f4a2c10 --max-concurrent-per-owner 0
+openclaw workboard update 7f4a2c10 --dispatch-mode external
+openclaw workboard update 7f4a2c10 --parallelizable=false --json
+```
+
+`update` edits an existing card's labels by name, opts it in or out of [parallel owner slots](/plugins/workboard#owner-slots-and-opt-in-parallelism), or moves it between [external placement](/plugins/workboard#external-placement) and the local dispatcher. It accepts a full card id or an unambiguous prefix and needs at least one of the flags below.
+
+| Flag                                 | Purpose                                                                                                                     |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `--labels-add <items>`               | Add comma-separated labels that are not already on the card; new names follow the board palette                             |
+| `--labels-remove <items>`            | Remove comma-separated labels, matched case-insensitively                                                                   |
+| `--replaces <name>`                  | Palette classification a new `--labels-add` name overwrites when the board palette is full (`10`); with `--labels-add` only |
+| `--parallelizable [value]`           | Turn the opt-in on (bare, `true`, `1`, `yes`) or off (`false`, `0`, `no`)                                                   |
+| `--max-concurrent-per-owner <count>` | Set the owner slot ceiling to an integer from `1` to `16`; `0` clears it back to default                                    |
+| `--dispatch-mode <mode>`             | `native` (default) keeps local placement; `external` hands the card to a controller outside this Gateway                    |
+| `--json`                             | Print the updated card as machine JSON                                                                                      |
+
+Label edits mirror [`workboard_update`](/plugins/workboard#labels-and-the-classification-palette): removals and additions run against the card that was read, other labels stay, and an empty patch (a removal that matched nothing) is a no-op. An added name that already exists on the board palette reuses the palette's spelling; a new name takes the next free slot; on a full palette the write is refused and names the current classifications and the `replaces` step, unless `--replaces <name>` names an existing classification to overwrite. `--replaces` without `--labels-add` is an error. Label edits and the parallel opt-in can be combined in one write.
+
+Turning parallelism on sets `metadata.automation.parallelizable` and adds the `parallelizable` label. `create --parallelizable` only adds the label, so an `update` card carries both markers while a created card may carry the label alone; either marker opts the card in. Turning parallelism off clears the flag and also removes the `parallelizable` label in any letter case, because the label alone keeps a card opted in. Other labels are kept. Without `--parallelizable`, labels are left alone.
+
+Labels are capped at 12 entries, so a card that already carries 12 other labels keeps the automation flag but not the added label. The card still runs in parallel; only the visible label is skipped.
+
+Clearing the ceiling with `0` removes `maxConcurrentPerOwner` from the card, so the owner falls back to a single slot even if the card stays parallelizable. An invalid value, such as a negative, fractional, or non-numeric count or a count above `16`, exits with an error before anything is written.
+
+`--dispatch-mode external` writes `metadata.automation.dispatchMode` and hands the card to a controller outside this Gateway: the local dispatcher then never claims or starts it, and `dispatch` and the card's **Start** refuse it with a message naming the external mode. `--dispatch-mode native` (or omitting the field) returns it to local placement. An unknown mode is rejected before anything is written. Dependency promotion and claim cleanup still apply to external cards, and the external controller claims, heartbeats, and completes them through the normal flow.
+
+`update` writes through the selected state owner like `move`. A card changed by someone else between the read and the write is rejected instead of overwritten; run the command again.
 
 ## `dispatch`
 
@@ -187,7 +228,7 @@ Slash command dispatch also uses the Gateway subagent runtime. It follows the sa
 
 The CLI dispatch path normally requests Gateway `operator.write` and `operator.read` scopes. Workspace-bound cards run directly in an exact configured agent workspace. A worktree request is narrowed to that directory, so the host does not materialize repository-controlled code. The selected worker must have writable, non-shared Docker sandbox access to that exact workspace, a live container hash matching the requested mounts and policy, and no host escape capability. Pass `--admin` to explicitly request `operator.admin`, allow another host checkout, and use normal managed-worktree setup. The connection fails if that scope is not approved for the client. A read-only Gateway token can inspect Workboard data through read methods, but it cannot create cards or dispatch workers. Workspace limits do not otherwise change manual card movement for callers with Workboard mutation permission.
 
-Local `list`, `create`, `show`, and `move` commands operate on the local OpenClaw state directory used by the current profile. Use `--dev` or `--profile <name>` on the top-level `openclaw` command when you need a different state root.
+Local `list`, `create`, `show`, `move`, and `update` commands operate on the local OpenClaw state directory used by the current profile. Use `--dev` or `--profile <name>` on the top-level `openclaw` command when you need a different state root.
 
 ## Troubleshooting
 

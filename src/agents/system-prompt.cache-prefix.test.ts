@@ -86,12 +86,68 @@ it.each([false, true])("preserves system authority with literal markers=%s", (ma
 });
 
 const demo = createFixtureSkillEntry("demo").skill;
+<<<<<<< OURS/upstream-11.10
 function renderSkills(toolNames: string[], skillsPrompt: string, codeModeActive = false) {
   return render({
     toolNames: codeModeActive ? ["exec"] : toolNames,
     capabilityToolNames: toolNames,
     skillsPrompt,
     codeModeActive,
+||||||| BASE/v11.4
+const unlistedPrompts = [
+  { label: "empty prompt", skillsPrompt: "" },
+  {
+    label: "zero-entry budget notice",
+    skillsPrompt: prepareSkillsForPrompt({ skills: [demo], maxSkillsInPrompt: 0 }).prompt,
+  },
+];
+
+describe("installed skill prompt guidance", () => {
+  it.each([false, true])("uses Code Mode skill access only when admitted (%s)", (admitted) => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      codeModeActive: true,
+      toolNames: ["exec"],
+      capabilityToolNames: admitted ? ["skills_search", "skills_read"] : ["read"],
+      skillsPrompt: formatSkillsForPromptCore([demo]),
+    });
+    if (admitted) {
+      expect(prompt).toContain('`skills.read("<name>")`');
+      expect(prompt).toContain("skills.search(query)");
+      expect(prompt).not.toContain("read exact <location> with `read`");
+    } else {
+      expect(prompt).not.toContain("skills.read(");
+      expect(prompt).not.toContain("skills.search(");
+    }
+=======
+const unlistedPrompts = [
+  { label: "empty prompt", skillsPrompt: "" },
+  {
+    label: "zero-entry budget notice",
+    skillsPrompt: prepareSkillsForPrompt({ skills: [demo], maxSkillsInPrompt: 0 }).prompt,
+  },
+];
+
+describe("installed skill prompt guidance", () => {
+  it.each([false, true])("uses Code Mode skill access only when admitted (%s)", (admitted) => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      codeModeActive: true,
+      toolNames: ["exec"],
+      capabilityToolNames: admitted ? ["skills_search", "skills_read"] : ["read"],
+      skillsPrompt: formatSkillsForPromptCore([demo]),
+    });
+    if (admitted) {
+      expect(prompt).toContain('`skills.read("<name>")`');
+      expect(prompt).toContain("skills.search(query)");
+      expect(prompt).not.toContain("read exact <location> with `read`");
+    } else {
+      // No admitted Code Mode reader: the catalog and both hints stay out.
+      expect(prompt).not.toMatch(
+        /## Skills|<available_skills>|read exact <location>|skills\.(read|search)\(/,
+      );
+    }
+>>>>>>> THEIRS/pro-main
   });
 }
 

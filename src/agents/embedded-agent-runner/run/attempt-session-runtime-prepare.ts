@@ -515,7 +515,8 @@ export async function prepareEmbeddedAttemptSessionRuntime(input: {
   const anthropicPayloadLogger = createAnthropicPayloadLogger(traceContext);
   let trajectoryRecorder: Awaited<ReturnType<typeof createTrajectoryRuntimeRecorder>> = null;
   {
-    const clientToolCount = preparedAgentSession.clientToolDefs.length;
+    const capabilityToolNames: toolSearchRunPlan.capabilityToolNames,
+    clientToolCount = preparedAgentSession.clientToolDefs.length;
     const candidate = sessionLock.ownedTranscriptWriteContext?.sessionTarget;
     const sessionKey = candidate?.sessionKey;
     const assertCommitAllowed = sessionLock.ownedTranscriptWriteContext?.assertCommitAllowed;
@@ -585,6 +586,9 @@ export async function prepareEmbeddedAttemptSessionRuntime(input: {
         localModelLean: localModelLeanEnabled,
         toolCount: effectiveToolCount,
         clientToolCount,
+    // The post-pin session surface: the tool pin (pinTools -> prepareSessionToolSurface)
+    // already shaped activeSession, so its active names are what the session sends.
+    wireToolNames: activeSession.getActiveToolNames(),
       });
       const fastMode = typeof attempt.fastMode === "boolean" ? attempt.fastMode : undefined;
       recorder?.recordEvent(

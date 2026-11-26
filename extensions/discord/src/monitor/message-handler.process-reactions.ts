@@ -81,18 +81,20 @@ export function createDiscordMessageReactionRuntime(params: {
     enabled: boolean,
     adapter: Parameters<typeof createStatusReactionController>[0]["adapter"],
     initialEmoji: string,
+    presentation: "quiet" | "acknowledgement",
   ) =>
     createStatusReactionController({
       enabled,
       adapter,
       initialEmoji,
-      presentation: "acknowledgement",
+      presentation,
       onError: (err) => logReactionFailure(statusReactionTarget, err),
     });
   let statusReactions: StatusReactionController = createController(
     statusReactionsEnabled,
     discordAdapter,
     ackReaction,
+    "quiet",
   );
 
   const resolveTrackedReactionChannelId = async (
@@ -166,6 +168,8 @@ export function createDiscordMessageReactionRuntime(params: {
       true,
       createReactionAdapter(trackedChannelId, trackedMessageId),
       emoji,
+      // Keep the model-chosen tracked emoji instead of replacing it with the quiet working one.
+      "acknowledgement",
     );
     statusReactionsActive = true;
     void statusReactions.setQueued();

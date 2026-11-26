@@ -46,6 +46,8 @@ import {
   resolveSandboxPathMapping,
   toRelativeWorkspacePath,
 } from "./path-policy.js";
+import type { ResolvedPathScopePolicy } from "./path-scope-policy.js";
+import { refuseCoveredPath } from "./path-scope-tool-guard.js";
 import type { AgentTool, AgentToolResult } from "./runtime/index.js";
 import { assertSandboxPath } from "./sandbox-paths.js";
 import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
@@ -494,6 +496,8 @@ export function wrapToolWorkspaceRootGuardWithOptions<TDetails>(
     containmentSource?: ApplyPatchContainmentSource;
     bridge?: SandboxFsBridge;
     readPathValidation?: "bridge";
+    /** Per-model path visibility rules; refused here so every filesystem tool shares one owner. */
+    pathScopePolicy?: ResolvedPathScopePolicy;
   },
 ): AnyAgentTool<TDetails> {
   // v2026.9.4 exposed bridges without descriptors. Preserve their host-root
@@ -544,7 +548,21 @@ export function wrapToolWorkspaceRootGuardWithOptions<TDetails>(
         const candidate = resolveContainerPathCandidate(guardPath);
         const workspaceMapping = resolveSandboxPathMapping(mounts, candidate);
         const guardedRoot = workspaceMapping?.mapping.hostRoot ?? root;
-        const sandboxPath = workspaceMapping?.hostPath ?? candidate;
+        // The rules are host paths, so a sandboxed call is admitted on the host location the
+        // container path maps to, not on the container spelling.
+        const sandboxPath =
+          workspaceMapping?.hostPath ??
+          (options?.bridge && !legacyBridge
+            ? // `hostPath` is optional on a bridge, so a mount that exists only in the container keeps
+              // its own spelling rather than turning into `undefined`.
+              (options.bridge.resolvePath({
+                filePath: candidate,
+                cwd: options.resolutionCwd ?? root,
+              }).hostPath ?? candidate)
+            : candidate);
+        // A covered path is refused before any root check, so the refusal cannot name the root, the
+        // rule or the path and reads the same whether the location exists or not.
+        refuseCoveredPath(options?.pathScopePolicy, sandboxPath, options?.resolutionCwd ?? root);
         const additionalRoots = workspaceMapping ? [] : (options?.additionalRoots ?? []);
         let sandboxResult: Awaited<ReturnType<typeof assertSandboxPathWithinAnyRoot>> | undefined;
         try {

@@ -10,13 +10,14 @@ import type {
   WorkboardMetadata,
   WorkboardStaleState,
   WorkboardStatus,
+  WorkboardWorkspace,
 } from "@openclaw/workboard-contract";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { asNonArrayRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { isCurrentAttemptIdentity } from "./session-link.js";
 import { createWorkboardSqliteStores } from "./sqlite-store.js";
 import {
   buildWorkerContext,
-  assertCanMutateClaimedCard,
   cardBoardId,
   cardParentIds,
   cardRunId,
@@ -29,7 +30,11 @@ import {
   shouldSkipPersistedLifecycleStatusUpdate,
   shouldSyncWorkboardLifecycleStatus,
 } from "./store-card-helpers.js";
-import { isWorkboardClaimReclaimable, secondsToDurationMs } from "./store-constants.js";
+import {
+  isWorkboardClaimReclaimable,
+  secondsToDurationMs,
+  workboardCardIsExternallyDispatched,
+} from "./store-constants.js";
 import { appendEvidence, buildLifecycleObservation } from "./store-evidence.js";
 import type {
   WorkboardBulkInput,
@@ -43,6 +48,7 @@ import { capText, normalizeBoardId, normalizeTimestamp } from "./store-normalize
 import { WorkboardNotificationStore } from "./store-notifications.js";
 import { readCards } from "./store-read.js";
 import { finishRun } from "./store-status-write.js";
+import type { WorkboardWorkspaceAccess } from "./workspace-access.js";
 
 export type { WorkboardDispatchResult } from "./store-inputs.js";
 export { WorkboardCardConflictError } from "./store-core.js";
@@ -159,6 +165,9 @@ function executionAssociationPatch(
 }
 
 // Capability layers share persistence handles and the runtime's mutation ordering.
+export const WORKBOARD_RESTART_TOMBSTONE_REASON =
+  "Session ended during a gateway restart and no replacement session was started.";
+
 export class WorkboardStore extends WorkboardNotificationStore {
   async prepareExecutionLaunch(
     id: string,
@@ -166,13 +175,41 @@ export class WorkboardStore extends WorkboardNotificationStore {
       requestedSessionKey: string;
       now: number;
       scope: WorkboardMutationScope;
+      workspace?: WorkboardWorkspace;
+      workspaceAccess?: WorkboardWorkspaceAccess;
       assertOwnerCurrent?: () => void;
     },
-  ): Promise<{ card: WorkboardCard; launch: WorkboardPreparedLaunch }> {
+  ): Promise<{
+    card: WorkboardCard;
+    launch: WorkboardPreparedLaunch;
+    workspaceMutation?: { before: WorkboardCard; after: WorkboardCard };
+  }> {
     return await this.enqueueMutation(async () => {
+      let workspaceBefore: WorkboardCard | undefined;
       const result = await this.updateLatestCard(id, (card) => {
-        assertCanMutateClaimedCard(card, input.scope);
+        const existing = card.metadata?.automation?.launch;
+        const claim = card.metadata?.claim;
+        // A reclaimed/replaced claim cannot authorize the suspended dispatcher's
+        // next launch, even when the new owner has the same ownerId.
+        if (workboardCardIsExternallyDispatched(card)) {
+          throw new Error("external dispatch mode cannot prepare a native launch.");
+        }
+        if (!claim || claim.token !== input.scope.token) {
+          throw new Error("card claim changed before native launch.");
+        }
+        // One identity per attempt: a repeated prepare under the same claim reuses the
+        // persisted launch, so its run idempotency key stays the one already sent.
+        if (
+          existing?.phase === "prepared" &&
+          claim &&
+          existing.preparedAt >= claim.claimedAt &&
+          existing.requestedSessionKey === input.requestedSessionKey &&
+          preparedLaunchMatchesCard(card, existing)
+        ) {
+          return undefined;
+        }
         const provisionalRunId = `workboard:${card.id}:${card.updatedAt}`;
+        workspaceBefore = input.workspace ? card : undefined;
         const launch: WorkboardPreparedLaunch = {
           phase: "prepared",
           requestedSessionKey: input.requestedSessionKey,
@@ -180,6 +217,9 @@ export class WorkboardStore extends WorkboardNotificationStore {
           preparedAt: card.updatedAt,
         };
         return {
+          ...(input.workspace
+            ? { workspace: input.workspace, workspaceAccess: input.workspaceAccess }
+            : {}),
           sessionKey: input.requestedSessionKey,
           runId: provisionalRunId,
           execution: {
@@ -199,7 +239,13 @@ export class WorkboardStore extends WorkboardNotificationStore {
       if (launch?.phase !== "prepared") {
         throw new Error("prepared Workboard launch was not persisted");
       }
-      return { card: result.card, launch };
+      return {
+        card: result.card,
+        launch,
+        ...(workspaceBefore
+          ? { workspaceMutation: { before: workspaceBefore, after: result.card } }
+          : {}),
+      };
     }, input.assertOwnerCurrent);
   }
 
@@ -312,7 +358,14 @@ export class WorkboardStore extends WorkboardNotificationStore {
               (input.association.acceptedAt !== undefined &&
                 input.association.acceptedAt >= launch.preparedAt)) &&
             cardSessionKey(card) === input.association.expectedSessionKey &&
-            cardRunId(card) === input.association.expectedRunId);
+            cardRunId(card) === input.association.expectedRunId &&
+            // Timestamps alone cannot fence a late update from a superseded attempt,
+            // and a finished card never returns to running from a session report.
+            isCurrentAttemptIdentity(card, input.association) &&
+            !(
+              input.executionStatus === "running" &&
+              (card.status === "review" || card.status === "done")
+            ));
         if (!associationIsCurrent) {
           return undefined;
         }
@@ -412,6 +465,41 @@ export class WorkboardStore extends WorkboardNotificationStore {
           patch.metadata = metadata;
         }
         return Object.keys(patch).length === 0 ? undefined : patch;
+      });
+      return result.updated;
+    });
+  }
+
+  /**
+   * The linked session was tombstoned by a Gateway restart and nothing replaced it.
+   * Block the still-active card once, through the normal block path, with the reason
+   * and session key; recovery stays an operator action. A blocked card is a no-op.
+   */
+  async blockRestartTombstonedSession(
+    id: string,
+    input: { expectedSessionKey: string | undefined; sessionKey: string; now: number },
+  ): Promise<boolean> {
+    return await this.enqueueMutation(async () => {
+      const result = await this.updateLatestCard(id, (card) => {
+        if (
+          card.metadata?.archivedAt ||
+          cardSessionKey(card) !== input.expectedSessionKey ||
+          (card.status !== "running" && card.execution?.status !== "running")
+        ) {
+          return undefined;
+        }
+        const reason = `${WORKBOARD_RESTART_TOMBSTONE_REASON} Session: ${input.sessionKey}`;
+        const patch = this.buildBlockedCardPatch(card, reason, input.now);
+        return {
+          ...patch,
+          metadata: {
+            ...patch.metadata,
+            automation: {
+              ...patch.metadata.automation,
+              restartTombstone: { sessionKey: input.sessionKey, detectedAt: input.now },
+            },
+          },
+        };
       });
       return result.updated;
     });
@@ -548,6 +636,10 @@ export class WorkboardStore extends WorkboardNotificationStore {
       throw new Error("ids are required.");
     }
     const patch = asNonArrayRecord(input.patch);
+    if (patch.replaces !== undefined) {
+      // After the first card the new name is known, so replaces would fail midway.
+      throw new Error("Bulk updates cannot replace classifications; update one card first.");
+    }
     const cards: WorkboardCard[] = [];
     for (const id of ids) {
       const updated =

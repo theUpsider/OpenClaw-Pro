@@ -11,7 +11,7 @@ import {
   type ExecAutoReviewDecision,
   type ExecAutoReviewInput,
 } from "../infra/exec-auto-review.js";
-import type { Model } from "../llm/types.js";
+import type { Model, ThinkingLevel } from "../llm/types.js";
 import { AsyncWorkScope, captureAsyncWorkTracker } from "../shared/async-work-scope.js";
 import { createDeferredCore, type Deferred } from "../shared/deferred.js";
 import { resolveAmbientOwnerAgentId } from "./agent-scope-config.js";
@@ -328,6 +328,16 @@ function extractCompletionFailure(
   return `model stopped without a complete response (${stopReason ?? "unknown"})`;
 }
 
+/**
+ * Harness-only `ultra` has no dedicated token budget in the shared table; it is a ceiling above
+ * `max`, so its verdict allowance falls back to the top budget-bearing level instead of producing
+ * an undefined budget. The provider boundary lowers the level itself.
+ */
+function resolveReviewerBudgetLevel(thinking?: ExecReviewerConfig["thinking"]): ThinkingLevel {
+  const level = thinking ?? "medium";
+  return level === "ultra" ? "max" : level;
+}
+
 function resolveExecReviewerMaxTokens(
   model: Model,
   thinking?: ExecReviewerConfig["thinking"],
@@ -338,8 +348,11 @@ function resolveExecReviewerMaxTokens(
       : Number.POSITIVE_INFINITY;
   // Reasoning can share the completion limit with the verdict, including provider defaults.
   return model.reasoning
-    ? adjustMaxTokensForThinking(EXEC_REVIEWER_MAX_TOKENS, modelMaxTokens, thinking ?? "medium")
-        .maxTokens
+    ? adjustMaxTokensForThinking(
+        EXEC_REVIEWER_MAX_TOKENS,
+        modelMaxTokens,
+        resolveReviewerBudgetLevel(thinking),
+      ).maxTokens
     : Math.min(EXEC_REVIEWER_MAX_TOKENS, modelMaxTokens);
 }
 

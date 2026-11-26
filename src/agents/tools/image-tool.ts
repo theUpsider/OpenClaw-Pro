@@ -19,6 +19,7 @@ import {
 import type { ImageCompressionPolicy } from "../../media/web-media.js";
 import { resolvePluginCapabilityProvider } from "../../plugins/capability-provider-runtime.js";
 import { runWithAsyncWorkResources } from "../../shared/async-work-resources.js";
+import { resolveAgentWorkspaceDir } from "../agent-scope-config.js";
 import type { AuthProfileStore } from "../auth-profiles/types.js";
 import { resolveImageSanitizationLimits } from "../image-sanitization.js";
 import { isMinimaxVlmProvider } from "../minimax-vlm.js";
@@ -269,6 +270,10 @@ export function createImageTool(options?: {
     }
     return null;
   }
+  const agentWorkspaceDir =
+    options?.config && options.agentId
+      ? resolveAgentWorkspaceDir(options.config, options.agentId)
+      : undefined;
   const explicitImageModelConfig =
     !modelHasVision && hasToolModelConfig(explicit)
       ? resolveConfiguredImageModelRefs({
@@ -427,6 +432,7 @@ export function createImageTool(options?: {
             input: normalizedRef,
             isDataUrl,
             workspaceDir: options?.workspaceDir,
+            agentWorkspaceDir,
             cwd: options?.cwd,
             fsPolicy: options?.fsPolicy,
             sandbox: sandboxConfig,

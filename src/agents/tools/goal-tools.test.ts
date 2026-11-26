@@ -75,6 +75,29 @@ function makeGoal(overrides: Partial<NonNullable<SessionEntry["goal"]>>) {
 }
 
 describe("goal tools", () => {
+  it("offers the verification opt-in only while the global switch is on", () => {
+    // F10: with the gate globally disabled the tool surface must stay as it was
+    // instead of advertising a parameter that could never take effect. With the
+    // gate on, the parameter is offered and the schema is reused per variant.
+    const off = createCreateGoalTool({ agentSessionKey: "agent:one:main", config: {} });
+    const offAgain = createCreateGoalTool({ agentSessionKey: "agent:two:main", config: {} });
+    expect(Object.keys(off.parameters.properties ?? {})).toEqual(["objective", "token_budget"]);
+    expect(offAgain.parameters).toBe(off.parameters);
+    const on = createCreateGoalTool({
+      agentSessionKey: "agent:one:main",
+      config: {
+        agents: { defaults: { experimental: { goalCompletionVerification: true } } },
+      } as OpenClawConfig,
+    });
+    expect(Object.keys(on.parameters.properties ?? {})).toEqual([
+      "objective",
+      "token_budget",
+      "verify_completion",
+    ]);
+    // The disabled variant is still the one a disabled config resolves to.
+    expect(on.parameters).not.toBe(off.parameters);
+  });
+
   it("keeps get_goal read-only when accounting changes are projected", async () => {
     const { options, readGoal } = await createStoreConfig("global", {
       totalTokens: 125,

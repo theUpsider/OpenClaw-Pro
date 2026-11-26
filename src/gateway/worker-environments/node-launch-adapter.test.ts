@@ -327,7 +327,13 @@ describe("node worker launch adapter", () => {
 
   it("re-arms settled admission deadlines with bounded, idempotent launch identities", async () => {
     input.descriptor.assignment.systemPrompt = '"\\\0\n漢😀'.repeat(10_000);
-    input.descriptor.assignment.systemPrompt += "x".repeat(
+    const image = { type: "image" as const, mimeType: "image/png", data: "" };
+    input.descriptor.assignment.initialMessages.push({
+      role: "user",
+      content: [image],
+      timestamp: 1,
+    });
+    image.data = "x".repeat(
       WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES - measureNodeWorkerLaunchBytes(DEVICE_ID, input),
     );
     const bound = measureNodeWorkerLaunchBytes(DEVICE_ID, input);

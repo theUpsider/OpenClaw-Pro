@@ -317,6 +317,67 @@ Use `auto` to put only one model's exec misses behind the [exec reviewer](/tools
 
 The reviewer uses `tools.exec.reviewer.model` when set, otherwise the agent's primary model. Native Codex app-server sessions keep their own Guardian mapping from `tools.exec.mode`.
 
+## `tools.pathScopes`
+
+Hide and refuse specific paths while a session runs a matching model or provider. Keys accept a
+provider id (`anthropic`) or `provider/model` (`openai/gpt-6-astra`); a model-level entry **unions**
+with its provider-level entry instead of replacing it, and `deny+conceal` wins where both cover the
+same path. The effective model of the run selects the rules, so switching a session's model changes
+the set. Nothing configured means nothing changes.
+
+```json5
+{
+  tools: {
+    pathScopes: {
+      allowExecWithEntries: false,
+      byModel: {
+        anthropic: { entries: [{ path: "~/secrets", mode: "deny+conceal" }] },
+        "openai/gpt-6-astra": { entries: [{ path: "/srv/data/private", mode: "deny" }] },
+      },
+    },
+  },
+}
+```
+
+| Mode                     | Behaviour                                                                                         |
+| ------------------------ | ------------------------------------------------------------------------------------------------- |
+| `deny`                   | Every read or write through a filesystem tool is refused, and the path stays visible in listings. |
+| `deny+conceal` (default) | The refusal, plus the entry is removed from directory listings.                                   |
+
+Semantics:
+
+- An entry is **literal** — absolute or `~`-prefixed, no globs — and covers the path itself and its
+  whole subtree. A same-named sibling is not covered.
+- Both the entry and the requested path are canonicalized, so a symlinked spelling, a `..` path or a
+  `~` spelling resolves to the configured location.
+- A refused access reports the same missing-file error as an absent path. The error never names the
+  path, the rule or the config key, so a model cannot confirm that the location exists.
+- **`exec` and `process` leave the tool surface while entries are active** (default). Command text is
+  not path-checked, so an open shell could reach a concealed path through a glob, an encoded payload
+  or a script. `allowExecWithEntries: true` keeps the shell and is then a best-effort boundary, not a
+  guarantee.
+- A child run must carry the requesting run's rules. The spawn gate compares both sets and refuses a
+  child whose own provider does not cover every path the requester hides, so unrelated entries are
+  not mistaken for protection. An ACP child is refused while rules are active, because that runtime
+  does not enforce them. The gate resolves the same effective config the run's own model and rules
+  come from, so it does not go unarmed merely because a call path hands the tool no pinned copy.
+- `sessions_send` to another session is **not** gated this way: that session keeps its own rules, so
+  treat it as a known gap alongside search and the memory index.
+- A **worker-placed** run reads the model rules from the agent's configured model, because that call
+  path does not report the live model. A per-session model override (`/model`) is therefore not
+  visible to the spawn gate there: if the override selects a provider with rules while the agent's
+  default has none, a child started from that worker turn is not refused. The reverse order only
+  over-refuses, which is safe. Read the override from the session entry before relying on the gate in
+  a worker deployment.
+- Per-agent rules (`agents.entries.<id>.tools.pathScopes`) union with the global block.
+- Sandbox bind mounts are fixed when the container is created, so a model switch inside an existing
+  sandbox does not retroactively change the mounts; the tool-level rules still apply per call.
+- Content already read stays in the transcript and survives compaction. Rules apply from the next
+  tool call onward; already-loaded prompt context is not rewritten.
+- The rules cover the filesystem tools, including `view_image` and `pdf`. **Search and the memory /
+  skill index are not filtered yet**, and tool plugins or MCP filesystem servers carry their own
+  path handling; treat those as a known gap rather than as covered.
+
 ## `tools.toolsBySender`
 
 Restricts tools for the current turn's originating requester. This is defense-in-depth on top of channel access control; sender values must come from the channel adapter, not message text. It does not authenticate other content in the model prompt; see [Requester-scoped controls and prompt context](/gateway/security/hardened-baseline#requester-scoped-controls-and-prompt-context).

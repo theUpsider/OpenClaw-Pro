@@ -436,8 +436,18 @@ export async function prepareEmbeddedAttemptSystemPrompt(params: {
       extraSystemPrompt,
       ownerNumbers: attempt.ownerNumbers,
       reasoningTagHint,
+<<<<<<< OURS/upstream-11.10
       // Finite caps can still read skills; the renderer gates on the callable tools.
       skillsPrompt: params.skillsPrompt,
+||||||| BASE/v11.4
+      skillsPrompt: effectiveSkillsPrompt,
+=======
+      // A finite tool allowlist narrows the callable tools, not the catalog: an
+      // agent that may still `read` needs the skill paths. The renderer gates the
+      // Skills section on the callable reader (read / skills_read / CLI backend),
+      // so a policy without one keeps the catalog out and no reader is added.
+      skillsPrompt: params.skillsPrompt,
+>>>>>>> THEIRS/pro-main
       codeModeActive: params.codeModeActive,
       webSearchUnconfigured: params.webSearchUnconfigured?.(),
       docsPath: openClawReferences.docsPath ?? undefined,

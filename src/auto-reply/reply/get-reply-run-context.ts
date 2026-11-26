@@ -62,7 +62,11 @@ import {
   resolveInboundUserContextPromptJoiner,
 } from "./inbound-meta.js";
 import { resolveQueueSettings } from "./queue/settings-runtime.js";
-import { resolveReplyOperationRunState } from "./reply-operation-run-state.js";
+import { evaluateReplyGate, resolveReplyGateSettings } from "./reply-gate.js";
+import {
+  resolveReplyOperationRunState,
+  suppressVisibleReply,
+} from "./reply-operation-run-state.js";
 import { readReplySourceInput } from "./reply-source-binding.js";
 import { resolveRuntimePolicySessionKey } from "./runtime-policy-session-key.js";
 import {
@@ -236,6 +240,7 @@ export async function prepareReplyRunContext(params: RunPreparedReplyParams) {
     }
   };
   setReplyCompletion("empty");
+<<<<<<< OURS/upstream-11.10
   const groupSystemPrompt = normalizeOptionalString(promptSessionCtx.GroupSystemPrompt) ?? "";
   const inboundMetaPrompt = buildInboundMetaSystemPrompt(
     isNewSession ? promptSessionCtx : { ...promptSessionCtx, ThreadStarterBody: undefined },
@@ -281,6 +286,51 @@ export async function prepareReplyRunContext(params: RunPreparedReplyParams) {
     sourceReplyDeliveryMode === "message_tool_only"
       ? "none"
       : "generic";
+||||||| BASE/v11.4
+  const groupSystemPrompt = normalizeOptionalString(promptSessionCtx.GroupSystemPrompt) ?? "";
+  const inboundMetaPrompt = buildInboundMetaSystemPrompt(
+    isNewSession ? promptSessionCtx : { ...promptSessionCtx, ThreadStarterBody: undefined },
+    cfg,
+    { includeFormattingHints: !useFastReplyRuntime },
+  );
+  const execOverridePromptHint = buildExecOverridePromptHint({
+    execOverrides,
+    elevatedLevel: resolvedElevatedLevel,
+    fullAccessAvailable: fullAccessState.available,
+    fullAccessBlockedReason: fullAccessState.blockedReason,
+  });
+  const staticSystemPromptParts = [
+    sessionStableConversationContext,
+    groupIntro,
+    groupSystemPrompt,
+    execOverridePromptHint,
+  ].filter(Boolean);
+  const extraSystemPromptParts = [inboundMetaPrompt, ...staticSystemPromptParts].filter(Boolean);
+  // Metadata and conversation guidance vary per turn; configured policy and exec hints do not.
+  const turnContextText = [inboundMetaPrompt, sessionStableConversationContext, groupIntro]
+    .filter(Boolean)
+    .join("\n\n");
+  const extraSystemPromptTurnContext = turnContextText
+    ? { start: 0, text: turnContextText }
+    : undefined;
+  const sourceConversationContextPromptOffset = sessionStableConversationContext
+    ? inboundMetaPrompt
+      ? inboundMetaPrompt.length + 2
+      : 0
+    : undefined;
+  const extraSystemPromptStatic = staticSystemPromptParts.join("\n\n");
+  const cliSessionBindingFacts = {
+    extraSystemPromptStatic,
+    ...(sessionPromptSourceReplyDeliveryMode
+      ? { sourceReplyDeliveryMode: sessionPromptSourceReplyDeliveryMode }
+      : {}),
+  };
+  const silentReplyPromptMode: SilentReplyPromptMode =
+    sessionStableConversationContext || sourceReplyDeliveryMode === "message_tool_only"
+      ? "none"
+      : "generic";
+=======
+>>>>>>> THEIRS/pro-main
   const baseBody = sessionCtx.agentText ?? "";
   const rawBodyTrimmed = (ctx.commandText ?? "").trim();
   const baseBodyTrimmedRaw = baseBody.trim();
@@ -425,6 +475,138 @@ export async function prepareReplyRunContext(params: RunPreparedReplyParams) {
         requesterProfileId: getRequesterProfile(ctx)?.id ?? readSessionInputProfileId(ctx),
       })
     : undefined;
+  // Reply gate precedence (each step can only narrow, never widen, the previous one):
+  //   excluded turn (DM / internal / heartbeat / synthetic / command / scheduled)
+  //   -> existing admission and mention rules (already applied upstream of this function)
+  //   -> existing silent-reply policy -> reply gate -> normal reply.
+  // Stage 1 decides the POST, not the turn: the turn always runs (context, memory, tools), and a
+  // needs_reply=false verdict only sets the per-turn visibleReplySuppression fact, which the
+  // delivery owners fold into their existing suppression. Any gate failure replies normally
+  // (fail-open).
+  // Stage 2 (separate opt-in, `skipTurn`) decides the TURN: with both `needs_reply` and
+  // `needs_action` cleanly false the whole run is skipped before any context is assembled, so no
+  // tool can execute. `needs_action` decides only whether the turn starts; it authorizes or
+  // forbids no tool and reaches no tool-policy, authority, approval, admission or delivery path.
+  // Both stages are read from the same single decision call.
+  //
+  // Truth table (stage-1 `enabled` / `skipTurn.enabled` / verdict -> result):
+  //   true  / false / reply=false, any action -> post suppressed, turn runs (stage-1 behaviour)
+  //   true  / false / reply=true              -> normal
+  //   true  / true  / reply=false, action=false -> turn SKIPPED
+  //   true  / true  / reply=false, action=true  -> post suppressed, turn runs (may act)
+  //   true  / true  / reply=true, any           -> normal
+  //   false / true  / reply=false, action=false -> turn SKIPPED, post untouched by stage 1
+  //   false / true  / reply=false, action=true  -> turn runs, post NOT suppressed (stage 1 off)
+  //   false / false / any                       -> gate never called
+  //   any   / any   / unavailable               -> fail-open: turn runs, no suppression
+  const replyGateSettings =
+    isGroupChat &&
+    silentReplyConversationType === "group" &&
+    !isHeartbeat &&
+    !isInternalEvent &&
+    !isSyntheticTurn &&
+    !isActiveCommandTurn &&
+    opts?.scheduledAutomation === undefined
+      ? resolveReplyGateSettings({
+          cfg,
+          surface: promptSessionCtx.Surface ?? promptSessionCtx.Provider,
+          conversationType: silentReplyConversationType,
+          sessionKey: runtimePolicySessionKey,
+        })
+      : undefined;
+  const replyGateText = `${baseBodyFinal}${softResetTail ? `\n${softResetTail}` : ""}`.trim();
+  let replyGateSuppressed = false;
+  if ((replyGateSettings?.enabled || replyGateSettings?.skipTurn.enabled) && replyGateText) {
+    const verdict = await evaluateReplyGate({
+      cfg,
+      agentId,
+      settings: replyGateSettings,
+      text: replyGateText,
+      history: promptSessionCtx.InboundHistory?.map((entry) => ({
+        sender: entry.sender,
+        body: entry.body,
+      })),
+      metadata: {
+        channel: promptSessionCtx.Surface ?? promptSessionCtx.Provider,
+        chatType: promptSessionCtx.ChatType,
+        senderId: promptSessionCtx.SenderId,
+        senderName: promptSessionCtx.SenderName,
+        senderIsPrincipal: command.senderIsOwner,
+        wasMentioned: promptSessionCtx.WasMentioned,
+        mentionSource: promptSessionCtx.MentionSource,
+        explicitlyMentionedBot: promptSessionCtx.ExplicitlyMentionedBot,
+      },
+      signal: opts?.abortSignal,
+    });
+    if (replyGateSettings?.enabled && verdict.decision === "suppress-post") {
+      logVerbose(
+        `reply gate: suppress-post (reply=${verdict.probability}, action=${verdict.actionProbability}, latency=${Math.round(verdict.latencyMs ?? 0)}ms)`,
+      );
+      suppressVisibleReply(replyOperationRunState);
+      replyGateSuppressed = true;
+    }
+    // Stage 2: skip the whole turn. Only a real verdict may skip; `unavailable` is fail-open. The
+    // boundary is exact: `actionProbability === actionThreshold` does NOT skip.
+    if (
+      replyGateSettings?.skipTurn.enabled &&
+      verdict.decision !== "unavailable" &&
+      verdict.needsReply === false &&
+      verdict.needsAction === false &&
+      verdict.actionProbability !== undefined &&
+      verdict.actionProbability < replyGateSettings.skipTurn.actionThreshold
+    ) {
+      logVerbose(
+        `reply gate: skip turn (reply=${verdict.probability}, action=${verdict.actionProbability}, latency=${Math.round(verdict.latencyMs ?? 0)}ms)`,
+      );
+      setReplyCompletion("blocked");
+      opts?.onDeliberateSilentTerminalReply?.();
+      return finishReplyPreparation(typing);
+    }
+  }
+
+  const groupSystemPrompt = normalizeOptionalString(promptSessionCtx.GroupSystemPrompt) ?? "";
+  const inboundMetaPrompt = buildInboundMetaSystemPrompt(
+    isNewSession ? promptSessionCtx : { ...promptSessionCtx, ThreadStarterBody: undefined },
+    cfg,
+    { includeFormattingHints: !useFastReplyRuntime },
+  );
+  const execOverridePromptHint = buildExecOverridePromptHint({
+    execOverrides,
+    elevatedLevel: resolvedElevatedLevel,
+    fullAccessAvailable: fullAccessState.available,
+    fullAccessBlockedReason: fullAccessState.blockedReason,
+  });
+  const staticSystemPromptParts = [
+    sessionStableConversationContext,
+    groupIntro,
+    groupSystemPrompt,
+    execOverridePromptHint,
+  ].filter(Boolean);
+  const extraSystemPromptParts = [inboundMetaPrompt, ...staticSystemPromptParts].filter(Boolean);
+  // Metadata and conversation guidance vary per turn; configured policy and exec hints do not.
+  const turnContextText = [inboundMetaPrompt, sessionStableConversationContext, groupIntro]
+    .filter(Boolean)
+    .join("\n\n");
+  const extraSystemPromptTurnContext = turnContextText
+    ? { start: 0, text: turnContextText }
+    : undefined;
+  const sourceConversationContextPromptOffset = sessionStableConversationContext
+    ? inboundMetaPrompt
+      ? inboundMetaPrompt.length + 2
+      : 0
+    : undefined;
+  const extraSystemPromptStatic = staticSystemPromptParts.join("\n\n");
+  const cliSessionBindingFacts = {
+    extraSystemPromptStatic,
+    ...(sessionPromptSourceReplyDeliveryMode
+      ? { sourceReplyDeliveryMode: sessionPromptSourceReplyDeliveryMode }
+      : {}),
+  };
+  const silentReplyPromptMode: SilentReplyPromptMode =
+    sessionStableConversationContext || sourceReplyDeliveryMode === "message_tool_only"
+      ? "none"
+      : "generic";
+
   const envelopeOptions = resolveEnvelopeFormatOptions(cfg);
   const inboundUserContextSessionCtx = isNewSession
     ? {
@@ -707,7 +889,7 @@ export async function prepareReplyRunContext(params: RunPreparedReplyParams) {
     skillsWorkspaceDir: configuredWorkspaceDir,
     hasUserBody,
     shouldInjectGroupIntro,
-    typingMode,
+    typingMode: replyGateSuppressed ? "never" : typingMode,
     prefixedBodyBase,
     sessionEntry,
     isMainSession,

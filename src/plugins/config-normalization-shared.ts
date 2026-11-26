@@ -9,6 +9,7 @@ import { normalizeChatChannelId } from "../channels/ids.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginEntryConfig } from "../config/types.plugins.js";
 import { DEFAULT_PLUGINS_ENABLED } from "./default-enablement.js";
+import { isHookFailurePolicy, type HookFailurePolicy } from "./hook-failure-policy.js";
 import { normalizePluginPolicyId } from "./plugin-policy-id.js";
 import { normalizeSlotValue, resolveSlotSelection } from "./slots.js";
 
@@ -74,6 +75,21 @@ function normalizeHookTimeouts(value: unknown): Record<string, number> | undefin
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
+function normalizeHookFailurePolicies(
+  value: unknown,
+): Record<string, HookFailurePolicy> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const normalized: Record<string, HookFailurePolicy> = {};
+  for (const [hookName, failurePolicy] of Object.entries(value)) {
+    if (isHookFailurePolicy(failurePolicy)) {
+      normalized[hookName] = failurePolicy;
+    }
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
 type NormalizedPluginEntry = NormalizedPluginsConfig["entries"][string];
 
 function normalizePluginHooks(value: unknown): NormalizedPluginEntry["hooks"] {
@@ -93,6 +109,13 @@ function normalizePluginHooks(value: unknown): NormalizedPluginEntry["hooks"] {
   }
   if (timeouts !== undefined) {
     hooks.timeouts = timeouts;
+  }
+  if (isHookFailurePolicy(value.failurePolicy)) {
+    hooks.failurePolicy = value.failurePolicy;
+  }
+  const failurePolicies = normalizeHookFailurePolicies(value.failurePolicies);
+  if (failurePolicies !== undefined) {
+    hooks.failurePolicies = failurePolicies;
   }
   return Object.keys(hooks).length > 0 ? hooks : undefined;
 }

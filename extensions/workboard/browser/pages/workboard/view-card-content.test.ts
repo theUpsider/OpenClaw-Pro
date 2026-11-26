@@ -3,11 +3,73 @@ import { render } from "@solidjs/web";
 import { createComponent, createSignal, flush } from "solid-js";
 import { afterEach, expect, it, vi } from "vitest";
 import { loadMessages } from "../../i18n/locales.ts";
+import { resolveCardClassification } from "../../lib/workboard/classification.ts";
 import { createWorkboardCard } from "../../lib/workboard/test/index-helpers.ts";
 import { workboardTestHost } from "../../test/host.setup.ts";
 import { CardMeta } from "./view-card-content.tsx";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  document.body.replaceChildren();
+});
+
+const palette = [
+  { name: "bug", color: "red" },
+  { name: "research", color: "purple" },
+];
+const resolveColor = (value: string) => `var(--session-color-${value})`;
+
+function renderMeta(labels: string[]) {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const dispose = render(
+    () =>
+      createComponent(CardMeta, {
+        card: createWorkboardCard({ labels }),
+        archived: false,
+        classification: resolveCardClassification(labels, palette, resolveColor),
+      }),
+    container,
+  );
+  flush();
+  const chips = [...container.querySelectorAll<HTMLElement>(".workboard-card__label")];
+  return { container, chips, dispose };
+}
+
+it("pins the primary classification first and marks colored chips with a dot", () => {
+  const { container, chips, dispose } = renderMeta(["frontend", "Research", "bug"]);
+  try {
+    expect(chips.map((chip) => chip.textContent)).toEqual(["Research", "frontend", "bug"]);
+    expect(chips.map((chip) => chip.classList.contains("workboard-card__label--colored"))).toEqual([
+      true,
+      false,
+      true,
+    ]);
+    expect(chips[0]?.style.getPropertyValue("--workboard-label-color")).toBe(
+      "var(--session-color-purple)",
+    );
+    expect(chips[1]?.getAttribute("style")).toBeNull();
+    expect(container.querySelector(".sr-only")?.textContent).toBe("Type: Research");
+  } finally {
+    dispose();
+  }
+});
+
+it("renders labels without a palette match exactly as plain chips", () => {
+  const { container, chips, dispose } = renderMeta(["alpha", "beta"]);
+  try {
+    expect(chips.map((chip) => chip.textContent)).toEqual(["alpha", "beta"]);
+    expect(chips.map((chip) => chip.className)).toEqual([
+      "workboard-chip workboard-truncate workboard-card__label",
+      "workboard-chip workboard-truncate workboard-card__label",
+    ]);
+    expect(chips.map((chip) => chip.childElementCount)).toEqual([0, 0]);
+    expect(chips.some((chip) => chip.hasAttribute("style"))).toBe(false);
+    expect(container.querySelector(".sr-only")).toBeNull();
+  } finally {
+    dispose();
+  }
+});
 
 it("remeasures labels only when their contents, order, width, or locale change", async () => {
   let resize: ResizeObserverCallback = () => {};
@@ -39,6 +101,7 @@ it("remeasures labels only when their contents, order, width, or locale change",
           return card();
         },
         archived: false,
+        classification: resolveCardClassification(["alpha", "beta"], [], () => ""),
       }),
     container,
   );
@@ -268,4 +331,28 @@ it("ignores a repeated retired ref cleanup after a sibling creates the next pool
       dispose();
     }
   }
+});
+
+it("shows an unseen marker on an automatically finished Done card in the chip style", () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = render(
+    () =>
+      createComponent(CardMeta, {
+        card: createWorkboardCard({
+          status: "done",
+          metadata: { automation: { autoCompletedAt: 2_000 } },
+        }),
+        archived: false,
+        classification: resolveCardClassification([], [], () => ""),
+      }),
+    container,
+  );
+  flush();
+  const marker = container.querySelector<HTMLElement>(".workboard-card__acceptance");
+  expect(marker?.textContent).toBe("New");
+  expect(marker?.classList.contains("workboard-card__acceptance--unseen")).toBe(true);
+  expect(marker?.title).toBe("Finished automatically and not opened since.");
+  root();
+  container.remove();
 });

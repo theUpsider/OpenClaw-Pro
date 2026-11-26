@@ -294,7 +294,9 @@ excluded from the background inventory and keep their existing loading behavior.
 Reloads reuse cached fonts, themes, and the web manifest without contacting the
 Gateway. Their URLs follow the combined public asset content rather than the release ID,
 so updates that leave the public asset set unchanged keep the same cache entries. An
-update from an older release switches to these URLs once. The service worker keeps the current complete build and
+update from an older release switches to these URLs once. Preparation includes only the default theme's typeface; other
+fonts and themes are cached when first used online, so a font or theme you have not
+used since the last update falls back to a default until the browser is online again. The service worker keeps the current complete build and
 one complete previous generation, so older open documents can still load their
 cached chunks. An incomplete replacement does not discard the last complete shell.
 Unchanged files referenced by the new inventory are retained before older caches
@@ -456,6 +458,8 @@ the Gateway name in the account menu.
 
 The client retries ordinary connection loss automatically with randomized backoff: the first
 retry waits 800–960 ms, and sustained failures spread retries across 12.5–15 seconds.
+Backoff restarts at the first delay only after a connection has stayed up for 60 seconds, so a
+connection that keeps dropping shortly after it is established keeps lengthening its waits.
 Server retry hints remain minimum waits and can extend beyond that normal cap, with up to
 20% additional spread. The Gateway's WebSocket ping/pong keepalive detects dead
 peers on the server, but browsers cannot observe those frames or receive a close

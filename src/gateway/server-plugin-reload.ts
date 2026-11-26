@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { isCoreCanvasHostEnabled } from "../canvas/config.js";
 import { withCoreCanvasNodeCapability } from "../canvas/constants.js";
 import { validateConfiguredBindings } from "../channels/plugins/configured-binding-registry.js";
@@ -15,11 +16,14 @@ import {
   PluginRuntimeApplicationError,
 } from "../plugins/lifecycle.js";
 import { PluginLoadFailureError } from "../plugins/loader-shared.js";
+import { resolveInstalledManifestRegistryIndexFingerprint } from "../plugins/manifest-registry-installed.js";
 import type { prepareMemoryRuntimeReload } from "../plugins/memory-runtime.js";
 import { createPluginCache, retirePluginCache, withPluginCache } from "../plugins/plugin-cache.js";
 import { runAfterPluginLifecycleCommit } from "../plugins/plugin-lifecycle-lease.js";
 import { loadPluginLookUpTable } from "../plugins/plugin-lookup-table.js";
+import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.types.js";
 import { withPluginRegistryPreparationScope } from "../plugins/registry-lifecycle.js";
+import type { PluginRegistry } from "../plugins/registry-types.js";
 import { getPluginRegistryVersion } from "../plugins/runtime-state.js";
 import { waitForPluginRegistryRetirement } from "../plugins/runtime.js";
 import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-request-scope.js";
@@ -50,6 +54,30 @@ import {
 import { isChannelStartupSuppressedByEnvironment } from "./server-sidecar-startup-mode.js";
 import type { GatewayPostReadySidecarHandle } from "./server-startup-sidecar-scheduler.js";
 import { listPluginNodeCapabilities } from "./server/plugins-http/route-capability.js";
+
+/**
+ * The metadata-only preflight retained every live record (the loader's input signatures match)
+ * and the fresh scan equals the published snapshot, including fields retention ignores.
+ */
+function isUnchangedPluginGeneration(
+  previousRegistry: PluginRegistry,
+  candidateRegistry: PluginRegistry,
+  previousMetadata: PluginMetadataSnapshot | undefined,
+  nextMetadata: PluginMetadataSnapshot,
+): boolean {
+  return (
+    previousMetadata !== undefined &&
+    previousRegistry.plugins.every((record) => record.status !== "error") &&
+    candidateRegistry.plugins.length === previousRegistry.plugins.length &&
+    candidateRegistry.plugins.every(
+      (record, index) => record === previousRegistry.plugins[index],
+    ) &&
+    previousMetadata.policyHash === nextMetadata.policyHash &&
+    resolveInstalledManifestRegistryIndexFingerprint(previousMetadata.index) ===
+      resolveInstalledManifestRegistryIndexFingerprint(nextMetadata.index) &&
+    isDeepStrictEqual(previousMetadata.manifestRegistry, nextMetadata.manifestRegistry)
+  );
+}
 
 export async function reloadGatewayPlugins(
   context: PluginBootstrap.GatewayPluginReloadRuntime,
@@ -181,6 +209,7 @@ export async function reloadGatewayPlugins(
     await params.checkpoint?.();
     assertCurrent();
   };
+<<<<<<< OURS/upstream-11.10
   return lifecycle.run(
     {
       previousReloadStatus,
@@ -247,6 +276,451 @@ export async function reloadGatewayPlugins(
           canOverlap(nextRegistry, channelTargets.size > 0, params.restartServiceIds) &&
           !params.changedPaths.some(
             (key) => key === "transcripts" || key.startsWith("transcripts."),
+||||||| BASE/v11.4
+  try {
+    await checkpoint();
+    if (params.pluginLifecycle) {
+      recordCleanup(
+        await withPluginHostCleanupTimeout("pending plugin retirement", () => priorCleanup),
+      );
+    }
+    await checkpoint();
+    // Match startup's workspace inventory so a narrower scan cannot replace or drop other owners.
+    const nextMetadata = await withPluginCache(cache, () =>
+      resolveConfigWidePluginMetadataSnapshotAsync({
+        config: params.sourceConfig,
+        env: params.env,
+        allowCurrent: false,
+      }),
+    );
+    await checkpoint();
+    const activationConfig = resolveGatewayStartupPluginActivationConfig({
+      runtimeConfig: params.nextConfig,
+      activationSourceConfig: params.sourceConfig,
+      env: params.env,
+      manifestRegistry: nextMetadata.manifestRegistry,
+      discovery: nextMetadata.discovery,
+      ambientEnvTriggers,
+    });
+    const lookup = withPluginCache(cache, () =>
+      loadPluginLookUpTable({
+        config: activationConfig,
+        workspaceDir: pluginWorkspaceDir,
+        env: params.env,
+        activationSourceConfig: params.sourceConfig,
+        metadataSnapshot: nextMetadata,
+        workerProviderIds: workerEnvironmentStartup?.listDurableProviderIds() ?? [],
+        ambientEnvTriggers,
+      }),
+    );
+    const loadParams = {
+      ...sharedLoadParams,
+      cfg: params.nextConfig,
+      activationSourceConfig: params.sourceConfig,
+      pluginLookUpTable: lookup,
+      pluginMetadataSnapshot: nextMetadata,
+      replacePluginIds,
+      expectedSourceDigests: params.pluginLifecycle?.expectedSourceDigests,
+      prepareRegistrationFailureCleanup: prepareRegistrationFailureCleanup(params.nextConfig),
+      env: params.env,
+    };
+    const preflight = await withPluginCache(cache, () =>
+      preparePlugins({ ...loadParams, loadModules: false }),
+    );
+    preflight.retireGatewayRuntimeBindings();
+    let nextRegistry = preflight.pluginRegistry;
+    resourceHandoffIds = selectResourceHandoff(nextRegistry, requestedIds);
+    channels.collectTargets(nextRegistry, changedPluginIds);
+    for (const warning of recovery.capture(changedPluginIds)) {
+      log.warn(warning);
+      recordWarning(warning);
+    }
+    await checkpoint();
+    if (priorCleanupFailure) {
+      throw priorCleanupFailure;
+    }
+    if (!params.pluginLifecycle && priorCleanupResult) {
+      recordCleanup(priorCleanupResult);
+    }
+    if (!params.pluginLifecycle) {
+      // Config effects fence model admission and can retire a pending publication.
+      // Keep them after the final checkpoint and idle check, alongside reservation.
+      assertAutomaticReloadIdle(changedPluginIds);
+      await checkpoint();
+      assertAutomaticReloadIdle(changedPluginIds);
+    }
+    // Explicit self-reload still refuses before preparing caller-visible effects.
+    releaseResourceHandoff = assertResourceHandoff(resourceHandoffIds);
+    const reservedReplacement = kernel.pluginRuntimeGeneration.reserve();
+    replacement = reservedReplacement;
+    const configEffects = params.prepareConfigEffects({
+      pluginIds: changedPluginIds,
+      channels: channelTargets,
+    });
+    rollbackConfigEffects = configEffects.rollback;
+    phase = "drain";
+    reservedReplacement.setReloadStatus({ phase: "reloading", pluginIds: [...changedPluginIds] });
+    if (params.pluginLifecycle) {
+      await drainRetainedWork(resourceHandoffIds, drainSignal, reservedReplacement.setReloadStatus);
+      await checkpoint();
+    }
+    decisionReplacement = prepareDecisionProviderReload(previousRegistry, changedPluginIds);
+    channels.pause();
+    quiesceInstances();
+    await drainRetainedWork(resourceHandoffIds, drainSignal, reservedReplacement.setReloadStatus, {
+      includeCalls: true,
+    });
+    await checkpoint();
+    configEffects.retire();
+    for (const sidecar of runtimeState.gatewayLifetimeSidecars.snapshot()) {
+      const prepared = sidecar.preparePluginReload?.({
+        previousRegistry,
+        nextRegistry,
+        changedPluginIds,
+        nextConfig: params.nextConfig,
+      });
+      // Retain each admission fence before another preparation can fail.
+      if (prepared) {
+        sidecarReplacements.push(prepared);
+      }
+    }
+    memoryReplacement = prepareMemoryRuntimeReload(previousRegistry, nextRegistry);
+    // Retained consumers and cleanup calls remain usable after ordinary admission closes.
+    for (const sidecar of sidecarReplacements) {
+      await sidecar.drain();
+    }
+    await drainMemory(memoryReplacement.drain);
+    await runtimeState.discovery?.update({
+      gatewayDiscoveryServices: previousRegistry.gatewayDiscoveryServices.filter(
+        (entry) => !changedPluginIds.has(entry.pluginId),
+      ),
+    });
+    await drainBeforeReplacement(
+      resourceHandoffIds,
+      drainSignal,
+      reservedReplacement.setReloadStatus,
+      checkpoint,
+    );
+    await checkpoint();
+    reservedReplacement.setReloadStatus({ phase: "reloading", pluginIds: [...changedPluginIds] });
+    // Channel monitors and services hold long-lived consumers until stop cancels
+    // their loops. Ask those owners to stop before joining the remaining work.
+    previousStopStarted = true;
+    const stopErrors: unknown[] = [];
+    const stopOwner = (strict: boolean, label: string, run: () => Promise<void>) =>
+      strict ? attempt(stopErrors, run) : cleanup(label, run);
+    await channels.stopPrevious(resourceHandoffIds, stopErrors, cleanup);
+    const strictServiceStop =
+      resourceHandoffIds.size > 0 || memoryReplacement.retainedPluginIds.size > 0;
+    const serviceStopIds = new Set([...changedPluginIds, ...memoryReplacement.retainedPluginIds]);
+    await stopOwner(strictServiceStop, "Plugin service cleanup failed", () =>
+      stopPreviousServices(previousServices, strictServiceStop, serviceStopIds),
+    );
+    // Finish admitted work before legacy stop hooks can close shared connections.
+    // Removal has no replacement to protect and keeps its bounded, deferred cleanup.
+    previousCleanupFailed = stopErrors.some(isBlockingStopError);
+    await drainInstances(previousRegistry, resourceHandoffIds);
+    rethrowServiceStopTimeout();
+    previousHooksStopped = true;
+    await stopOwner(resourceHandoffIds.size > 0, "Plugin stop hook failed", () =>
+      runLifecycleHooks(previousRegistry, false, previousConfig, recovery.previousHookIds),
+    );
+    await attempt(stopErrors, () => disposeInstances(previousRegistry, resourceHandoffIds));
+    if (stopErrors.length) {
+      previousCleanupFailed = true;
+      throw new AggregateError(
+        stopErrors,
+        `Previous plugin cleanup failed; automatic recovery could not safely start: ${stopErrors.map(formatErrorMessage).join("; ")}`,
+      );
+    }
+    await checkpoint();
+    phase = "activate";
+    loaded = await withPluginCache(cache, () => preparePlugins(loadParams));
+    nextRegistry = loaded.pluginRegistry;
+    const { resolvedConfig } = loaded;
+    const activationCleanup: Promise<void>[] = [];
+    const attached = await prepareAttachedPluginRuntime(loaded, (completion) =>
+      activationCleanup.push(completion),
+    );
+    const publishMetadata = prepareGatewayPluginMetadataSnapshotPublication(nextMetadata, {
+      config: params.nextConfig,
+      compatibleConfigs: [params.sourceConfig, activationConfig],
+      env: params.env,
+      workspaceDir: pluginWorkspaceDir,
+    });
+    const surfaces = withCoreCanvasNodeCapability(
+      listPluginNodeCapabilities(nextRegistry),
+      isCoreCanvasHostEnabled(params.nextConfig),
+    );
+    const indexedSurfaces = indexPluginNodeCapabilitySurfaces(surfaces);
+    withPluginRegistryPreparationScope(nextRegistry, () =>
+      withPluginRuntimeRegistryScope(nextRegistry, () =>
+        validateConfiguredBindings(resolvedConfig),
+      ),
+    );
+    await channels.stopAdditional(nextRegistry, changedPluginIds);
+    await checkpoint();
+    const startedServices = await services.start(
+      nextRegistry,
+      params.nextConfig,
+      (handle) => {
+        candidateServices = handle;
+      },
+      memoryReplacement.retainedPluginIds,
+    );
+    await checkpoint();
+    // Publication owns every independent activation tail, even when an earlier one fails.
+    const activationErrors: unknown[] = [];
+    try {
+      await params.commitRuntime({
+        publish: () => {
+          assertCurrent();
+          // Capture current connections without an await before selection. Credential
+          // preparation may reject; after activation only prepared state is published.
+          const publishCapabilities = [...clients].map((client) =>
+            prepareClientPluginNodeCapabilities({
+              client,
+              surfaces,
+              changedPluginIds,
+              ...(client.connect.role === "node"
+                ? { allowedSurfaces: new Set(client.connect.caps ?? []) }
+                : {}),
+            }),
+=======
+  try {
+    await checkpoint();
+    if (params.pluginLifecycle) {
+      recordCleanup(
+        await withPluginHostCleanupTimeout("pending plugin retirement", () => priorCleanup),
+      );
+    }
+    await checkpoint();
+    // Match startup's workspace inventory so a narrower scan cannot replace or drop other owners.
+    const nextMetadata = await withPluginCache(cache, () =>
+      resolveConfigWidePluginMetadataSnapshotAsync({
+        config: params.sourceConfig,
+        env: params.env,
+        allowCurrent: false,
+      }),
+    );
+    await checkpoint();
+    const activationConfig = resolveGatewayStartupPluginActivationConfig({
+      runtimeConfig: params.nextConfig,
+      activationSourceConfig: params.sourceConfig,
+      env: params.env,
+      manifestRegistry: nextMetadata.manifestRegistry,
+      discovery: nextMetadata.discovery,
+      ambientEnvTriggers,
+    });
+    const lookup = withPluginCache(cache, () =>
+      loadPluginLookUpTable({
+        config: activationConfig,
+        workspaceDir: pluginWorkspaceDir,
+        env: params.env,
+        activationSourceConfig: params.sourceConfig,
+        metadataSnapshot: nextMetadata,
+        workerProviderIds: workerEnvironmentStartup?.listDurableProviderIds() ?? [],
+        ambientEnvTriggers,
+      }),
+    );
+    const loadParams = {
+      ...sharedLoadParams,
+      cfg: params.nextConfig,
+      activationSourceConfig: params.sourceConfig,
+      pluginLookUpTable: lookup,
+      pluginMetadataSnapshot: nextMetadata,
+      replacePluginIds,
+      expectedSourceDigests: params.pluginLifecycle?.expectedSourceDigests,
+      prepareRegistrationFailureCleanup: prepareRegistrationFailureCleanup(params.nextConfig),
+      env: params.env,
+      // A drain abort stops the yielded load at its next boundary instead of after the whole
+      // inventory; supersession stays with the checkpoints. Recovery loads are never cancelled.
+      signal: drainSignal,
+    };
+    const preflight = await withPluginCache(cache, () =>
+      preparePlugins({ ...loadParams, loadModules: false }),
+    );
+    preflight.retireGatewayRuntimeBindings();
+    let nextRegistry = preflight.pluginRegistry;
+    resourceHandoffIds = selectResourceHandoff(nextRegistry, requestedIds);
+    channels.collectTargets(nextRegistry, changedPluginIds);
+    for (const warning of recovery.capture(changedPluginIds)) {
+      log.warn(warning);
+      recordWarning(warning);
+    }
+    await checkpoint();
+    if (priorCleanupFailure) {
+      throw priorCleanupFailure;
+    }
+    if (!params.pluginLifecycle && priorCleanupResult) {
+      recordCleanup(priorCleanupResult);
+    }
+    if (!params.pluginLifecycle) {
+      // Config effects fence model admission and can retire a pending publication.
+      // Keep them after the final checkpoint and idle check, alongside reservation.
+      assertAutomaticReloadIdle(changedPluginIds);
+      await checkpoint();
+      assertAutomaticReloadIdle(changedPluginIds);
+    }
+    if (
+      changedPluginIds.size === 0 &&
+      (params.changedPaths?.length ?? 0) === 0 &&
+      kernel.pluginRuntimeGeneration.getReloadStatus()?.phase !== "failed" &&
+      isUnchangedPluginGeneration(previousRegistry, nextRegistry, previousMetadata, nextMetadata)
+    ) {
+      // An id-less request over identical config (plugins.refresh) whose fresh metadata and
+      // loader retention both match the live generation has nothing to drain, load, or publish.
+      recordCleanup(await retirePluginCache(cache));
+      log.info("plugin metadata unchanged; kept the current plugin generation");
+      return {
+        activeChannels: new Set(previousRegistry.channels.map((entry) => entry.plugin.id)),
+        runtime: createPluginRuntimeApplication({
+          operationId,
+          generation: getPluginRuntimeGeneration(),
+          registry: previousRegistry,
+          pluginIds: changedPluginIds,
+          warnings: [...warnings],
+        }),
+      };
+    }
+    // Explicit self-reload still refuses before preparing caller-visible effects.
+    releaseResourceHandoff = assertResourceHandoff(resourceHandoffIds);
+    const reservedReplacement = kernel.pluginRuntimeGeneration.reserve();
+    replacement = reservedReplacement;
+    const configEffects = params.prepareConfigEffects({
+      pluginIds: changedPluginIds,
+      channels: channelTargets,
+    });
+    rollbackConfigEffects = configEffects.rollback;
+    phase = "drain";
+    reservedReplacement.setReloadStatus({ phase: "reloading", pluginIds: [...changedPluginIds] });
+    if (params.pluginLifecycle) {
+      await drainRetainedWork(resourceHandoffIds, drainSignal, reservedReplacement.setReloadStatus);
+      await checkpoint();
+    }
+    decisionReplacement = prepareDecisionProviderReload(previousRegistry, changedPluginIds);
+    channels.pause();
+    quiesceInstances();
+    await drainRetainedWork(resourceHandoffIds, drainSignal, reservedReplacement.setReloadStatus, {
+      includeCalls: true,
+    });
+    await checkpoint();
+    configEffects.retire();
+    for (const sidecar of runtimeState.gatewayLifetimeSidecars.snapshot()) {
+      const prepared = sidecar.preparePluginReload?.({
+        previousRegistry,
+        nextRegistry,
+        changedPluginIds,
+        nextConfig: params.nextConfig,
+      });
+      // Retain each admission fence before another preparation can fail.
+      if (prepared) {
+        sidecarReplacements.push(prepared);
+      }
+    }
+    memoryReplacement = prepareMemoryRuntimeReload(previousRegistry, nextRegistry);
+    // Retained consumers and cleanup calls remain usable after ordinary admission closes.
+    for (const sidecar of sidecarReplacements) {
+      await sidecar.drain();
+    }
+    await drainMemory(memoryReplacement.drain);
+    await runtimeState.discovery?.update({
+      gatewayDiscoveryServices: previousRegistry.gatewayDiscoveryServices.filter(
+        (entry) => !changedPluginIds.has(entry.pluginId),
+      ),
+    });
+    await drainBeforeReplacement(
+      resourceHandoffIds,
+      drainSignal,
+      reservedReplacement.setReloadStatus,
+      checkpoint,
+    );
+    await checkpoint();
+    reservedReplacement.setReloadStatus({ phase: "reloading", pluginIds: [...changedPluginIds] });
+    // Channel monitors and services hold long-lived consumers until stop cancels
+    // their loops. Ask those owners to stop before joining the remaining work.
+    previousStopStarted = true;
+    const stopErrors: unknown[] = [];
+    const stopOwner = (strict: boolean, label: string, run: () => Promise<void>) =>
+      strict ? attempt(stopErrors, run) : cleanup(label, run);
+    await channels.stopPrevious(resourceHandoffIds, stopErrors, cleanup);
+    const strictServiceStop =
+      resourceHandoffIds.size > 0 || memoryReplacement.retainedPluginIds.size > 0;
+    const serviceStopIds = new Set([...changedPluginIds, ...memoryReplacement.retainedPluginIds]);
+    await stopOwner(strictServiceStop, "Plugin service cleanup failed", () =>
+      stopPreviousServices(previousServices, strictServiceStop, serviceStopIds),
+    );
+    // Finish admitted work before legacy stop hooks can close shared connections.
+    // Removal has no replacement to protect and keeps its bounded, deferred cleanup.
+    previousCleanupFailed = stopErrors.some(isBlockingStopError);
+    await drainInstances(previousRegistry, resourceHandoffIds);
+    rethrowServiceStopTimeout();
+    previousHooksStopped = true;
+    await stopOwner(resourceHandoffIds.size > 0, "Plugin stop hook failed", () =>
+      runLifecycleHooks(previousRegistry, false, previousConfig, recovery.previousHookIds),
+    );
+    await attempt(stopErrors, () => disposeInstances(previousRegistry, resourceHandoffIds));
+    if (stopErrors.length) {
+      previousCleanupFailed = true;
+      throw new AggregateError(
+        stopErrors,
+        `Previous plugin cleanup failed; automatic recovery could not safely start: ${stopErrors.map(formatErrorMessage).join("; ")}`,
+      );
+    }
+    await checkpoint();
+    phase = "activate";
+    loaded = await withPluginCache(cache, () => preparePlugins(loadParams));
+    nextRegistry = loaded.pluginRegistry;
+    const { resolvedConfig } = loaded;
+    const activationCleanup: Promise<void>[] = [];
+    const attached = await prepareAttachedPluginRuntime(loaded, (completion) =>
+      activationCleanup.push(completion),
+    );
+    const publishMetadata = prepareGatewayPluginMetadataSnapshotPublication(nextMetadata, {
+      config: params.nextConfig,
+      compatibleConfigs: [params.sourceConfig, activationConfig],
+      env: params.env,
+      workspaceDir: pluginWorkspaceDir,
+    });
+    const surfaces = withCoreCanvasNodeCapability(
+      listPluginNodeCapabilities(nextRegistry),
+      isCoreCanvasHostEnabled(params.nextConfig),
+    );
+    const indexedSurfaces = indexPluginNodeCapabilitySurfaces(surfaces);
+    withPluginRegistryPreparationScope(nextRegistry, () =>
+      withPluginRuntimeRegistryScope(nextRegistry, () =>
+        validateConfiguredBindings(resolvedConfig),
+      ),
+    );
+    await channels.stopAdditional(nextRegistry, changedPluginIds);
+    await checkpoint();
+    const startedServices = await services.start(
+      nextRegistry,
+      params.nextConfig,
+      (handle) => {
+        candidateServices = handle;
+      },
+      memoryReplacement.retainedPluginIds,
+    );
+    await checkpoint();
+    // Publication owns every independent activation tail, even when an earlier one fails.
+    const activationErrors: unknown[] = [];
+    try {
+      await params.commitRuntime({
+        publish: () => {
+          assertCurrent();
+          // Capture current connections without an await before selection. Credential
+          // preparation may reject; after activation only prepared state is published.
+          const publishCapabilities = [...clients].map((client) =>
+            prepareClientPluginNodeCapabilities({
+              client,
+              surfaces,
+              changedPluginIds,
+              ...(client.connect.role === "node"
+                ? { allowedSurfaces: new Set(client.connect.caps ?? []) }
+                : {}),
+            }),
+>>>>>>> THEIRS/pro-main
           );
         for (const warning of await recovery.capture(changedPluginIds)) {
           log.warn(warning);

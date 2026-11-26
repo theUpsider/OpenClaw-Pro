@@ -1,4 +1,5 @@
 import { pruneMapToMaxSize } from "../../../src/infra/map-size.ts";
+import { escapeHtml } from "../../../src/shared/html-escape.js";
 import { stripUnsupportedCitationControlMarkers } from "../../../src/shared/text/citation-control-markers.js";
 import { i18n, t } from "../i18n/index.ts";
 import { truncateText } from "../lib/format.ts";
@@ -32,11 +33,187 @@ import {
 import { streamingMarkdownStableHtml } from "./markdown-streaming-state.ts";
 import { isMarkdownBlockArtText, normalizeMarkdownLineBreaks } from "./markdown-text.ts";
 
+<<<<<<< OURS/upstream-11.10
 export const MARKDOWN_CHAR_LIMIT = 140_000;
 // HTML can cover a long transcript; fragments remain limited independently.
 // Count keys and HTML so a few large messages cannot fill the heap.
 const MARKDOWN_CACHE_LIMIT = 2048;
 const MARKDOWN_CACHE_TOTAL_CHARS = 8_000_000;
+||||||| BASE/v11.4
+const allowedTags = [
+  "a",
+  "b",
+  "blockquote",
+  "br",
+  "button",
+  "code",
+  "del",
+  "details",
+  "div",
+  "em",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "hr",
+  "i",
+  "input",
+  "li",
+  "ol",
+  "openclaw-person-reference",
+  "p",
+  "pre",
+  "s",
+  "span",
+  "strong",
+  "summary",
+  "table",
+  "tbody",
+  "td",
+  "th",
+  "thead",
+  "tr",
+  "ul",
+  "img",
+];
+
+const allowedAttrs = [
+  "checked",
+  "profile-id",
+  "label",
+  "class",
+  "disabled",
+  "href",
+  "open",
+  "rel",
+  "target",
+  "tabindex",
+  "title",
+  "start",
+  "src",
+  "alt",
+  "data-code",
+  "data-code-encoding",
+  "data-file-kind",
+  "data-file-line",
+  "data-file-path",
+  "data-link-favicon-host",
+  "data-session-key",
+  "data-session-href",
+  "data-table-interactions",
+  "type",
+  "aria-expanded",
+  "aria-label",
+  "aria-pressed",
+  "role",
+];
+const sanitizeOptions = {
+  ALLOWED_TAGS: allowedTags,
+  ALLOWED_ATTR: allowedAttrs,
+  ADD_DATA_URI_TAGS: ["img"],
+};
+const progressSanitizeOptions = {
+  ...sanitizeOptions,
+  ALLOWED_TAGS: [...allowedTags, "progress"],
+  ALLOWED_ATTR: [...allowedAttrs, "value", "max"],
+};
+
+const sanitizers = new Map<typeof sanitizeOptions, ReturnType<typeof DOMPurify>>();
+const MARKDOWN_CHAR_LIMIT = 140_000;
+// Covers several message-heavy sessions during rapid switching. Only inputs
+// up to 50k characters enter this 500-entry LRU, keeping memory bounded.
+const MARKDOWN_CACHE_LIMIT = 500;
+=======
+const allowedTags = [
+  "a",
+  "b",
+  "blockquote",
+  "br",
+  "button",
+  "code",
+  "del",
+  "details",
+  "div",
+  "em",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "hr",
+  "i",
+  "input",
+  "li",
+  "ol",
+  "openclaw-person-reference",
+  "p",
+  "pre",
+  "s",
+  "span",
+  "strong",
+  "summary",
+  "table",
+  "tbody",
+  "td",
+  "th",
+  "thead",
+  "tr",
+  "ul",
+  "img",
+];
+
+const allowedAttrs = [
+  "checked",
+  "profile-id",
+  "label",
+  "class",
+  "disabled",
+  "href",
+  "open",
+  "rel",
+  "target",
+  "tabindex",
+  "title",
+  "start",
+  "src",
+  "alt",
+  "data-code",
+  "data-code-encoding",
+  "data-file-kind",
+  "data-file-line",
+  "data-file-path",
+  "data-link-favicon-host",
+  "data-session-key",
+  "data-session-href",
+  "data-table-interactions",
+  "type",
+  "aria-expanded",
+  "aria-label",
+  "aria-pressed",
+  "role",
+];
+const sanitizeOptions = {
+  ALLOWED_TAGS: allowedTags,
+  ALLOWED_ATTR: allowedAttrs,
+  ADD_DATA_URI_TAGS: ["img"],
+};
+const progressSanitizeOptions = {
+  ...sanitizeOptions,
+  ALLOWED_TAGS: [...allowedTags, "progress"],
+  ALLOWED_ATTR: [...allowedAttrs, "value", "max"],
+};
+// Inline Markdown renders inside interactive controls (radio/option buttons), which
+// must not contain interactive content; the label keeps only the link text.
+const inlineSanitizeOptions = {
+  ...sanitizeOptions,
+  ALLOWED_TAGS: allowedTags.filter((tag) => !["a", "button", "input"].includes(tag)),
+};
+
+const sanitizers = new Map<typeof sanitizeOptions, ReturnType<typeof DOMPurify>>();
+const MARKDOWN_CHAR_LIMIT = 140_000;
+// Covers several message-heavy sessions during rapid switching. Only inputs
+// up to 50k characters enter this 500-entry LRU, keeping memory bounded.
+const MARKDOWN_CACHE_LIMIT = 500;
+>>>>>>> THEIRS/pro-main
 const MARKDOWN_CACHE_MAX_CHARS = 50_000;
 type MarkdownCacheEntry = { html: string; highlighting?: boolean };
 const markdownCache = new Map<string, MarkdownCacheEntry>();
@@ -370,6 +547,35 @@ function prepareSanitizedMarkdown(
     preparedFragments.delete(entry);
   }
   return prewarm ? true : (content ?? cached.html);
+}
+
+/**
+ * Renders a single Markdown line as phrasing content, for labels and other text
+ * that must stay inside an interactive element where a block wrapper is invalid.
+ * Shares the block path's parser, normalization and DOMPurify allowlist, minus the
+ * interactive tags (links, buttons, fields) that a control's content model forbids;
+ * only the outer `<p>` differs, so no host-internal Markdown owner is duplicated.
+ */
+export function toSanitizedInlineMarkdownHtml(
+  markdownLocal: string,
+  options: MarkdownRenderOptions = {},
+): string {
+  const renderOptions = normalizeMarkdownRenderOptions(options);
+  const renderInput = normalizeMarkdownLineBreaks(
+    stripUnsupportedCitationControlMarkers(markdownLocal),
+  );
+  if (!renderInput.trim()) {
+    return "";
+  }
+  const sanitizer = markdownSanitizer(inlineSanitizeOptions);
+  let rendered: string;
+  try {
+    rendered = markdownParser.renderInline(renderInput, renderOptions);
+  } catch (err) {
+    console.warn("[markdown] md.renderInline failed, falling back to plain text:", err);
+    return sanitizer.sanitize(escapeHtml(renderInput));
+  }
+  return sanitizer.sanitize(rendered);
 }
 
 export function markdownRenderKey(options: MarkdownRenderEnv): string {

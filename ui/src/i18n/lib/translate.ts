@@ -3,6 +3,7 @@ import {
   RTL_LOCALES,
   SUPPORTED_LOCALES,
   isSupportedLocale,
+  loadLazyLocaleConfigHints,
   resolveNavigatorLocale,
   type Locale,
 } from "../../../../src/shared/control-ui-locale.ts";
@@ -57,8 +58,23 @@ class I18nManager {
   private inFlightLocaleLoads = new Map<Locale, Promise<TranslationMap | null>>();
   private localeLoadRecovery: LocaleLoadRecovery | undefined;
   private observedNamespaceLoads = new WeakSet<Promise<void>>();
+  // Config hint copy loads on its first lookup per locale, not with the locale
+  // chunk. Until it arrives, callers show the Gateway's English hint text.
+  private configHintLocales = new Set<Locale>([DEFAULT_LOCALE]);
+  private inFlightConfigHintLoads = new Set<Locale>();
 
+<<<<<<< OURS/upstream-11.10
   constructor() {
+||||||| BASE/v11.4
+  constructor(
+    private readonly loadLocaleTranslation: LocaleTranslationLoader = loadLazyLocaleTranslation,
+  ) {
+=======
+  constructor(
+    private readonly loadLocaleTranslation: LocaleTranslationLoader = loadLazyLocaleTranslation,
+    private readonly loadLocaleConfigHints: LocaleTranslationLoader = loadLazyLocaleConfigHints,
+  ) {
+>>>>>>> THEIRS/pro-main
     this.loadLocale();
   }
 
@@ -215,7 +231,9 @@ class I18nManager {
   }
 
   public registerTranslation(locale: Locale, map: TranslationMap) {
+    // A registered catalog is complete; never merge lazy hint copy over it.
     this.translations[locale] = map;
+    this.configHintLocales.add(locale);
   }
 
   public subscribe(sub: Subscriber) {
@@ -254,6 +272,32 @@ class I18nManager {
     return typeof value === "string" ? value : undefined;
   }
 
+  /** Like translateActive for `configHints.*` keys; starts the hint chunk load on first use. */
+  public translateConfigHint(key: string): string | undefined {
+    this.loadConfigHints(this.locale);
+    return this.translateActive(key);
+  }
+
+  private loadConfigHints(locale: Locale): void {
+    if (this.configHintLocales.has(locale) || this.inFlightConfigHintLoads.has(locale)) {
+      return;
+    }
+    this.inFlightConfigHintLoads.add(locale);
+    // A failed load stays retryable on the next lookup; callers keep English meanwhile.
+    void this.loadLocaleConfigHints(locale)
+      .then(
+        (hints) => {
+          this.translations[locale] = { ...this.translations[locale], ...hints };
+          this.configHintLocales.add(locale);
+          if (this.locale === locale) {
+            this.notify();
+          }
+        },
+        (error: unknown) => console.error(`Failed to load config hints: ${locale}`, error),
+      )
+      .finally(() => this.inFlightConfigHintLoads.delete(locale));
+  }
+
   public t(key: string, params?: Record<string, string>): string {
     const keys = key.split(".");
     let value = this.lookupActive(keys);
@@ -278,11 +322,15 @@ class I18nManager {
 export const i18n = new I18nManager();
 export const t = (key: string, params?: Record<string, string>) => i18n.t(key, params);
 export const translateActive = (key: string) => i18n.translateActive(key);
+export const translateConfigHint = (key: string) => i18n.translateConfigHint(key);
 
 if (import.meta.env?.MODE === "test") {
   (globalThis as Record<PropertyKey, unknown>)[Symbol.for("openclaw.i18nManagerTestApi")] = {
-    createI18nManager() {
-      return new I18nManager();
+    createI18nManager(
+      ,
+      loadLocaleConfigHints?: LocaleTranslationLoader,
+    ) {
+      return new I18nManager(, loadLocaleConfigHints);
     },
   };
 }

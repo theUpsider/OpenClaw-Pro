@@ -29,6 +29,7 @@ type InheritedSessionToolPolicy = Pick<
   | "inheritedToolAllow"
   | "inheritedToolDeny"
   | "delegatedToolPolicy"
+  | "subagentMessageToolEnabled"
 >;
 
 /** Keep the frozen requester policy and its provenance together across session generations. */
@@ -47,6 +48,7 @@ export function preserveSessionInheritedToolPolicy(
       : {}),
     ...(entry?.inheritedToolAllow ? { inheritedToolAllow: [...entry.inheritedToolAllow] } : {}),
     ...(entry?.inheritedToolDeny ? { inheritedToolDeny: [...entry.inheritedToolDeny] } : {}),
+    ...(entry?.subagentMessageToolEnabled === true ? { subagentMessageToolEnabled: true } : {}),
   };
 }
 

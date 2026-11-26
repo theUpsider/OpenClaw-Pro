@@ -3,14 +3,23 @@ import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import { asNonArrayRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { Type } from "typebox";
 import { redactClaimToken, redactDispatchResult } from "./card-redaction.js";
+import type { WorkboardMutationScope } from "./store-inputs.js";
 import type { WorkboardStore } from "./store.js";
 import {
+  askField,
+  askKindField,
+  boundCardIdField,
   cardIdField,
   createWorkboardCardMutations,
   claimTokenField,
+  dispatchModeField,
+  maxConcurrentPerOwnerField,
+  parallelizableField,
   strictObject,
+  withWorkboardOperatorAsk,
   workspaceField,
 } from "./tools-card-mutations.js";
+import { resolveBoundBoardId, type VoiceBoardBinding } from "./voice-board-binding.js";
 
 const CardIdSchema = strictObject({
   id: cardIdField(),
@@ -183,15 +192,19 @@ export function createWorkboardOrchestrationTools(params: {
   store: WorkboardStore;
   ownerId: string;
   runId: string | undefined;
+  voiceBoard?: VoiceBoardBinding;
+  agentId?: string;
+  interaction?: Omit<NonNullable<WorkboardMutationScope["interaction"]>, "at">;
 }): AnyAgentTool[] {
-  const { store, ownerId } = params;
+  const { store, ownerId, voiceBoard, agentId, interaction } = params;
   const { readScopedCardToolParams, scopedCardMutation, claimedCardMutation } =
-    createWorkboardCardMutations(store, ownerId, params.runId);
+    createWorkboardCardMutations(store, ownerId, params.runId, voiceBoard, agentId, interaction);
   return [
     {
       name: "workboard_boards",
       label: "Workboard Boards",
-      description: "List Workboard board namespaces with active, archived, and status counts.",
+      description:
+        "List Workboard board namespaces with active, archived, and status counts, plus each cards board's classification palette (name and color, at most 10) that card labels draw from.",
       parameters: toolSchemas.boards,
       execute: async () => jsonResult(await store.listBoards()),
     },
@@ -248,15 +261,131 @@ export function createWorkboardOrchestrationTools(params: {
       label: "Workboard Specify",
       description:
         "Turn a rough triage/backlog Workboard card into a specified todo card after reasoning through the requirements.",
+<<<<<<< OURS/upstream-11.10
       parameters: toolSchemas.specify,
       execute: scopedCardMutation((id, record, scope) => store.specify(id, record, scope)),
+||||||| BASE/v11.4
+      parameters: strictObject({
+        id: Type.String({ description: "Workboard card id." }),
+        title: Type.Optional(Type.String({ description: "Clarified title." })),
+        notes: Type.Optional(
+          Type.String({ description: "Clarified notes or acceptance criteria." }),
+        ),
+        agentId: Type.Optional(Type.String({ description: "Assigned agent id." })),
+        priority: Type.Optional(Type.String({ description: "low, normal, high, or urgent." })),
+        labels: Type.Optional(Type.Array(Type.String(), { description: "Card labels." })),
+        boardId: Type.Optional(Type.String({ description: "Board id." })),
+        tenant: Type.Optional(Type.String({ description: "Tenant or routing namespace." })),
+        skills: Type.Optional(Type.Array(Type.String(), { description: "Suggested skills." })),
+        workspace: workspaceField(),
+        maxRuntimeSeconds: Type.Optional(Type.Number({ description: "Runtime budget." })),
+        maxRetries: Type.Optional(Type.Number({ description: "Retry budget." })),
+        summary: Type.Optional(Type.String({ description: "Specification summary comment." })),
+        token: Type.Optional(Type.String({ description: "Claim token for claimed cards." })),
+      }),
+      execute: async (_toolCallId, rawParams) => {
+        const { record, id, scope } = await readScopedCardToolParams(asNonArrayRecord(rawParams));
+        return jsonResult({ card: redactClaimToken(await store.specify(id, record, scope)) });
+      },
+=======
+      parameters: strictObject({
+        id: Type.String({ description: "Workboard card id." }),
+        title: Type.Optional(Type.String({ description: "Clarified title." })),
+        notes: Type.Optional(
+          Type.String({ description: "Clarified notes or acceptance criteria." }),
+        ),
+        agentId: Type.Optional(Type.String({ description: "Assigned agent id." })),
+        priority: Type.Optional(Type.String({ description: "low, normal, high, or urgent." })),
+        labels: Type.Optional(Type.Array(Type.String(), { description: "Card labels." })),
+        boardId: Type.Optional(Type.String({ description: "Board id." })),
+        tenant: Type.Optional(Type.String({ description: "Tenant or routing namespace." })),
+        skills: Type.Optional(Type.Array(Type.String(), { description: "Suggested skills." })),
+        workspace: workspaceField(),
+        maxRuntimeSeconds: Type.Optional(Type.Number({ description: "Runtime budget." })),
+        maxRetries: Type.Optional(Type.Number({ description: "Retry budget." })),
+        parallelizable: parallelizableField(),
+        maxConcurrentPerOwner: maxConcurrentPerOwnerField(),
+        dispatchMode: dispatchModeField(),
+        ask: askField(),
+        askKind: askKindField(),
+        summary: Type.Optional(Type.String({ description: "Specification summary comment." })),
+        token: Type.Optional(Type.String({ description: "Claim token for claimed cards." })),
+      }),
+      execute: async (_toolCallId, rawParams) => {
+        const { record, id, scope } = await readScopedCardToolParams(asNonArrayRecord(rawParams));
+        return jsonResult({
+          card: redactClaimToken(await store.specify(id, withWorkboardOperatorAsk(record), scope)),
+        });
+      },
+>>>>>>> THEIRS/pro-main
     },
     {
       name: "workboard_decompose",
       label: "Workboard Decompose",
       description:
+<<<<<<< OURS/upstream-11.10
         "Fan out a Workboard card into linked child cards and optionally complete the parent orchestration card.",
       parameters: toolSchemas.decompose,
+||||||| BASE/v11.4
+        "Fan out a Workboard card into linked child cards and optionally complete the parent orchestration card.",
+      parameters: strictObject({
+        id: Type.String({ description: "Parent Workboard card id." }),
+        token: Type.Optional(Type.String({ description: "Claim token for claimed cards." })),
+        summary: Type.Optional(Type.String({ description: "Decomposition summary." })),
+        completeParent: Type.Optional(
+          Type.Boolean({
+            description: "Complete the parent after child creation. Default true.",
+          }),
+        ),
+        children: Type.Array(
+          strictObject({
+            title: Type.String({ description: "Child title." }),
+            notes: Type.Optional(Type.String({ description: "Child notes." })),
+            agentId: Type.Optional(Type.String({ description: "Assigned agent id." })),
+            priority: Type.Optional(Type.String({ description: "low, normal, high, or urgent." })),
+            labels: Type.Optional(Type.Array(Type.String())),
+            boardId: Type.Optional(Type.String()),
+            tenant: Type.Optional(Type.String()),
+            skills: Type.Optional(Type.Array(Type.String())),
+            workspace: workspaceField(),
+            maxRuntimeSeconds: Type.Optional(Type.Number()),
+            maxRetries: Type.Optional(Type.Number()),
+            idempotencyKey: Type.Optional(Type.String()),
+          }),
+        ),
+      }),
+=======
+        "Fan out a Workboard card into linked child cards and optionally complete the parent orchestration card. Children inherit the parent's dispatchMode unless they explicitly choose native or external.",
+      parameters: strictObject({
+        id: Type.String({ description: "Parent Workboard card id." }),
+        token: Type.Optional(Type.String({ description: "Claim token for claimed cards." })),
+        summary: Type.Optional(Type.String({ description: "Decomposition summary." })),
+        completeParent: Type.Optional(
+          Type.Boolean({
+            description: "Complete the parent after child creation. Default true.",
+          }),
+        ),
+        children: Type.Array(
+          strictObject({
+            title: Type.String({ description: "Child title." }),
+            notes: Type.Optional(Type.String({ description: "Child notes." })),
+            agentId: Type.Optional(Type.String({ description: "Assigned agent id." })),
+            priority: Type.Optional(Type.String({ description: "low, normal, high, or urgent." })),
+            labels: Type.Optional(Type.Array(Type.String())),
+            boardId: Type.Optional(Type.String()),
+            tenant: Type.Optional(Type.String()),
+            skills: Type.Optional(Type.Array(Type.String())),
+            workspace: workspaceField(),
+            maxRuntimeSeconds: Type.Optional(Type.Number()),
+            maxRetries: Type.Optional(Type.Number()),
+            parallelizable: parallelizableField(),
+            maxConcurrentPerOwner: maxConcurrentPerOwnerField(),
+            dispatchMode: dispatchModeField(),
+            idempotencyKey: Type.Optional(Type.String()),
+          }),
+        ),
+      }),
+>>>>>>> THEIRS/pro-main
       execute: async (_toolCallId, rawParams) => {
         const { record, id, scope } = await readScopedCardToolParams(asNonArrayRecord(rawParams));
         const result = await store.decompose(id, record, scope);
@@ -322,7 +451,27 @@ export function createWorkboardOrchestrationTools(params: {
       name: "workboard_reassign",
       label: "Workboard Reassign",
       description: "Change a card assignee and optionally reset failure state during recovery.",
+<<<<<<< OURS/upstream-11.10
       parameters: toolSchemas.reassign,
+||||||| BASE/v11.4
+      parameters: strictObject({
+        id: cardIdField(),
+        token: ScopedClaimTokenField,
+        agentId: Type.Optional(Type.String({ description: "New assignee id." })),
+        status: OptionalNextStatusField,
+        resetFailures: Type.Optional(Type.Boolean({ description: "Reset failure count." })),
+        reason: OptionalOperatorNoteField,
+      }),
+=======
+      parameters: strictObject({
+        id: boundCardIdField(),
+        token: ScopedClaimTokenField,
+        agentId: Type.Optional(Type.String({ description: "New assignee id." })),
+        status: OptionalNextStatusField,
+        resetFailures: Type.Optional(Type.Boolean({ description: "Reset failure count." })),
+        reason: OptionalOperatorNoteField,
+      }),
+>>>>>>> THEIRS/pro-main
       execute: scopedCardMutation((id, record, scope) => store.reassign(id, record, scope)),
     },
     {
@@ -341,7 +490,11 @@ export function createWorkboardOrchestrationTools(params: {
       parameters: toolSchemas.dispatch,
       execute: async (_toolCallId, rawParams) => {
         const record = asNonArrayRecord(rawParams);
-        const result = await store.dispatch({ boardId: record.boardId });
+        const boardId =
+          record.boardId !== undefined || !voiceBoard
+            ? record.boardId
+            : resolveBoundBoardId(voiceBoard, "cards", (await store.listBoards()).boards);
+        const result = await store.dispatch({ boardId });
         return jsonResult(redactDispatchResult(result));
       },
     },

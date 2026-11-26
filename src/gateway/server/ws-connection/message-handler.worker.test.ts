@@ -12,6 +12,7 @@ import {
   WORKER_TURN_ADMISSION_METHOD,
   WORKER_TURN_ADMISSION_PROTOCOL_FEATURE,
 } from "../../../../packages/gateway-protocol/src/schema/worker-turn-admission.js";
+import { WORKER_MESSAGE_MAX_TEXT_BYTES } from "../../../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
 import { createNoisyPngBuffer } from "../../../../test/helpers/image-fixtures.js";
 import { prepareSystemAgentRunAdmission } from "../../../agents/admitted-run-context.js";
 import { prepareCoreToolPolicy } from "../../../agents/prepared-tool-surface.js";
@@ -373,7 +374,7 @@ describe("dedicated worker websocket protocol", () => {
     expect(harness.service.cancelInference).toHaveBeenCalledWith(ATTACHED_IDENTITY, INFERENCE_IDS);
   });
 
-  it("admits large image transcript frames without enlarging control or text budgets", async () => {
+  it("admits large image transcript frames while retaining bounded text and control", async () => {
     const image = {
       type: "image",
       data: createNoisyPngBuffer(256, 256).toString("base64"),
@@ -407,7 +408,10 @@ describe("dedicated worker websocket protocol", () => {
           messages: [
             {
               ...transcript.messages[0],
-              content: [image, { type: "text", text: "x".repeat(64 * 1024) }],
+              content: [
+                image,
+                { type: "text", text: "x".repeat(WORKER_MESSAGE_MAX_TEXT_BYTES + 1) },
+              ],
             },
           ],
         },

@@ -20,10 +20,15 @@ import {
   type WorkboardMetadata,
   isValidWorkboardBoardId,
   normalizeWorkboardSessionsBoardSpec,
+  WORKBOARD_CLASSIFICATION_COLORS,
   WORKBOARD_PRIORITIES,
   type WorkboardBoardSummary,
   type WorkboardCard,
   type WorkboardCardCursor,
+  type WorkboardCardDraft,
+  type WorkboardCardDraftResult,
+  type WorkboardClassification,
+  type WorkboardClassificationColor,
   type WorkboardPriority,
   type WorkboardStatus,
 } from "./types.ts";
@@ -298,6 +303,21 @@ function normalizeCount(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : 0;
 }
 
+// Shape check at the response boundary; the Gateway validates names and colors on write.
+function normalizeClassifications(value: unknown): WorkboardClassification[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.flatMap((entry) =>
+    isRecord(entry) &&
+    typeof entry.name === "string" &&
+    entry.name.trim() &&
+    WORKBOARD_CLASSIFICATION_COLORS.includes(entry.color as WorkboardClassificationColor)
+      ? [{ name: entry.name.trim(), color: entry.color as WorkboardClassificationColor }]
+      : [],
+  );
+}
+
 function normalizeBoardSummary(value: unknown): WorkboardBoardSummary | null {
   if (!isRecord(value)) {
     return null;
@@ -316,6 +336,7 @@ function normalizeBoardSummary(value: unknown): WorkboardBoardSummary | null {
   }
   const automationJobId =
     typeof value.automationJobId === "string" ? value.automationJobId.trim() : "";
+  const classifications = normalizeClassifications(value.classifications);
   return {
     id,
     ...(value.kind === "sessions"
@@ -332,6 +353,7 @@ function normalizeBoardSummary(value: unknown): WorkboardBoardSummary | null {
     ...(typeof value.icon === "string" && value.icon.trim() ? { icon: value.icon.trim() } : {}),
     ...(typeof value.color === "string" && value.color.trim() ? { color: value.color.trim() } : {}),
     ...(automationJobId && automationJobId.length <= 128 ? { automationJobId } : {}),
+    ...(classifications ? { classifications } : {}),
     ...(typeof value.updatedAt === "number" ? { updatedAt: value.updatedAt } : {}),
     ...(typeof value.archivedAt === "number" ? { archivedAt: value.archivedAt } : {}),
   };
@@ -425,4 +447,35 @@ export function normalizeCardPayload(payload: unknown): WorkboardCard {
     throw new Error("workboard response did not include a card");
   }
   return card;
+}
+
+function isDraftText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+// Shape check at the response boundary; `workboard.cards.draft` already limited every value.
+export function normalizeCardDraftPayload(payload: unknown): WorkboardCardDraftResult {
+  const draft = isRecord(payload) && isRecord(payload.draft) ? payload.draft : {};
+  const fields: WorkboardCardDraft = {};
+  if (isDraftText(draft.title)) {
+    fields.title = draft.title;
+  }
+  if (isDraftText(draft.notes)) {
+    fields.notes = draft.notes;
+  }
+  if (WORKBOARD_STATUSES.includes(draft.status as WorkboardStatus)) {
+    fields.status = draft.status as WorkboardStatus;
+  }
+  if (WORKBOARD_PRIORITIES.includes(draft.priority as WorkboardPriority)) {
+    fields.priority = draft.priority as WorkboardPriority;
+  }
+  const labels: unknown[] = Array.isArray(draft.labels) ? draft.labels : [];
+  if (labels.some(isDraftText)) {
+    fields.labels = labels.filter(isDraftText);
+  }
+  if (isDraftText(draft.agentId)) {
+    fields.agentId = draft.agentId;
+  }
+  const hints: unknown[] = isRecord(payload) && Array.isArray(payload.hints) ? payload.hints : [];
+  return { draft: fields, hints: hints.filter(isDraftText) };
 }

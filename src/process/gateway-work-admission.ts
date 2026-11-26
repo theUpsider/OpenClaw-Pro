@@ -241,9 +241,18 @@ export function isGatewaySubordinateWorkAdmissionClosed(): boolean {
   }
   const current = currentRootWork.getStore();
   if (current) {
-    // Reset/release retires inherited ALS descendants. They must explicitly
-    // re-enter admission instead of spawning untracked subordinate work.
-    return current.released;
+    if (current.retiredByReset) {
+      // Reset retires inherited ALS descendants. They must explicitly re-enter
+      // admission instead of spawning untracked subordinate work.
+      return true;
+    }
+    if (!current.released) {
+      return false;
+    }
+    // A settled lease is not a fence: long-lived handlers keep async work chained
+    // off an already-released lease (channel ingress, keyed run queues, inbound
+    // debouncers). Descendants re-enter through normal admission, so only the
+    // suspend phase below still refuses.
   }
   return GATEWAY_WORK_ADMISSION_STATE.suspendPhase !== "accepting";
 }
@@ -489,11 +498,25 @@ async function runWithGatewayNewRootWorkAdmission<T>(
   }
 }
 
-/** Re-admits preserved work whose inherited root was retired before it could run. */
-export const runWithGatewayRootWorkReadmission = <T>(run: () => Promise<T>): Promise<T> =>
-  currentRootWork.getStore()?.retiredByReset
-    ? runWithGatewayIndependentRootWorkAdmission(run, "runtime:readmission")
-    : run();
+/** Re-admits preserved work whose inherited root was retired or settled before it could run. */
+export const runWithGatewayRootWorkReadmission = <T>(run: () => Promise<T>): Promise<T> => {
+  const current = currentRootWork.getStore();
+  if (!current || !current.released) {
+    return run();
+  }
+  if (current.retiredByReset) {
+    return runWithGatewayIndependentRootWorkAdmission(run, "runtime:readmission");
+  }
+  if (isGatewayWorkAdmissionClosed()) {
+    // A fence that closed after enqueue keeps the accepted task on its original
+    // path: reservation would only park or refuse it, and the fence itself keeps
+    // refusing subordinate entry.
+    return run();
+  }
+  // A settled lease is not a fence, but descendants must not run untracked.
+  // Re-enter through normal admission so the span owns a fresh tracked root.
+  return runWithGatewayIndependentRootWorkAdmission(run, "runtime:readmission");
+};
 
 /**
  * Detaches required follow-up from the current admitted transaction.

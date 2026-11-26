@@ -1,13 +1,20 @@
 /** @jsxImportSource @solidjs/web */
-import { For, Show, createSignal } from "solid-js";
-import { AgentPicker, Dialog, SelectPicker } from "../../components/host-components.tsx";
+import { For, Show, createSignal, onCleanup } from "solid-js";
+import {
+  AgentPicker,
+  Dialog,
+  DictationControl,
+  SelectPicker,
+} from "../../components/host-components.tsx";
 import { icons } from "../../components/icons.tsx";
 import { WorkboardErrorToast } from "../../components/toast.tsx";
 import { t } from "../../i18n/index.ts";
 import {
+  applyWorkboardCardDraft,
   changedDraftPayload,
   draftPayload,
   resetDraftState,
+  selectedWorkboardBoardParams,
   workboardCardSessionKey,
 } from "../../lib/workboard/card-state.ts";
 import { addWorkboardCardComment, saveWorkboardCardDraft } from "../../lib/workboard/mutations.ts";
@@ -20,6 +27,8 @@ import {
   type WorkboardTemplateId,
   type WorkboardUiState,
 } from "../../lib/workboard/types.ts";
+import { formatError } from "../../lib/workboard/normalization-utils.ts";
+import { normalizeCardDraftPayload } from "../../lib/workboard/normalization.ts";
 import { buildAssignableAgentPickerOptions } from "./agent-filter.ts";
 import { DraftChoices } from "./view-draft-choices.tsx";
 import {
@@ -39,6 +48,8 @@ const workboardCardModalTitleId = "workboard-card-modal-title";
 const workboardCardModalDescriptionId = "workboard-card-modal-description";
 export const workboardCardModalId = "workboard-card-modal";
 const initialDrafts = new WeakMap<WorkboardUiState, string>();
+
+type VoiceDraftStatus = { drafting: true } | { drafting: false; filled: boolean; hints: string[] };
 
 function draftFingerprint(state: WorkboardUiState): string {
   const payload = draftPayload(state);
@@ -218,6 +229,63 @@ function CardModalContent(props: WorkboardProps) {
     state().dispatching ||
     state().draftSaving ||
     draftCommentBusy();
+  // Speech only prefills this form: one `workboard.cards.draft` request per utterance,
+  // written into the draft fields. Create stays the one path that writes a card.
+  const [voiceDraft, setVoiceDraft] = createSignal<VoiceDraftStatus>();
+  let mounted = true;
+  onCleanup(() => {
+    mounted = false;
+  });
+  const voiceDrafting = () => voiceDraft()?.drafting === true;
+  const voiceStatusText = () => {
+    const status = voiceDraft();
+    if (!status) {
+      return "";
+    }
+    if (status.drafting) {
+      return t("workboard.voice.newCardDrafting");
+    }
+    return status.filled
+      ? t("workboard.voice.newCardPrefilled")
+      : t("workboard.voice.newCardNothing");
+  };
+  const voiceHints = () => {
+    const status = voiceDraft();
+    return status && !status.drafting ? status.hints : [];
+  };
+  const draftFromVoice = async (voiceText: string) => {
+    const client = props.client;
+    if (!client) {
+      return;
+    }
+    setVoiceDraft({ drafting: true });
+    try {
+      const result = normalizeCardDraftPayload(
+        await client.request("workboard.cards.draft", {
+          voiceText,
+          ...selectedWorkboardBoardParams(state()),
+        }),
+      );
+      // A dismissed dialog's answer must not land in the next card's draft.
+      if (!mounted) {
+        return;
+      }
+      applyWorkboardCardDraft(state(), result.draft, defaultAgentId());
+      setVoiceDraft({
+        drafting: false,
+        filled: Object.keys(result.draft).length > 0,
+        hints: result.hints,
+      });
+      setDraftRevision((revision) => revision + 1);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setVoiceDraft(undefined);
+      state().error = t("workboard.voice.newCardFailed", { error: formatError(error) });
+    }
+    props.onRequestUpdate?.();
+  };
   // Save completion resets this shared draft. Lock every edit and dismissal path
   // only for that write so stale drafts can still use Cancel to recover readiness.
   const draftDismissalBusy = () => state().draftSaving;
@@ -280,30 +348,65 @@ function CardModalContent(props: WorkboardProps) {
                 {editing() ? t("workboard.editCardHelp") : t("workboard.newCardHelp")}
               </p>
             </div>
-            <span title={t("common.cancel")}>
-              <button
-                class="btn btn--icon workboard-modal__close"
-                type="button"
-                aria-label={t("common.cancel")}
-                disabled={draftDismissalBusy()}
-                onClick={dismissDraft}
-              >
-                {icons.x}
-              </button>
-            </span>
+            <div class="workboard-modal__header-actions">
+              {!editing() ? (
+                <DictationControl
+                  enabled={Boolean(props.client) && !draftActionsBusy() && !voiceDrafting()}
+                  disabledReason={
+                    voiceDrafting()
+                      ? t("workboard.voice.newCardDrafting")
+                      : t("workboard.voice.newCardUnavailable")
+                  }
+                  accessibleLabel={t("workboard.voice.newCardLabel")}
+                  onStart={() => setVoiceDraft(undefined)}
+                  onTranscript={(text) => void draftFromVoice(text)}
+                  onError={(message) => {
+                    state().error = message;
+                    props.onRequestUpdate?.();
+                  }}
+                  class="workboard-draft__voice"
+                />
+              ) : undefined}
+              <span title={t("common.cancel")}>
+                <button
+                  class="btn btn--icon workboard-modal__close"
+                  type="button"
+                  aria-label={t("common.cancel")}
+                  disabled={draftDismissalBusy()}
+                  onClick={dismissDraft}
+                >
+                  {icons.x}
+                </button>
+              </span>
+            </div>
           </div>
           <div class="workboard-draft__body">
             <div class="workboard-draft__main">
-              <label class="workboard-field">
-                <span class="workboard-draft__accessible-label">{t("workboard.fieldTitle")}</span>
-                <input
-                  class="settings-input workboard-draft__title"
-                  autofocus
-                  placeholder={t("workboard.titlePlaceholder")}
-                  disabled={draftActionsBusy()}
-                  ref={titleValue}
-                />
-              </label>
+              <div class="workboard-draft__title-block">
+                {!editing() ? (
+                  // Stays mounted while empty so the first message is announced.
+                  <div class="workboard-draft__voice-status" aria-live="polite">
+                    <Show when={voiceStatusText()}>
+                      <p>{voiceStatusText()}</p>
+                    </Show>
+                    <Show when={voiceHints().length}>
+                      <ul>
+                        <For each={voiceHints()}>{(hint) => <li>{hint}</li>}</For>
+                      </ul>
+                    </Show>
+                  </div>
+                ) : undefined}
+                <label class="workboard-field">
+                  <span class="workboard-draft__accessible-label">{t("workboard.fieldTitle")}</span>
+                  <input
+                    class="settings-input workboard-draft__title"
+                    autofocus
+                    placeholder={t("workboard.titlePlaceholder")}
+                    disabled={draftActionsBusy()}
+                    ref={titleValue}
+                  />
+                </label>
+              </div>
               {!editing() ? (
                 <div class="workboard-template-strip" aria-label={t("workboard.templatesLabel")}>
                   <span class="workboard-template-strip__label">

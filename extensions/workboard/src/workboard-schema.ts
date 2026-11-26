@@ -1,4 +1,13 @@
+<<<<<<< OURS/upstream-11.10
 export const SCHEMA_VERSION = 4;
+||||||| BASE/v11.4
+export const SCHEMA_VERSION = 3;
+=======
+// Columns added after a table shipped are declared last in their CREATE TABLE: PostgreSQL
+// builds them with ALTER TABLE ADD COLUMN (which appends) and admission compares column
+// positions, so a middle placement would refuse its own migration.
+export const SCHEMA_VERSION = 6;
+>>>>>>> THEIRS/pro-main
 
 export const WORKBOARD_SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS workboard_schema_migrations (
@@ -17,6 +26,7 @@ export const WORKBOARD_SCHEMA_SQL = `
       automation_job_id TEXT,
       default_workspace_json TEXT,
       orchestration_json TEXT,
+      classifications_json TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       archived_at INTEGER
@@ -66,7 +76,9 @@ export const WORKBOARD_SCHEMA_SQL = `
       archived_at INTEGER,
       stale_json TEXT,
       lifecycle_status_source_updated_at INTEGER,
-      failure_count INTEGER
+      failure_count INTEGER,
+      interaction_json TEXT,
+      review_json TEXT
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_cards_board_status_idx
       ON workboard_cards(board_id, status, position);
@@ -89,7 +101,8 @@ export const WORKBOARD_SCHEMA_SQL = `
       from_status TEXT,
       to_status TEXT,
       session_key TEXT,
-      run_id TEXT
+      run_id TEXT,
+      agent_id TEXT
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_card_events_card_idx
       ON workboard_card_events(card_id, ordinal);

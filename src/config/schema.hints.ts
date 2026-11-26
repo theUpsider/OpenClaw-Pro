@@ -109,6 +109,8 @@ const SECTION_DOCS_URLS = {
 const FIELD_PLACEHOLDERS: Record<string, string> = {
   "plugins.entries.*.hooks.timeoutMs": "Automatic (per hook)",
   "plugins.entries.*.hooks.timeouts.*": "Automatic (plugin or hook default)",
+  "plugins.entries.*.hooks.failurePolicy": "Default (fail-open)",
+  "plugins.entries.*.hooks.failurePolicies.*": "Default (fail-open)",
   "gateway.cliAgents.enabled": "Default (enabled)",
   "nodeHost.autoUpdate.enabled": "Default (enabled)",
   "tools.loopDetection.enabled": "Default (on)",

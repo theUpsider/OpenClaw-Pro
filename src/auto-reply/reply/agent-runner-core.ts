@@ -59,6 +59,7 @@ import {
   isReplyOperationSuperseded,
   resolveReplyOperationAbortReason,
 } from "./reply-operation-abort.js";
+import { resolveReplyOperationRunState } from "./reply-operation-run-state.js";
 import type { ReplySteeringIntent } from "./reply-steering-intent.js";
 import { resolveRoutedDeliveryThreadId } from "./routed-delivery-thread.js";
 import { resolveSourceReplyVisibilityPolicy } from "./source-reply-delivery-mode.js";
@@ -162,6 +163,7 @@ export function resolveSourceReplyPolicy(params: {
     scheduledAutomation: params.opts?.scheduledAutomation !== undefined,
     requested: params.opts?.sourceReplyDeliveryMode,
     sendPolicy,
+    visibleReplySuppression: resolveReplyOperationRunState(params.opts)?.visibleReplySuppression,
   });
 }
 

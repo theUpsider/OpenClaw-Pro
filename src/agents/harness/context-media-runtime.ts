@@ -109,7 +109,9 @@ export async function prepareHarnessContextMedia(params: {
             params.config ?? {},
             params.agentId,
             params.workspaceDir,
-          )),
+          ), {
+          workspaceOnly: params.sandbox !== undefined,
+        }),
     sandbox: params.sandbox,
     ...limits,
   });

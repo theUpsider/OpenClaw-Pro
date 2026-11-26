@@ -4,7 +4,11 @@ import {
 } from "@openclaw/model-catalog-core/model-catalog-types";
 import { clampThinkingLevel } from "../model-utils.js";
 import { isKnownOpenAIEndpoint } from "../transports/openai-completions-compat.js";
-import { resolveOpenAIReasoningEffortMap } from "../transports/openai-reasoning-compat.js";
+import {
+  resolveOpenAINumericReasoningEffort,
+  resolveOpenAINumericReasoningEfforts,
+  resolveOpenAIReasoningEffortMap,
+} from "../transports/openai-reasoning-compat.js";
 import type { Api, Model, ModelThinkingLevel, SimpleStreamOptions } from "../types.js";
 import {
   normalizeOpenAIReasoningEffort,
@@ -30,9 +34,17 @@ export function resolveOpenAIRequestReasoning(
     baseUrl?: string;
   },
   reasoning: string | undefined,
-): { effort: string | undefined; thinkingEnabled: boolean | undefined } {
+): { effort: string | undefined; thinkingEnabled: boolean | undefined; numericEffort?: number } {
   // Logical off can map to a minimum effort; native none only uses its own explicit mapping.
   const requested = normalizeOpenAIReasoningEffort(reasoning ?? "off");
+  // A declared numeric map owns the route's wire effort: numbers replace the string mapping for
+  // every level, and a level without an entry intentionally sends no effort at all. The field is a
+  // Completions contract, so a shared Responses route that happens to carry it is unaffected.
+  const numericEfforts =
+    resolveOpenAIThinkingApi(model.api) === "openai-completions"
+      ? resolveOpenAINumericReasoningEfforts(model)
+      : {};
+  const usesNumericEfforts = Object.keys(numericEfforts).length > 0;
   const modelLevel = MODEL_CATALOG_THINKING_LEVELS.find((candidate) => candidate === requested);
   const modelMapped = modelLevel ? model.thinkingLevelMap?.[modelLevel] : undefined;
   const mapped =
@@ -51,8 +63,9 @@ export function resolveOpenAIRequestReasoning(
       ? { compat: model.compat }
       : model,
   );
-  const effort =
-    !model.reasoning || supported?.length === 0 || intent === undefined
+  const effort = usesNumericEfforts
+    ? undefined
+    : !model.reasoning || supported?.length === 0 || intent === undefined
       ? undefined
       : supported === undefined
         ? disabled && mapped === undefined
@@ -63,6 +76,12 @@ export function resolveOpenAIRequestReasoning(
             effort: requested,
             fallbackMap: { [requested]: intent },
           });
+  // The numeric map is the route's only mapping, so the string ladder (including an off/none
+  // entry) owns no part of the binary state either: it follows the logical level itself.
+  const disabledLevel = usesNumericEfforts
+    ? requested === "off" || requested === "none"
+    : normalizedIntent === "off" || normalizedIntent === "none";
+  const thinkingEnabled = intent === undefined ? undefined : model.reasoning && !disabledLevel;
   return {
     // Sol and Luna accept none on ChatGPT; other subscription models need route metadata.
     effort:
@@ -77,9 +96,10 @@ export function resolveOpenAIRequestReasoning(
         ? undefined
         : effort,
     // Binary thinking is independent of scalar effort support.
-    thinkingEnabled:
-      intent === undefined
-        ? undefined
-        : model.reasoning && normalizedIntent !== "off" && normalizedIntent !== "none",
+    thinkingEnabled,
+    // Off/none is a binary state: a numeric entry for a disabled level must never ship an effort.
+    ...(usesNumericEfforts && !disabledLevel
+      ? { numericEffort: resolveOpenAINumericReasoningEffort(requested, numericEfforts) }
+      : {}),
   };
 }

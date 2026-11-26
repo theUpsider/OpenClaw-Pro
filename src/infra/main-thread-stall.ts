@@ -9,6 +9,11 @@ import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 const STALL_MS = 250;
 const UNATTRIBUTED_STALL_MS = 1_000;
 const HEARTBEAT_MS = 20;
+/**
+ * Lower bound for attributing one synchronous step as a stall outlier. Cooperative drivers
+ * surface steps at or above it; the monitor's own warnings stay at the 1 s STALL_MS.
+ */
+export const MAIN_THREAD_STALL_ATTRIBUTION_MS = 500;
 const MAX_PENDING_STALLS = 8;
 
 type TaskObserver = {

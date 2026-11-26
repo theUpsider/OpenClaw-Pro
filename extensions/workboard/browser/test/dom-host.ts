@@ -45,4 +45,66 @@ export function installDomComponents(host: ControlUiHost): void {
   host.components.mountAppearanceGlyph = mockPropsMount("testAppearanceGlyph");
   host.components.mountSessionSummary = mockPropsMount("testSessionSummary");
   host.components.mountDashboard = mockPropsMount("testDashboard", "section");
+  host.components.mountDictationControl = vi.fn((container, initial) => {
+    // Tests drive the plugin callbacks directly; the host owns capture and transcription.
+    const element = document.createElement("button");
+    element.dataset.testDictation = "";
+    const apply = (props: typeof initial) => {
+      Object.assign(element, { props });
+      element.disabled = !props.enabled;
+      element.setAttribute("aria-label", props.accessibleLabel);
+    };
+    apply(initial);
+    container.append(element);
+    return { update: vi.fn(apply), dispose: vi.fn(() => element.remove()) };
+  });
+  host.components.mountComposerSessionControls = vi.fn((container, initial) => {
+    // The host owns the catalog and applies choices; tests observe the target.
+    const element = document.createElement("span");
+    element.dataset.testSessionControls = "";
+    const apply = (props: typeof initial) => {
+      Object.assign(element, { props });
+      element.title = props.disabledReason ?? "";
+    };
+    apply(initial);
+    container.append(element);
+    return { update: vi.fn(apply), dispose: vi.fn(() => element.remove()) };
+  });
+  host.components.mountComposerSendAction = vi.fn((container, initial) => {
+    // The host resolves the delivery; tests set `followUpMode` to the one it would report.
+    const element = Object.assign(document.createElement("button"), {
+      followUpMode: undefined as Parameters<typeof initial.onSend>[0],
+      textContent: "Send",
+    });
+    element.type = "button";
+    element.dataset.testSendAction = "";
+    let props = initial;
+    const apply = (next: typeof initial) => {
+      props = next;
+      Object.assign(element, { props });
+      element.disabled = Boolean(next.sending || next.disabledReason || !next.draft.trim());
+      if (next.describedBy) {
+        element.setAttribute("aria-describedby", next.describedBy);
+      } else {
+        element.removeAttribute("aria-describedby");
+      }
+    };
+    element.addEventListener("click", () => props.onSend(element.followUpMode));
+    apply(initial);
+    container.append(element);
+    return { update: vi.fn(apply), dispose: vi.fn(() => element.remove()) };
+  });
+  host.components.mountMarkdown = vi.fn((container, initial) => {
+    // The host owns parsing and sanitizing; tests observe the authored source.
+    const element = document.createElement("div");
+    element.dataset.testMarkdown = "";
+    const apply = (props: typeof initial) => {
+      Object.assign(element, { props });
+      element.textContent = props.markdown;
+      element.setAttribute("data-markdown", props.markdown);
+    };
+    apply(initial);
+    container.append(element);
+    return { update: vi.fn(apply), dispose: vi.fn(() => element.remove()) };
+  });
 }

@@ -180,6 +180,8 @@ export function resolveSourceReplyVisibilityPolicy(params: {
    */
   sessionStableMessageToolAvailable?: boolean;
   defaultVisibleReplies?: "automatic" | "message_tool";
+  /** Per-turn reply-gate fact; adds a suppression reason, never removes another. */
+  visibleReplySuppression?: "reply-gate";
 }) {
   const sourceReplyDeliveryMode = resolveSourceReplyDeliveryMode(params);
   const hasStableTurnOverride =
@@ -208,19 +210,24 @@ export function resolveSourceReplyVisibilityPolicy(params: {
   const sendPolicyDenied = params.sendPolicy === "deny";
   const progressRefresh = isProgressCardRefreshInputProvenance(params.ctx.InputProvenance);
   const suppressAutomaticSourceDelivery =
-    progressRefresh || sourceReplyDeliveryMode === "message_tool_only";
+    progressRefresh ||
+    sourceReplyDeliveryMode === "message_tool_only" ||
+    params.visibleReplySuppression === "reply-gate";
   const suppressDelivery = sendPolicyDenied || suppressAutomaticSourceDelivery;
   const deliverySuppressionReason = sendPolicyDenied
     ? "sendPolicy: deny"
     : progressRefresh
       ? "progress card refresh"
       : suppressAutomaticSourceDelivery
-        ? "sourceReplyDeliveryMode: message_tool_only"
+        ? sourceReplyDeliveryMode === "message_tool_only"
+          ? "sourceReplyDeliveryMode: message_tool_only"
+          : "reply gate: no visible reply needed"
         : "";
 
   const suppressTyping =
     progressRefresh ||
     sendPolicyDenied ||
+    params.visibleReplySuppression === "reply-gate" ||
     params.explicitSuppressTyping === true ||
     params.shouldSuppressTyping === true;
 

@@ -51,9 +51,13 @@ export type ResolvedOpenAICompletionsCompat = Omit<
   | "openRouterRouting"
   | "sendSessionAffinityHeaders"
   | "reasoningEffortMap"
+  | "numericReasoningEfforts"
   | "supportedReasoningEfforts"
 > &
-  Pick<OpenAICompletionsCompat, "reasoningEffortMap" | "supportedReasoningEfforts"> & {
+  Pick<
+    OpenAICompletionsCompat,
+    "reasoningEffortMap" | "numericReasoningEfforts" | "supportedReasoningEfforts"
+  > & {
     cacheControlFormat?: OpenAICompletionsCompat["cacheControlFormat"];
     cacheControlSystemOnly: boolean;
     cacheControlSharedSystem: boolean;
@@ -353,6 +357,7 @@ export function resolveOpenAICompletionsCompat(
       configured?.supportsReasoningEffort ?? defaults.supportsReasoningEffort,
     supportedReasoningEfforts: configured?.supportedReasoningEfforts,
     reasoningEffortMap: configured?.reasoningEffortMap,
+    numericReasoningEfforts: configured?.numericReasoningEfforts,
     thinkingOffControlUndeclared,
     supportsUsageInStreaming:
       configured?.supportsUsageInStreaming ?? defaults.supportsUsageInStreaming,

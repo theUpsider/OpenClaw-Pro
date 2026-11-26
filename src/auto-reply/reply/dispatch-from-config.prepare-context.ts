@@ -258,7 +258,11 @@ export async function prepareDispatchOperationContext(state: PrepareDispatchDeli
     messageToolAvailable,
     sessionStableMessageToolAvailable,
     requested: params.replyOptions?.sourceReplyDeliveryMode,
-  } as const;
+    // Read at spread time so a verdict set later in the turn reaches every re-resolution.
+    get visibleReplySuppression() {
+      return state.replyOperationRunState.visibleReplySuppression;
+    },
+  };
   let sourceReplyPolicy = resolveSourceReplyVisibilityPolicy({
     ...sourceReplyPolicyParams,
     defaultVisibleReplies: harnessDefaultVisibleReplies,
@@ -287,6 +291,19 @@ export async function prepareDispatchOperationContext(state: PrepareDispatchDeli
     },
   };
   Object.assign(sourceReplyPolicy, sourceReplyDeliveryRuntimeOptions);
+  // The reply gate decides during run preparation, after this policy was first resolved.
+  state.replyOperationRunState.onVisibleReplySuppression = () => {
+    const stableMode = sourceReplyPolicy.sessionStableSourceReplyDeliveryMode;
+    Object.assign(
+      sourceReplyPolicy,
+      resolveSourceReplyVisibilityPolicy({
+        ...sourceReplyPolicyParams,
+        requested: sourceReplyPolicy.sourceReplyDeliveryMode,
+      }),
+    );
+    sourceReplyPolicy.sessionStableSourceReplyDeliveryMode = stableMode;
+    Object.assign(state, sourceReplyPolicy, { sourceReplyPolicy });
+  };
   const reasoningPayloadsEnabled = params.replyOptions?.reasoningPayloadsEnabled === true;
   const commentaryPayloadsEnabled = params.replyOptions?.commentaryPayloadsEnabled === true;
   const attachSourceReplyDeliveryMode = (

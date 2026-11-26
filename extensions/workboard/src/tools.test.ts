@@ -509,9 +509,14 @@ describe("workboard tools", () => {
       proofId: pendingProof.proofId,
     });
     expect(completed.card).toMatchObject({
-      status: "done",
-      metadata: { proof: [{ id: pendingProof.proofId, status: "passed" }] },
+      status: "review",
+      metadata: {
+        proof: [{ id: pendingProof.proofId, status: "passed" }],
+        automation: { awaitingAcceptance: true },
+      },
     });
+    // The child waits until someone accepts the parent's result.
+    await store.update(parent.id, { status: "done" });
 
     const dispatch = await runTool(tools, "dispatch", {});
     expect(dispatch.promoted).toEqual([expect.objectContaining({ id: child.id, status: "ready" })]);

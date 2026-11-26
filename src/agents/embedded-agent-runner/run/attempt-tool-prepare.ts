@@ -348,6 +348,7 @@ export async function prepareEmbeddedAttemptToolBase(params: {
         toolSearchCatalogRef,
         codeModeSkills,
         installedSkills: params.installedSkills,
+        trackSkillExposure: attempt.skillExposure !== undefined,
         preparedModelRuntime: attempt.preparedModelRuntime,
         requireWorkspaceOnly: attempt.requireWorkspaceOnly,
         sessionReadScopeKey: attempt.sessionReadScopeKey,

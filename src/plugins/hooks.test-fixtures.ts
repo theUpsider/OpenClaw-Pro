@@ -1,4 +1,5 @@
 /** Test-only helpers for exercising plugin hook behavior. */
+import type { HookFailurePolicy } from "./hook-failure-policy.js";
 import { createHookRunner } from "./hooks.js";
 import { addTestHook, createMockPluginRegistry } from "./hooks.test-helpers.js";
 import type { PluginHookAgentContext, PluginHookAgentTrigger } from "./types.js";
@@ -25,6 +26,7 @@ export function createHookRunnerWithRegistry(
     pluginId?: string;
     priority?: number;
     timeoutMs?: number;
+    failurePolicy?: HookFailurePolicy;
     eligibleTriggers?: readonly PluginHookAgentTrigger[];
     requiresToolAuthority?: true;
     conversationAccessAllowed?: true;

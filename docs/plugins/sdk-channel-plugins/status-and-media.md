@@ -108,7 +108,10 @@ its authoritative session workspace as the third argument to
 `getAgentScopedMediaLocalRoots(...)` or as `sessionWorkspaceDir` to the sources
 helper. Obtain that value from trusted host session context; never derive it
 from the requested media path. Without that context, workspace-only policy
-intentionally rejects sandbox paths. The old
+intentionally rejects sandbox paths. A session workspace replaces the agent
+workspace root; pass `{ workspaceOnly: false }` as the fourth argument only when
+the read is already resolved as unconfined and unsandboxed to keep the agent
+workspace readable as well. The old
 `agent-media-payload` builder/root facade is deprecated compatibility.
 
 ## Native payload shaping

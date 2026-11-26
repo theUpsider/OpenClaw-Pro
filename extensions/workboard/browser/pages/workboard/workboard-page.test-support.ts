@@ -1,9 +1,27 @@
 import "../../test/dom.setup.ts";
 import { expectDefined } from "@openclaw/normalization-core";
+<<<<<<< /tmp/s2v2/d3/o
 import type { ControlUiSessionListResult } from "openclaw/plugin-sdk/control-ui";
 import { expect, onTestFinished, vi } from "vitest";
+||||||| /tmp/s2v2/d3/b
+import type {
+  ControlUiComponents,
+  ControlUiSessionListResult,
+} from "openclaw/plugin-sdk/control-ui";
+import { afterEach, expect, vi } from "vitest";
+=======
+import type {
+  ControlUiComponents,
+  ControlUiSessionListQuery,
+  ControlUiSessionListResult,
+  ControlUiSessionListSnapshot,
+  ControlUiSessionListSubscription,
+} from "openclaw/plugin-sdk/control-ui";
+import { afterEach, expect, vi } from "vitest";
+>>>>>>> /tmp/s2v2/d3/t
 import type { AgentsListResult } from "../../api/types.ts";
 import { createWorkboardCapability } from "../../lib/workboard/capability.ts";
+import type { WorkboardBoardSummary } from "../../lib/workboard/index.ts";
 import { createWorkboardCard } from "../../lib/workboard/test/index-helpers.ts";
 import { workboardTestHost } from "../../test/host.setup.ts";
 import { createViewContext } from "../../test/host.ts";
@@ -23,12 +41,16 @@ export function mountPage(
   Object.assign(host.agents, { rows: [], defaultId: null });
   let agents: AgentsListResult["agents"] = [{ id: "main" }, { id: "writer" }];
   let cards = [createWorkboardCard({ title: "Initial card" })];
+  let boards: WorkboardBoardSummary[] | undefined;
   const request = vi.fn(async (method: string, requestParams?: unknown): Promise<unknown> => {
     if (method === "agents.list") {
       return { defaultId: "main", mainKey: "main", scope: "per-sender", agents: [...agents] };
     }
     if (method === "workboard.cards.list") {
-      return { cards };
+      return { cards, ...(boards ? { boards } : {}) };
+    }
+    if (method === "workboard.boards.list" && boards) {
+      return { boards };
     }
     if (method === "workboard.boards.upsert") {
       return {
@@ -43,6 +65,37 @@ export function mountPage(
     Object.assign(host.agents, { rows: result.agents, defaultId: result.defaultId });
     fixture.notify();
   });
+  // The board opens its session windows at mount, before a test can install a result.
+  // This wrapper keeps every window reachable so a test can publish a roster afterwards;
+  // `sessionRows` is the one place a page test feeds them.
+  let sessionSnapshot = (_query: ControlUiSessionListQuery): ControlUiSessionListSnapshot => ({
+    result: { sessions: [], hasMore: false, totalCount: 0 },
+    loading: false,
+    error: null,
+  });
+  const windows = new Map<
+    (snapshot: ControlUiSessionListSnapshot) => void,
+    ControlUiSessionListQuery
+  >();
+  const publishWindows = () => {
+    for (const [listener, query] of windows) {
+      listener(sessionSnapshot(query));
+    }
+  };
+  const observation = (
+    query: ControlUiSessionListQuery,
+    listener: (snapshot: ControlUiSessionListSnapshot) => void,
+  ): ControlUiSessionListSubscription => {
+    windows.set(listener, query);
+    listener(sessionSnapshot(query));
+    return {
+      refresh: vi.fn(async () => {
+        listener(sessionSnapshot(query));
+      }),
+      dispose: vi.fn(() => windows.delete(listener)),
+    };
+  };
+  fixture.host.sessions.observe = vi.fn(observation);
   const container = document.createElement("div");
   document.body.append(container);
   let context = createViewContext<Readonly<Record<string, string>>>(
@@ -63,9 +116,33 @@ export function mountPage(
     container,
     request,
     registerBoardNavigation,
+<<<<<<< /tmp/s2v2/d3/o
     focus: () => mounted?.focus?.(),
     cards: (next: typeof cards) => void (cards = next),
     agents: (next: typeof agents) => void (agents = next),
+||||||| /tmp/s2v2/d3/b
+    cards(next: typeof cards) {
+      cards = next;
+    },
+    agents(next: typeof agents) {
+      agents = next;
+    },
+=======
+    cards(next: typeof cards) {
+      cards = next;
+    },
+    boards(next: WorkboardBoardSummary[]) {
+      boards = next;
+    },
+    agents(next: typeof agents) {
+      agents = next;
+    },
+    /** Snapshot every open session window returns; delivered immediately. */
+    sessionSnapshot(next: (query: ControlUiSessionListQuery) => ControlUiSessionListSnapshot) {
+      sessionSnapshot = next;
+      publishWindows();
+    },
+>>>>>>> /tmp/s2v2/d3/t
     navigate(boardId: string) {
       context = { ...context, props: { boardId } };
       mounted?.update?.(context);
@@ -108,8 +185,27 @@ export function observeSessions(page: Page, result: ControlUiSessionListResult) 
   });
 }
 
+<<<<<<< /tmp/s2v2/d3/o
 export const openSessionButton = (container: Element) =>
   [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+||||||| /tmp/s2v2/d3/b
+export function openSessionButton(container: Element) {
+  return [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+=======
+/**
+ * The board reads two independent session queries: the execution resolver (one open card,
+ * `search` set) and the dock-inclusive window behind the interaction fallback (board-wide,
+ * no `search`). Tests that own the resolver's behaviour count the first only.
+ */
+export function cardSessionCalls(page: ReturnType<typeof mountPage>) {
+  return vi
+    .mocked(page.fixture.host.sessions.observe)
+    .mock.calls.filter(([query]) => typeof query.search === "string");
+}
+
+export function openSessionButton(container: Element) {
+  return [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+>>>>>>> /tmp/s2v2/d3/t
     (button) =>
       (button.getAttribute("aria-label") ?? button.textContent?.trim()) === "Open session",
   );

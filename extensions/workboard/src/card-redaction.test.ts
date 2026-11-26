@@ -1,6 +1,6 @@
 import type { WorkboardCard } from "@openclaw/workboard-contract";
 import { describe, expect, it } from "vitest";
-import { redactClaimToken } from "./card-redaction.js";
+import { redactClaimToken, redactDispatchResult } from "./card-redaction.js";
 
 function createCard(metadata?: WorkboardCard["metadata"]): WorkboardCard {
   return {
@@ -41,5 +41,23 @@ describe("redactClaimToken", () => {
     expect(redacted.metadata?.claim).not.toBe(card.metadata?.claim);
     expect(redacted.metadata?.claim?.token).toBe("[redacted]");
     expect(card.metadata?.claim?.token).toBe("secret-token");
+  });
+});
+
+describe("redactDispatchResult", () => {
+  it("passes lane-queue skip entries through unchanged", () => {
+    const skipped = [
+      { cardId: "card-2", title: "Queued", ownerId: "worker", reason: "owner_busy" as const },
+    ];
+    const result = redactDispatchResult({
+      promoted: [],
+      reclaimed: [],
+      blocked: [],
+      orchestrated: [],
+      count: 0,
+      skipped,
+    });
+
+    expect(result.skipped).toBe(skipped);
   });
 });

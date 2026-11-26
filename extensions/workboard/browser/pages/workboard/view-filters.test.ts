@@ -180,6 +180,112 @@ describe("WorkboardView", () => {
     expect(container.querySelectorAll(".workboard-filter-chip")).toHaveLength(0);
   });
 
+  it("sorts columns by created or updated time and clears the sort chip", () => {
+    const { state, container, renderView } = createWorkboardView();
+    state.cards = [
+      createWorkboardCard({
+        id: "a",
+        title: "Oldest",
+        position: 1000,
+        createdAt: 1,
+        updatedAt: 30,
+      }),
+      createWorkboardCard({
+        id: "b",
+        title: "Newest",
+        position: 2000,
+        createdAt: 3,
+        updatedAt: 10,
+      }),
+      createWorkboardCard({
+        id: "c",
+        title: "Middle",
+        position: 3000,
+        createdAt: 2,
+        updatedAt: 20,
+      }),
+    ];
+    renderView();
+    const order = () =>
+      [...container.querySelectorAll(".workboard-column--todo .workboard-card__title h3")].map(
+        (title) => title.textContent,
+      );
+    expect(order()).toEqual(["Oldest", "Newest", "Middle"]);
+    requireButton(container, "Newest created first").click();
+    renderView();
+    expect(state.sort).toBe("created");
+    expect(order()).toEqual(["Newest", "Middle", "Oldest"]);
+    requireButton(container, "Recently changed first").click();
+    renderView();
+    expect(order()).toEqual(["Oldest", "Middle", "Newest"]);
+    expect(buttonByLabel(container, "Filters, 1 active")).not.toBeNull();
+    requireButton(container, "Remove filter: Sort: Recently changed first").click();
+    renderView();
+    expect(state.sort).toBe("position");
+    expect(order()).toEqual(["Oldest", "Newest", "Middle"]);
+    expect(container.querySelectorAll(".workboard-filter-chip")).toHaveLength(0);
+  });
+
+  it("filters by any selected label combined with other facets", () => {
+    const { state, container, renderView } = createWorkboardView();
+    renderView();
+    expect(container.querySelector('[role="group"][aria-label="Labels"]')).toBeNull();
+    state.cards = [
+      createWorkboardCard({ id: "a", title: "Bug high", labels: ["Bug"], priority: "high" }),
+      createWorkboardCard({ id: "b", title: "Frontend", labels: ["frontend"], position: 2000 }),
+      createWorkboardCard({ id: "c", title: "Bug release", labels: ["bug", "release"] }),
+      createWorkboardCard({ id: "d", title: "Unlabeled", position: 4000 }),
+    ];
+    renderView();
+    const titles = () =>
+      [...container.querySelectorAll(".workboard-board .workboard-card__title h3")].map(
+        (title) => title.textContent,
+      );
+    const option = (group: string, label: string) =>
+      expectDefined(
+        container.querySelector<HTMLLabelElement>(
+          `.workboard-filter-section__options[aria-label="${group}"] label[title="${label}"]`,
+        ),
+        `${group} ${label}`,
+      );
+    const count = (label: string) =>
+      option("Labels", label).querySelector(".workboard-filter-option__count")?.textContent;
+    expect(count("Bug")).toBe("2");
+    option("Labels", "Bug").querySelector("input")!.click();
+    renderView();
+    expect(state.labelFilter).toEqual(new Set(["bug"]));
+    expect(titles()).toEqual(["Bug high", "Bug release"]);
+    option("Labels", "frontend").querySelector("input")!.click();
+    renderView();
+    expect(titles()).toEqual(["Bug high", "Frontend", "Bug release"]);
+    option("Priority", "Normal").querySelector("input")!.click();
+    renderView();
+    expect(titles()).toEqual(["Frontend", "Bug release"]);
+    // The label facet counts ignore their own selection but respect other facets;
+    // the option shows the first spelling among the remaining cards.
+    expect(count("bug")).toBe("1");
+    expect(count("release")).toBe("1");
+    requireButton(container, "Remove filter: Labels: bug, frontend").click();
+    renderView();
+    expect(state.labelFilter.size).toBe(0);
+    expect(state.priorityFilter).toEqual(new Set(["normal"]));
+    expect(titles()).toEqual(["Frontend", "Bug release", "Unlabeled"]);
+    option("Labels", "release").querySelector("input")!.click();
+    renderView();
+    expect(titles()).toEqual(["Bug release"]);
+    textButton(
+      expectDefined(
+        container.querySelector<HTMLElement>(".workboard-filter-heading"),
+        ".workboard-filter-heading",
+      ),
+      "Clear filters",
+    ).click();
+    renderView();
+    expect(state.labelFilter.size).toBe(0);
+    expect(state.priorityFilter.size).toBe(0);
+    expect(titles()).toHaveLength(4);
+  });
+
   it("clears the mobile agent chip through global scope without clearing other filters", () => {
     const onClearAgentScope = vi.fn();
     const { state, container, renderView } = createWorkboardView({

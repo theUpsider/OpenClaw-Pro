@@ -10,6 +10,7 @@ import {
   recordAgentCleanupFailure,
   createAgentCleanupScope,
 } from "../agents/run-cleanup-timeout.js";
+import { createSkillExposureReceiptCollector } from "../agents/skill-exposure-receipt.js";
 import { isExecutionIdentityCollectionEnabled } from "../audit/audit-config.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import {
@@ -91,6 +92,8 @@ export async function agentExecCommand(
   runtime: RuntimeEnv,
 ): Promise<AgentExecCommandResult> {
   const sessionId = randomUUID();
+  const runId = opts.skillExposureReceipt === true && opts.json === true ? randomUUID() : undefined;
+  const skillExposure = runId ? createSkillExposureReceiptCollector(runId) : undefined;
   const abortController = new AbortController();
   const signal = abortController.signal;
   const toolBudget = createAgentToolExecutionBudget({
@@ -120,6 +123,9 @@ export async function agentExecCommand(
     | undefined;
   try {
     signal.throwIfAborted();
+    if (opts.skillExposureReceipt === true && opts.json !== true) {
+      throw new Error("--skill-exposure-receipt requires --json.");
+    }
     const codeModeOverride = normalizeCodeMode(opts.codeMode);
     const prompt = await resolveAgentExecPrompt(positionalMessage, opts.messageFile);
     const cwd = await requireDirectory(opts.cwd ?? process.cwd(), "Working directory");
@@ -260,6 +266,7 @@ export async function agentExecCommand(
         {
           message: prompt,
           sessionId,
+          ...(runId ? { runId } : {}),
           agentId: execAgentId,
           workspaceDir: cwd,
           cwd,
@@ -280,6 +287,13 @@ export async function agentExecCommand(
           onResultErrorPayload: (message?: string) => {
             resultErrorPayload = message ?? true;
           },
+          ...(skillExposure
+            ? {
+                skillExposure,
+                onAgentToolResult: skillExposure.onAgentToolResult,
+                onActiveModelSelected: skillExposure.modelSelected,
+              }
+            : {}),
         },
         silentRuntime,
       );
@@ -430,6 +444,9 @@ export async function agentExecCommand(
     }
   }
 
+  if (skillExposure) {
+    Object.assign(commandResult.envelope, skillExposure.finish(cleanupError === undefined));
+  }
   const receivedSignal = signalBridge?.getReceivedSignal();
   signalBridge?.dispose();
   if (receivedSignal) {

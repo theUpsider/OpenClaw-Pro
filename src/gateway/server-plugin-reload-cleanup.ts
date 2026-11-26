@@ -139,9 +139,17 @@ export function createPluginReloadCleanup({
     }
   };
   const admittedWorkDeadline = () =>
+<<<<<<< OURS/upstream-11.10
     (admittedWorkDeadlineAtMs ??= performance.now() + admittedWorkTimeoutMs);
   // Budgets use the monotonic clock their timers run on; status reports a wall-clock deadline.
   const wallClockDeadline = (deadlineAtMs: number) => Date.now() + deadlineAtMs - performance.now();
+||||||| BASE/v11.4
+    waitForDrain
+      ? undefined
+      : (admittedWorkDeadlineAtMs ??= Date.now() + PLUGIN_RELOAD_ADMITTED_WORK_TIMEOUT_MS);
+=======
+    (admittedWorkDeadlineAtMs ??= Date.now() + admittedWorkTimeoutMs);
+>>>>>>> THEIRS/pro-main
   const observeDrain = async (
     label: string,
     signal: AbortSignal,
@@ -151,11 +159,29 @@ export function createPluginReloadCleanup({
     const observation = new AbortController();
     const currentSignal = AbortSignal.any([signal, observation.signal]);
     try {
+<<<<<<< OURS/upstream-11.10
       await withPluginHostCleanupTimeout(
         label,
         () => run(currentSignal),
         Math.max(0, deadlineAtMs - performance.now()),
       );
+||||||| BASE/v11.4
+      if (deadlineAtMs === undefined) {
+        await run(currentSignal);
+      } else {
+        await withPluginHostCleanupTimeout(
+          label,
+          () => run(currentSignal),
+          Math.max(0, deadlineAtMs - Date.now()),
+        );
+      }
+=======
+      await withPluginHostCleanupTimeout(
+        label,
+        () => run(currentSignal),
+        Math.max(0, deadlineAtMs - Date.now()),
+      );
+>>>>>>> THEIRS/pro-main
     } finally {
       // Detach observers when the wait ends; admitted work keeps its own lifetime.
       observation.abort();
@@ -378,6 +404,7 @@ export function createPluginReloadCleanup({
     }
     retainedWorkQueued ||= count > 0;
     const deadlineAtMs = admittedWorkDeadline();
+<<<<<<< OURS/upstream-11.10
     const reason = predecessors.length
       ? "Waiting for predecessor plugin generations to retire before replacement."
       : count
@@ -394,6 +421,13 @@ export function createPluginReloadCleanup({
       deadlineAtMs: wallClockDeadline(deadlineAtMs),
       reason,
     });
+||||||| BASE/v11.4
+    const reason = `Plugin replacement queued behind ${count} ${includeCalls ? "admitted" : "retained"} work item(s) for plugin ${[...pluginIds].join(", ")}; ${waitForDrain ? "waiting until they finish or the request is cancelled" : "applies when they finish within the 60s drain budget"}.`;
+    reportStatus({ phase: "reloading", pluginIds: [...changedPluginIds], deadlineAtMs, reason });
+=======
+    const reason = `Plugin replacement queued behind ${count} ${includeCalls ? "admitted" : "retained"} work item(s) for plugin ${[...pluginIds].join(", ")}; new agent runs wait up to the ${admittedWorkTimeoutMs / 1_000}s drain budget.${waitForDrain ? " Press Ctrl+C to cancel the waiting reload." : ""}`;
+    reportStatus({ phase: "reloading", pluginIds: [...changedPluginIds], deadlineAtMs, reason });
+>>>>>>> THEIRS/pro-main
     log.info(reason);
     logRetainedReferences(observedInstances, "queued", log);
     try {
@@ -421,6 +455,7 @@ export function createPluginReloadCleanup({
       );
     } catch (error) {
       if (error instanceof PluginHostCleanupTimeoutError) {
+<<<<<<< OURS/upstream-11.10
         logRetainedReferences(observedInstances, "timeout", log);
         throw new PluginAdmittedWorkTimeoutError(
           pluginIds,
@@ -428,6 +463,16 @@ export function createPluginReloadCleanup({
           error,
           admittedWorkTimeoutMs,
         );
+||||||| BASE/v11.4
+        throw new PluginAdmittedWorkTimeoutError(pluginIds, instances, error);
+=======
+        throw new PluginAdmittedWorkTimeoutError(
+          pluginIds,
+          instances,
+          error,
+          admittedWorkTimeoutMs,
+        );
+>>>>>>> THEIRS/pro-main
       }
       throw error;
     }
@@ -621,6 +666,35 @@ export function createPluginReloadCleanup({
       if (retainedWorkQueued) {
         recordWarning("Plugin replacement waited for retained work to finish.");
       }
+<<<<<<< OURS/upstream-11.10
+||||||| BASE/v11.4
+      try {
+        if (pluginIds.size) {
+          await drainWithDeadline(pluginIds, signal, reportStatus, "reloading");
+        }
+      } catch (error) {
+        if (error instanceof PluginHostCleanupTimeoutError) {
+          throw new PluginAdmittedWorkTimeoutError(pluginIds, previousInstances(pluginIds), error);
+        }
+        throw error;
+      }
+=======
+      try {
+        if (pluginIds.size) {
+          await drainWithDeadline(pluginIds, signal, reportStatus, "reloading");
+        }
+      } catch (error) {
+        if (error instanceof PluginHostCleanupTimeoutError) {
+          throw new PluginAdmittedWorkTimeoutError(
+            pluginIds,
+            previousInstances(pluginIds),
+            error,
+            admittedWorkTimeoutMs,
+          );
+        }
+        throw error;
+      }
+>>>>>>> THEIRS/pro-main
     },
     resumeInstances: () => quiescedInstances.forEach((instance) => instance.resume()),
     drainForRecovery,

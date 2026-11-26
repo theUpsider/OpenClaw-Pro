@@ -155,7 +155,23 @@ export async function resolveWorkerToolAuthority(params: {
       return {
         authProfileStoreSource,
         capabilityProfile,
-        policy: corePolicy,
+        // The core policy carries a readonly rule list; the worker surface type is derived from the
+        // protocol schema, which describes plain JSON. Projecting here keeps one owner of the shape.
+        policy: {
+          ...corePolicy,
+          ...(corePolicy.pathScopePolicy
+            ? {
+                pathScopePolicy: {
+                  entries: corePolicy.pathScopePolicy.entries.map((entry) => ({
+                    path: entry.path,
+                    mode: entry.mode,
+                  })),
+                  allowExecWithEntries: corePolicy.pathScopePolicy.allowExecWithEntries,
+                  unresolvedModel: corePolicy.pathScopePolicy.unresolvedModel,
+                },
+              }
+            : {}),
+        },
         exec,
         execUnavailable,
         presentation,

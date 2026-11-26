@@ -113,6 +113,25 @@ describe("permission projection across canonical session lists", () => {
       event({ ...initial, updatedAt: 2, permissionMode: "full" });
       expect(selected.row?.permissionMode).toBe("full");
 
+// The Gateway strips every row field outside the requested rowMode projection
+// (packages/gateway-protocol/src/session-row-fields.ts). Those lists carry
+// rowMode with permissionMode absent, which is an unknown field, not a clear.
+function projectedRow(
+  row: GatewaySessionRow,
+  rowMode: "sidebar" | "dashboard",
+  overrides: Partial<GatewaySessionRow> = {},
+): GatewaySessionRow {
+  const projected: GatewaySessionRow = {
+    key: row.key,
+    kind: row.kind,
+    updatedAt: row.updatedAt,
+    rowMode,
+    ...(row.sessionId === undefined ? {} : { sessionId: row.sessionId }),
+    ...overrides,
+  };
+  return projected;
+}
+
       await sessions.refreshList({ ...scope, rowMode });
       expect(managed({ ...scope, rowMode }).result?.sessions[0]?.label).toBe("Updated list label");
       expect(rows()?.[0]?.permissionMode).toBe("full");
@@ -156,6 +175,45 @@ describe("permission projection across canonical session lists", () => {
     expect(rows()?.[1]).toEqual(added);
     expect(request).toHaveBeenCalledTimes(2);
   });
+
+  it.each(["sidebar", "dashboard"] as const)(
+    "retains a known permission when a %s list omits it, and accepts a full-row clear",
+    async (rowMode) => {
+      const initial = sessionRow("agent:main:partial-permission");
+      // A partial list that moved updatedAt forward used to supersede the known
+      // permission with `undefined`, which the composer rendered as Default.
+      const partial = projectedRow(initial, rowMode, {
+        updatedAt: 3,
+        label: "Updated list label",
+      });
+      const cleared: GatewaySessionRow = {
+        key: initial.key,
+        kind: initial.kind,
+        sessionId: initial.sessionId,
+        updatedAt: 4,
+      };
+      const { sessions, permissionEvent, request } = harness(
+        sessionsResult([initial], 1),
+        sessionsResult([partial], 3),
+        sessionsResult([cleared], 4),
+      );
+
+      await sessions.refresh({ agentId: "main", force: true });
+      permissionEvent({ ...initial, updatedAt: 2, permissionMode: "full" });
+      expect(sessions.state.result?.sessions[0]?.permissionMode).toBe("full");
+
+      await sessions.refreshList({ ...managedScope, rowMode });
+      expect(sessions.listSnapshot({ ...managedScope, rowMode }).result?.sessions[0]?.label).toBe(
+        "Updated list label",
+      );
+      expect(sessions.state.result?.sessions[0]?.permissionMode).toBe("full");
+
+      // A canonical read that omits rowMode may still state the cleared fact.
+      await sessions.refresh({ agentId: "main", force: true });
+      expect(sessions.state.result?.sessions[0]?.permissionMode).toBeUndefined();
+      expect(request).toHaveBeenCalledTimes(3);
+    },
+  );
 
   it("rejects a late event older than a permission already confirmed by another held list", async () => {
     const initial = row("agent:main:cross-list");

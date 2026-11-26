@@ -7,10 +7,131 @@ import type {
 } from "../../sessions/session-controller.contracts.js";
 import { resolveAgentTurnExecutionStatus } from "./agent-runner-execution-status.js";
 import type { SessionEventExecution } from "./session-event-contract.js";
+<<<<<<< OURS/upstream-11.10
 export type {
   ReplyOperationRunState,
   ReplyPreRunRejectionCode,
 } from "../../sessions/session-controller.contracts.js";
+||||||| BASE/v11.4
+
+type ReplyOperationAdmissionSnapshot =
+  | { status: "owned" }
+  | { status: "accepted"; mode: "steer" | "followup" }
+  | {
+      status: "skipped";
+      reason:
+        | "active-run"
+        | "aborted"
+        | "lifecycle-invalidated"
+        | "queue-cap"
+        | "question-response-indeterminate"
+        | "question-response-refused"
+        | "question-response-rejected";
+    };
+
+// Rejection diagnostics carry owner-selected codes, never user-facing error text.
+export type ReplyPreRunRejectionCode =
+  | "model-scope-conflict"
+  | "model-scope-not-authorized"
+  | "model-selection-locked"
+  | "model-runtime-invalid"
+  | "model-selection-rejected"
+  | "model-selection-conflict"
+  | "session-directive-rejected";
+
+export type ReplyOperationRunState = {
+  replyCompletion?: ReplyCompletion;
+  /** The source delivery owner can keep spawned completion turns private. */
+  sessionEventDelivery?: false;
+  heartbeat?: {
+    prepareReply: (
+      replyResult: ReplyPayload | ReplyPayload[] | undefined,
+      runState: ReplyOperationRunState,
+    ) => Promise<{
+      reply?: ReplyPayload;
+      settle?: (outcome: ReplyDispatchDeliveryOutcome) => Promise<void>;
+    }>;
+  };
+  admission?: ReplyOperationAdmissionSnapshot;
+  /** The Gateway accepted this question answer or rejected its values before commitment. */
+  questionInputHandled?: true;
+  messageInjectionAborted?: true;
+  agentTurn?: ReturnType<typeof resolveAgentTurnExecutionStatus>;
+  agentTurnOwner?: ReplyOperation;
+  messagingToolSentTargets?: MessagingToolSend[];
+  backgroundWorkStarted?: boolean;
+  preRunRejection?: ReplyPreRunRejectionCode;
+  /**
+   * Armed by the admitted interactive run owner. Interruption recovery consumes it once;
+   * true means the session lane will answer instead.
+   */
+  continueStalledTurn?: (guidance?: string, owner?: ReplyOperation) => boolean;
+};
+=======
+
+type ReplyOperationAdmissionSnapshot =
+  | { status: "owned" }
+  | { status: "accepted"; mode: "steer" | "followup" }
+  | {
+      status: "skipped";
+      reason:
+        | "active-run"
+        | "aborted"
+        | "lifecycle-invalidated"
+        | "queue-cap"
+        | "question-response-indeterminate"
+        | "question-response-refused"
+        | "question-response-rejected";
+    };
+
+// Rejection diagnostics carry owner-selected codes, never user-facing error text.
+export type ReplyPreRunRejectionCode =
+  | "model-scope-conflict"
+  | "model-scope-not-authorized"
+  | "model-selection-locked"
+  | "model-runtime-invalid"
+  | "model-selection-rejected"
+  | "model-selection-conflict"
+  | "session-directive-rejected";
+
+export type ReplyOperationRunState = {
+  replyCompletion?: ReplyCompletion;
+  /** The source delivery owner can keep spawned completion turns private. */
+  sessionEventDelivery?: false;
+  heartbeat?: {
+    prepareReply: (
+      replyResult: ReplyPayload | ReplyPayload[] | undefined,
+      runState: ReplyOperationRunState,
+    ) => Promise<{
+      reply?: ReplyPayload;
+      settle?: (outcome: ReplyDispatchDeliveryOutcome) => Promise<void>;
+    }>;
+  };
+  admission?: ReplyOperationAdmissionSnapshot;
+  /** The Gateway accepted this question answer or rejected its values before commitment. */
+  questionInputHandled?: true;
+  messageInjectionAborted?: true;
+  /**
+   * Per-turn fact: the reply gate judged that no visible reply is needed. The turn still runs;
+   * only automatic source delivery is suppressed. It lives apart from `suppressDelivery` so the
+   * gate verdict stays attributable; `resolveSourceReplyVisibilityPolicy` folds it into
+   * `suppressDelivery` additively, never clearing sendPolicy or message_tool_only suppression.
+   */
+  visibleReplySuppression?: "reply-gate";
+  /** Dispatch owner hook that re-derives its delivery policy when the fact is set mid-turn. */
+  onVisibleReplySuppression?: () => void;
+  agentTurn?: ReturnType<typeof resolveAgentTurnExecutionStatus>;
+  agentTurnOwner?: ReplyOperation;
+  messagingToolSentTargets?: MessagingToolSend[];
+  backgroundWorkStarted?: boolean;
+  preRunRejection?: ReplyPreRunRejectionCode;
+  /**
+   * Armed by the admitted interactive run owner. Interruption recovery consumes it once;
+   * true means the session lane will answer instead.
+   */
+  continueStalledTurn?: (guidance?: string, owner?: ReplyOperation) => boolean;
+};
+>>>>>>> THEIRS/pro-main
 
 // Carries this invocation's admission decision through reply option spreads so
 // cleanup never infers it from whichever operation is active later.
@@ -110,4 +231,13 @@ export function recordReplyPreRunRejection(
   if (state && rejection) {
     state.preRunRejection ??= rejection;
   }
+}
+
+/** Records the reply-gate verdict for this turn and refreshes the dispatch delivery policy. */
+export function suppressVisibleReply(state: ReplyOperationRunState | undefined): void {
+  if (!state) {
+    return;
+  }
+  state.visibleReplySuppression = "reply-gate";
+  state.onVisibleReplySuppression?.();
 }

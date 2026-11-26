@@ -1,20 +1,31 @@
 /** @jsxImportSource @solidjs/web */
 import { asDateTimestampMs } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { createMemo, For, Show } from "solid-js";
+import { workboardHost } from "../../host.ts";
 import { t } from "../../i18n/index.ts";
 import type { createElementRefs } from "../../lib/element-refs.ts";
+import { workboardCardBoardId } from "../../lib/workboard/board-filter.ts";
 import { getCardAlerts, visibleCardAlerts } from "../../lib/workboard/card-alerts.ts";
+import {
+  boardClassifications,
+  resolveCardClassification,
+} from "../../lib/workboard/classification.ts";
 import { getWorkboardDependencyState } from "../../lib/workboard/card-state.ts";
+import { needsOperatorAttention } from "../../lib/workboard/operator-attention.ts";
 import { getWorkboardLifecycle } from "../../lib/workboard/lifecycle.ts";
 import type { WorkboardCard } from "../../lib/workboard/types.ts";
 import { getCardActionState, CardMoveControl } from "./view-card-actions.tsx";
 import {
+  CardAcceptanceMarker,
+  CardNeedsYouMarker,
   CardAlertView,
   CardUpdatedTime,
   CardPriority,
   CardMeta,
   CardCounts,
   CardSession,
+  CardClassificationAnnouncement,
+  CardLabelChip,
 } from "./view-card-content.tsx";
 import { openCardDetails, workboardCardDetailDrawerId } from "./view-card-details.tsx";
 import { equalCardActions, WorkboardCardMenuTrigger } from "./view-card-menu.tsx";
@@ -26,11 +37,20 @@ function isCardActionTarget(event: Event): boolean {
     : false;
 }
 export type WorkboardCardSurface = "page" | "widget" | "list";
+/**
+ * What the card shows beside its face in the "Needs you" lens. `full` keeps every element (the
+ * board, list, widget and detail surfaces); `reduced` drops what the face already carries, so the
+ * two do not compete for attention: the counts row and the "updated N ago" line are redundant with
+ * the face's evidence line and time-in-status, the label chips stop at three, and the alert banner
+ * moves into the face's strip instead of standing beside it.
+ */
+export type WorkboardCardDetail = "full" | "reduced";
 export function WorkboardCardView(input: {
   workboard: WorkboardProps;
   card: WorkboardCard;
   surface: WorkboardCardSurface;
   cardRefs?: ReturnType<typeof createElementRefs<HTMLElement>>;
+  detail?: WorkboardCardDetail;
 }) {
   const state = workboardViewState(() => input.workboard);
   const action = createMemo(
@@ -43,6 +63,8 @@ export function WorkboardCardView(input: {
     },
   );
   const widget = createMemo(() => input.surface === "widget");
+  // Beside a face the card is context, not the reading surface, so its duplicate facts drop out.
+  const reduced = createMemo(() => input.detail === "reduced");
   const dependencies = createMemo(() =>
     getWorkboardDependencyState(input.card, state().cards, !state().nextCursor),
   );
@@ -53,6 +75,15 @@ export function WorkboardCardView(input: {
     void input.workboard.revision;
     return Date.now();
   });
+  // Read the resolver while the host is active: card updates can still land after disposal.
+  const resolveColor = workboardHost().components.resolveAppearanceColor;
+  const classification = createMemo(() =>
+    resolveCardClassification(
+      input.card.labels,
+      boardClassifications(action().state.boards, workboardCardBoardId(input.card)),
+      resolveColor,
+    ),
+  );
   const updatedAt = createMemo(() => asDateTimestampMs(input.card.updatedAt));
   const sessionStatus = createMemo(() => getSessionStatus(input.card, lifecycle(), now()));
   const alerts = createMemo(() =>
@@ -104,11 +135,201 @@ export function WorkboardCardView(input: {
     input.workboard.onRequestUpdate?.();
   };
   const ActionsMenu = () => (
+<<<<<<< OURS/upstream-11.10
     <Show when={!widget() && (action().writable || action().linkedSessionKey)}>
       <div class="workboard-card__action-menu">
         <WorkboardCardMenuTrigger cardId={input.card.id} />
       </div>
     </Show>
+||||||| BASE/v11.4
+    <>
+      {!widget() && (action().writable || action().linkedSessionKey) ? (
+        <div class="workboard-card__action-menu">
+          <button
+            type="button"
+            class="workboard-card__menu-trigger"
+            aria-label={t("workboard.cardActions")}
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            popovertarget={`workboard-card-menu-${input.card.id}`}
+          >
+            {icons.moreHorizontal}
+          </button>
+          <div
+            id={`workboard-card-menu-${input.card.id}`}
+            popover="auto"
+            role="dialog"
+            aria-label={t("workboard.cardActions")}
+            class="workboard-card__action-menu-panel"
+            ref={workboardPopoverRef("end")}
+            onClick={closeWorkboardPopoverOnAction}
+          >
+            <div class="workboard-card__menu-group">
+              <button
+                class="btn"
+                type="button"
+                aria-label={t("workboard.viewDetails")}
+                aria-haspopup="dialog"
+                aria-expanded={action().state.detailCardId === input.card.id ? "true" : "false"}
+                aria-controls={workboardCardDetailDrawerId}
+                onClick={showDetails}
+              >
+                {icons.eye}
+                <span>{t("workboard.viewDetails")}</span>
+              </button>{" "}
+              {action().writable && !action().archived ? (
+                <CardAction kind="edit" workboard={input.workboard} card={input.card} />
+              ) : null}
+            </div>
+            {action().showStartControls ||
+            action().sessionTarget ||
+            (action().writable && action().linkedSessionKey && action().live) ? (
+              <div class="workboard-card__menu-group">
+                {action().showStartControls ? (
+                  <StartExecutionButton
+                    workboard={input.workboard}
+                    card={input.card}
+                    engine={null}
+                    mode="autonomous"
+                  />
+                ) : null}{" "}
+                <OpenSessionCardAction
+                  workboard={input.workboard}
+                  session={action().sessionTarget}
+                />{" "}
+                {action().writable && action().linkedSessionKey && action().live ? (
+                  <CardAction
+                    kind="stop"
+                    workboard={input.workboard}
+                    card={input.card}
+                    busy={action().busy}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+            {!(!action().archived && (action().writable || widget())) ? null : (
+              <div class="workboard-card__menu-status">
+                <span>{t("workboard.moveTo")}</span>
+                <MoveAction />
+              </div>
+            )}
+            {action().writable ? (
+              <div class="workboard-card__menu-group">
+                <CardAction
+                  kind="archive"
+                  workboard={input.workboard}
+                  card={input.card}
+                  busy={action().busy}
+                  archived={action().archived}
+                />{" "}
+                <CardAction
+                  kind="delete"
+                  workboard={input.workboard}
+                  card={input.card}
+                  busy={action().busy}
+                />
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </>
+=======
+    <>
+      {!widget() &&
+      (action().writable || action().linkedSessionKey || action().interactionTarget) ? (
+        <div class="workboard-card__action-menu">
+          <button
+            type="button"
+            class="workboard-card__menu-trigger"
+            aria-label={t("workboard.cardActions")}
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            popovertarget={`workboard-card-menu-${input.card.id}`}
+          >
+            {icons.moreHorizontal}
+          </button>
+          <div
+            id={`workboard-card-menu-${input.card.id}`}
+            popover="auto"
+            role="dialog"
+            aria-label={t("workboard.cardActions")}
+            class="workboard-card__action-menu-panel"
+            ref={workboardPopoverRef("end")}
+            onClick={closeWorkboardPopoverOnAction}
+          >
+            <div class="workboard-card__menu-group">
+              <button
+                class="btn"
+                type="button"
+                aria-label={t("workboard.viewDetails")}
+                aria-haspopup="dialog"
+                aria-expanded={action().state.detailCardId === input.card.id ? "true" : "false"}
+                aria-controls={workboardCardDetailDrawerId}
+                onClick={showDetails}
+              >
+                {icons.eye}
+                <span>{t("workboard.viewDetails")}</span>
+              </button>{" "}
+              {action().writable && !action().archived ? (
+                <CardAction kind="edit" workboard={input.workboard} card={input.card} />
+              ) : null}
+            </div>
+            {action().showStartControls ||
+            action().sessionTarget ||
+            action().interactionTarget ||
+            (action().writable && action().linkedSessionKey && action().live) ? (
+              <div class="workboard-card__menu-group">
+                {action().showStartControls ? (
+                  <StartExecutionButton
+                    workboard={input.workboard}
+                    card={input.card}
+                    engine={null}
+                    mode="autonomous"
+                  />
+                ) : null}{" "}
+                <OpenSessionCardAction
+                  workboard={input.workboard}
+                  session={action().sessionTarget ?? action().interactionTarget}
+                />{" "}
+                {action().writable && action().linkedSessionKey && action().live ? (
+                  <CardAction
+                    kind="stop"
+                    workboard={input.workboard}
+                    card={input.card}
+                    busy={action().busy}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+            {!(!action().archived && (action().writable || widget())) ? null : (
+              <div class="workboard-card__menu-status">
+                <span>{t("workboard.moveTo")}</span>
+                <MoveAction />
+              </div>
+            )}
+            {action().writable ? (
+              <div class="workboard-card__menu-group">
+                <CardAction
+                  kind="archive"
+                  workboard={input.workboard}
+                  card={input.card}
+                  busy={action().busy}
+                  archived={action().archived}
+                />{" "}
+                <CardAction
+                  kind="delete"
+                  workboard={input.workboard}
+                  card={input.card}
+                  busy={action().busy}
+                />
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </>
+>>>>>>> THEIRS/pro-main
   );
   const ListContents = () => (
     <>
@@ -127,20 +348,19 @@ export function WorkboardCardView(input: {
               </h3>
               {input.card.labels.length ? (
                 <div class="workboard-card__labels">
-                  <For each={input.card.labels.slice(0, 1)} keyed={(label) => label}>
+                  <CardClassificationAnnouncement classification={classification()} />
+                  <For each={classification().orderedLabels.slice(0, 1)} keyed={(label) => label}>
                     {(label) => (
-                      <span class="workboard-chip workboard-truncate" title={label()}>
-                        {label()}
-                      </span>
+                      <CardLabelChip label={label()} color={classification().colors.get(label())} />
                     )}
                   </For>
                   {input.card.labels.length > 1 ? (
                     <span
                       class="workboard-chip"
-                      title={input.card.labels.slice(1).join(", ")}
+                      title={classification().orderedLabels.slice(1).join(", ")}
                       aria-label={t("workboard.cardMoreLabels", {
                         count: String(input.card.labels.length - 1),
-                        labels: input.card.labels.slice(1).join(", "),
+                        labels: classification().orderedLabels.slice(1).join(", "),
                       })}
                     >
                       +{input.card.labels.length - 1}
@@ -151,6 +371,8 @@ export function WorkboardCardView(input: {
               {action().archived ? (
                 <span class="workboard-card__archived">{t("workboard.archived")}</span>
               ) : null}
+              <CardNeedsYouMarker card={input.card} />
+              <CardAcceptanceMarker card={input.card} />
             </div>
             <div class="workboard-list-row__context">
               {alerts().length ? (
@@ -158,7 +380,7 @@ export function WorkboardCardView(input: {
                   <CardAlertView alerts={alerts()} descriptionId={alertDescriptionId()} />
                 </div>
               ) : null}
-              <CardCounts card={input.card} />
+              {reduced() ? null : <CardCounts card={input.card} />}
             </div>
           </div>
           <div class="workboard-list-row__session">
@@ -170,7 +392,7 @@ export function WorkboardCardView(input: {
             />
           </div>
           <div class="workboard-list-row__updated">
-            <CardUpdatedTime updatedAt={updatedAt()} now={now()} />
+            {reduced() ? null : <CardUpdatedTime updatedAt={updatedAt()} now={now()} />}
           </div>
           <div class="workboard-list-row__actions">
             <ActionsMenu />
@@ -191,11 +413,18 @@ export function WorkboardCardView(input: {
         dragged() ? "workboard-card--dragging" : "",
         selected() ? "workboard-card--selected" : "",
         widget() ? "workboard-card--widget" : "workboard-card--openable",
+        classification().primary ? "workboard-card--classified" : "",
+        needsOperatorAttention(input.card) ? "workboard-card--needs-you" : "",
       ]}
+      style={
+        classification().primary
+          ? { "--workboard-card-accent": classification().primary?.color }
+          : undefined
+      }
       role={widget() ? undefined : "button"}
       tabindex={widget() ? undefined : "0"}
       aria-pressed={selectionMode() ? (selected() ? "true" : "false") : undefined}
-      aria-describedby={alerts().length ? alertDescriptionId() : undefined}
+      aria-describedby={alerts().length && !reduced() ? alertDescriptionId() : undefined}
       aria-keyshortcuts={selectable() ? "Shift+Enter Shift+Space" : undefined}
       title={
         widget() || !selectionMode()
@@ -281,12 +510,19 @@ export function WorkboardCardView(input: {
             lifecycle={lifecycle()}
             status={sessionStatus()}
           />
-          <CardMeta card={input.card} archived={action().archived} />{" "}
-          <CardAlertView alerts={alerts()} descriptionId={alertDescriptionId()} />
-          <CardCounts card={input.card} />
+          <CardMeta
+            card={input.card}
+            archived={action().archived}
+            classification={classification()}
+            {...(reduced() ? { maxLabels: 3 } : {})}
+          />{" "}
+          {reduced() ? null : (
+            <CardAlertView alerts={alerts()} descriptionId={alertDescriptionId()} />
+          )}
+          {reduced() ? null : <CardCounts card={input.card} />}
           <footer class="workboard-card__footer">
             <CardPriority card={input.card} />{" "}
-            <CardUpdatedTime updatedAt={updatedAt()} now={now()} />
+            {reduced() ? null : <CardUpdatedTime updatedAt={updatedAt()} now={now()} />}
           </footer>
           {widget() ? (
             <div class="workboard-card__actions workboard-card__actions--widget">

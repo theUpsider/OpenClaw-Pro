@@ -21,12 +21,26 @@ const inspect = (sourcePath: string) =>
 function fixture(sql = "") {
   const directory = tempDirs.make("port-command-");
   const sourcePath = path.join(directory, "workboard.sqlite");
+<<<<<<< OURS/upstream-11.10
   seedPortSqlite(
     sourcePath,
     `${metadata.sqlite};
     INSERT INTO workboard_schema_migrations VALUES ('schema-${metadata.version}', 17);
     INSERT INTO workboard_boards (id, name, created_at, updated_at) VALUES ('board', ' {"a":1,"a":2} ', 1, 2);
     ${sql}`,
+||||||| BASE/v11.4
+  using db = openNodeSqliteDatabase(sourcePath);
+  db.exec(metadata.sqlite);
+  db.exec("INSERT INTO workboard_schema_migrations VALUES ('schema-3', 17)");
+  db.exec(
+    "INSERT INTO workboard_boards (id, name, created_at, updated_at) VALUES ('board', ' {\"a\":1,\"a\":2} ', 1, 2)",
+=======
+  using db = openNodeSqliteDatabase(sourcePath);
+  db.exec(metadata.sqlite);
+  db.exec("INSERT INTO workboard_schema_migrations VALUES ('schema-6', 17)");
+  db.exec(
+    "INSERT INTO workboard_boards (id, name, created_at, updated_at) VALUES ('board', ' {\"a\":1,\"a\":2} ', 1, 2)",
+>>>>>>> THEIRS/pro-main
   );
   return { directory, sourcePath };
 }
@@ -66,6 +80,7 @@ it.each([
           INSERT INTO agent_deletion_journal (agent_id, agent_dir, workspace_dir, sessions_dir, created_at)
           VALUES ('retired', '/retired/agent', '/retired/workspace', '/retired/sessions', 17);`),
     );
+<<<<<<< OURS/upstream-11.10
     const original = await hash(sourcePath);
     await expect(inspect(sourcePath)).resolves.toMatchObject({ family, migrationRequired: true });
     const copy = path.join(directory, "private.sqlite");
@@ -93,6 +108,15 @@ it.each([
           : { agent_id: "retired", phase: null },
       );
     }
+||||||| BASE/v11.4
+    expect(inspected).toMatchObject({ engine: "sqlite", version: 3, migrationRequired: false });
+    expect(inspected.verification?.tables.workboard_boards?.rows).toBe(1);
+    expect(await fs.readdir(directory)).toEqual(before);
+=======
+    expect(inspected).toMatchObject({ engine: "sqlite", version: 6, migrationRequired: false });
+    expect(inspected.verification?.tables.workboard_boards?.rows).toBe(1);
+    expect(await fs.readdir(directory)).toEqual(before);
+>>>>>>> THEIRS/pro-main
     expect(await hash(sourcePath)).toBe(original);
     {
       using db = openNodeSqliteDatabase(sourcePath);
@@ -284,10 +308,102 @@ it("inspects without writing and refuses changed canonical SQLite data", async (
         verification: inspected.verification,
       },
       scope,
+<<<<<<< OURS/upstream-11.10
     ),
   ).rejects.toThrow("changed canonical rows");
   expect(await hash(sourcePath)).toBe(original);
 });
+||||||| BASE/v11.4
+    );
+    expect(await hash(sourcePath)).toBe(original);
+    using changed = openNodeSqliteDatabase(targetPath);
+    changed.exec("UPDATE workboard_boards SET name = 'changed'");
+    await expect(
+      runWorkboardPortTask(
+        {
+          operation: "verify",
+          sourcePath: targetPath,
+          config: {},
+          engine: "sqlite",
+          storeId: "00000000-0000-4000-8000-000000000001",
+          namespace: "unused",
+          verification: staged.verification,
+        },
+        scope,
+      ),
+    ).rejects.toThrow("changed canonical rows");
+  });
+
+  it("runs legacy migrations only on a private copy and preserves the untouched original", async () => {
+    const { directory, sourcePath } = fixture(
+      "DELETE FROM workboard_schema_migrations; INSERT INTO workboard_schema_migrations VALUES ('schema-2', 1); ALTER TABLE workboard_boards DROP COLUMN automation_job_id; ALTER TABLE workboard_boards DROP COLUMN kind; ALTER TABLE workboard_boards DROP COLUMN sessions_spec",
+    );
+    const original = await hash(sourcePath);
+    const facts = await runWorkboardPortTask(
+      { operation: "inspect", sourcePath, config: {}, to: "postgres" },
+      scope,
+    );
+    expect(facts).toMatchObject({ version: 2, targetVersion: 3, migrationRequired: true });
+    const working = path.join(directory, "private.sqlite");
+    await fs.copyFile(sourcePath, working);
+    const migrated = await runWorkboardPortTask(
+      { operation: "migrate", sourcePath: working },
+      scope,
+    );
+    expect(migrated.verification.tables.workboard_boards?.rows).toBe(1);
+    expect(await hash(sourcePath)).toBe(original);
+    const after = await runWorkboardPortTask(
+      { operation: "inspect", sourcePath: working, config: {}, to: "postgres" },
+      scope,
+    );
+    expect(after).toMatchObject({ version: 3, targetVersion: 3, migrationRequired: false });
+  });
+=======
+    );
+    expect(await hash(sourcePath)).toBe(original);
+    using changed = openNodeSqliteDatabase(targetPath);
+    changed.exec("UPDATE workboard_boards SET name = 'changed'");
+    await expect(
+      runWorkboardPortTask(
+        {
+          operation: "verify",
+          sourcePath: targetPath,
+          config: {},
+          engine: "sqlite",
+          storeId: "00000000-0000-4000-8000-000000000001",
+          namespace: "unused",
+          verification: staged.verification,
+        },
+        scope,
+      ),
+    ).rejects.toThrow("changed canonical rows");
+  });
+
+  it("runs legacy migrations only on a private copy and preserves the untouched original", async () => {
+    const { directory, sourcePath } = fixture(
+      "DELETE FROM workboard_schema_migrations; INSERT INTO workboard_schema_migrations VALUES ('schema-2', 1); ALTER TABLE workboard_boards DROP COLUMN automation_job_id; ALTER TABLE workboard_boards DROP COLUMN kind; ALTER TABLE workboard_boards DROP COLUMN sessions_spec",
+    );
+    const original = await hash(sourcePath);
+    const facts = await runWorkboardPortTask(
+      { operation: "inspect", sourcePath, config: {}, to: "postgres" },
+      scope,
+    );
+    expect(facts).toMatchObject({ version: 2, targetVersion: 6, migrationRequired: true });
+    const working = path.join(directory, "private.sqlite");
+    await fs.copyFile(sourcePath, working);
+    const migrated = await runWorkboardPortTask(
+      { operation: "migrate", sourcePath: working },
+      scope,
+    );
+    expect(migrated.verification.tables.workboard_boards?.rows).toBe(1);
+    expect(await hash(sourcePath)).toBe(original);
+    const after = await runWorkboardPortTask(
+      { operation: "inspect", sourcePath: working, config: {}, to: "postgres" },
+      scope,
+    );
+    expect(after).toMatchObject({ version: 6, targetVersion: 6, migrationRequired: false });
+  });
+>>>>>>> THEIRS/pro-main
 
 it.each([
   ["schema version 99", "PRAGMA user_version = 99"],

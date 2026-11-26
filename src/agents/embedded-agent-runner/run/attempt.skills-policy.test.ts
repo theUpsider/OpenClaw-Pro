@@ -208,6 +208,7 @@ describe("runEmbeddedAttempt skill policy projections", () => {
   });
 
   it("keeps admitted Code Mode skill descriptions while enforcing execution restrictions", async () => {
+<<<<<<< OURS/upstream-11.10
     type Policy = { toolsAllow?: string[]; toolExecutionAllow?: string[] };
     const cases: Array<[string, Policy, string | undefined, boolean]> = [
       ["unrestricted", {}, skillsPrompt, true],
@@ -217,6 +218,49 @@ describe("runEmbeddedAttempt skill policy projections", () => {
       [
         "read executable",
         { toolExecutionAllow: ["skill_workshop", "read", "skills_read", "skills_search"] },
+||||||| BASE/v11.4
+    const cases: Array<{
+      label: string;
+      toolsAllow?: string[];
+      toolExecutionAllow?: string[];
+      skillsPrompt?: string;
+      available: boolean;
+    }> = [
+      { label: "unrestricted", skillsPrompt, available: true },
+      { label: "wildcard", toolsAllow: ["*"], skillsPrompt, available: true },
+      { label: "mixed wildcard", toolsAllow: ["message", "*"], skillsPrompt, available: true },
+      { label: "finite", toolsAllow: ["message"], available: false },
+      {
+        label: "read executable",
+        toolExecutionAllow: ["skill_workshop", "read", "skills_read", "skills_search"],
+        skillsPrompt,
+        available: true,
+      },
+      {
+        label: "skill read denied",
+        toolExecutionAllow: ["read"],
+=======
+    const cases: Array<{
+      label: string;
+      toolsAllow?: string[];
+      toolExecutionAllow?: string[];
+      skillsPrompt?: string;
+      available: boolean;
+    }> = [
+      { label: "unrestricted", skillsPrompt, available: true },
+      { label: "wildcard", toolsAllow: ["*"], skillsPrompt, available: true },
+      { label: "mixed wildcard", toolsAllow: ["message", "*"], skillsPrompt, available: true },
+      { label: "finite", toolsAllow: ["message"], skillsPrompt, available: false },
+      {
+        label: "read executable",
+        toolExecutionAllow: ["skill_workshop", "read", "skills_read", "skills_search"],
+        skillsPrompt,
+        available: true,
+      },
+      {
+        label: "skill read denied",
+        toolExecutionAllow: ["read"],
+>>>>>>> THEIRS/pro-main
         skillsPrompt,
         true,
       ],

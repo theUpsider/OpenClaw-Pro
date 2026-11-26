@@ -84,6 +84,42 @@ it("never replays an uncertain Workboard create and rejects revoked authority", 
   await expectCards({ title: "Accepted once" });
 });
 
+  it("routes a parallelism opt-in for an existing card through the resident owner", async () => {
+    await startOwner();
+    const cli = await program();
+    await cli.parseAsync(["workboard", "create", "Opt-in candidate", "--status", "ready"], {
+      from: "user",
+    });
+    const created = (await invoke("workboard.cards.list", {})) as {
+      cards: Array<{ id: string }>;
+    };
+    const cardId = created.cards[0]!.id;
+    ownerTransport.request.mockClear();
+
+    await cli.parseAsync(
+      ["workboard", "update", cardId, "--parallelizable", "--max-concurrent-per-owner", "2"],
+      { from: "user" },
+    );
+
+    // The opt-in must land in the canonical store the Gateway owns, not in a
+    // private offline database. `workboard.cards.update` therefore needs its
+    // owner-routed alias alongside create/move, or this command only works
+    // while no Gateway is running.
+    expect(await invoke("workboard.cards.list", {})).toMatchObject({
+      cards: [
+        {
+          id: cardId,
+          labels: ["parallelizable"],
+          metadata: { automation: { parallelizable: true, maxConcurrentPerOwner: 2 } },
+        },
+      ],
+    });
+    expect(ownerTransport.request.mock.calls.map(([request]) => request.method)).toEqual([
+      "workboard.cards.list.owner",
+      "workboard.cards.update.owner",
+    ]);
+  });
+
 it.each(["accepted", "rejected"])(
   "settles a %s launch after the requester is revoked",
   async (outcome) => {

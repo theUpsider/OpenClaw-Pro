@@ -420,6 +420,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
     gatewayUiCommandTarget: params.gatewayUiCommandTarget,
     pinnedWidgetAuthoring: params.pinnedWidgetAuthoring,
     toolBindings: params.toolBindings,
+    workContext: params.workContext,
     chatType: params.chatType,
     agentAccountId: params.agentAccountId,
     conversationRoutePeerId: params.conversationRoutePeerId,
@@ -599,6 +600,7 @@ export async function prepareAndDispatchEmbeddedRunAttempt(
     onReasoningEnd: params.onReasoningEnd,
     onToolResult: params.onToolResult,
     onAgentToolResult: params.onAgentToolResult,
+    skillExposure: params.skillExposure,
     onAgentEvent: async (event) => params.onAgentEvent?.(event),
     // Normalize the shipped harness alias once; attempt internals consume only the canonical flag.
     deferTerminalLifecycle: params.deferTerminalLifecycle ?? params.deferTerminalLifecycleEnd,

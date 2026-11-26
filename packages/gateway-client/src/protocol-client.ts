@@ -24,7 +24,11 @@ import {
   GatewayProtocolRequestTimeoutError,
   type GatewayProtocolRequestOptions,
 } from "./protocol-request.js";
-import { clearGatewayConnectTimeout, startGatewayConnectTimeout } from "./timeouts.js";
+import {
+  clearGatewayConnectTimeout,
+  STABLE_CONNECTION_BACKOFF_RESET_MS,
+  startGatewayConnectTimeout,
+} from "./timeouts.js";
 
 export {
   GatewayPayloadLimitError,
@@ -69,6 +73,7 @@ export class GatewayProtocolClient<TPlan> {
   private socketOpened = false;
   private helloReceived = false;
   private readyForRequests = false;
+  private helloAtMs: number | null = null;
   private connectFailure: GatewayProtocolCloseContext["connectFailure"];
   private connectTiming: ConnectTimingState | null = null;
   private stoppedSocket?: { socket: GatewayProtocolSocket; context: CloseSnapshot };
@@ -214,6 +219,7 @@ export class GatewayProtocolClient<TPlan> {
     this.socketOpened = false;
     this.helloReceived = false;
     this.readyForRequests = false;
+    this.helloAtMs = null;
     this.connectFailure = undefined;
     let socket: GatewayProtocolSocket;
     try {
@@ -415,7 +421,7 @@ export class GatewayProtocolClient<TPlan> {
       })
       .then((hello) => {
         // Closing transports remain current until their close callback runs;
-        // a late response must not publish readiness or reset reconnect backoff.
+        // a late response must not publish readiness or start the stable window.
         if (!this.isConnectCurrent(socket, generation)) {
           return;
         }
@@ -424,7 +430,8 @@ export class GatewayProtocolClient<TPlan> {
         this.requests.setSuspensionPhase(hello.snapshot?.suspension?.phase);
         this.clearHandshakeTimer();
         this.connectFailure = undefined;
-        this.reconnectSupervisor.reset();
+        // Backoff resets on close only after a stable window (see handleClose).
+        this.helloAtMs = this.nowMs();
         this.recordTiming("hello", generation, plan);
         const publishHello = () => {
           if (!this.isConnectCurrent(socket, generation)) {
@@ -588,6 +595,136 @@ export class GatewayProtocolClient<TPlan> {
     }
   }
 
+<<<<<<< OURS/upstream-11.10
+||||||| BASE/v11.4
+  private handleClose(
+    socket: GatewayProtocolSocket,
+    generation: number,
+    code: number,
+    reason: string,
+  ): void {
+    if (this.socket !== socket) {
+      if (this.stoppedSocket?.socket === socket) {
+        const context = { ...this.stoppedSocket.context, code, reason };
+        this.stoppedSocket = undefined;
+        this.invoke("close", () => this.opts.onClose?.(context, { retry: false, notify: true }));
+      }
+      return;
+    }
+    this.socket = null;
+    this.connectionAbort?.abort();
+    this.clearHandshakeTimer();
+    const context: GatewayProtocolCloseContext = {
+      ...this.closeContext(),
+      code,
+      reason,
+      generation,
+    };
+    this.connectFailure = undefined;
+    const decision = this.opts.resolveClose(context);
+    this.requests.flush(
+      decision.pendingError ??
+        context.connectFailure?.error ??
+        new Error(`gateway closed (${code}): ${reason}`),
+    );
+    this.invoke("close", () => this.opts.onClose?.(context, decision));
+    // A close callback can reconnect synchronously and already own the next socket or retry.
+    if (decision.retry && !this.stopped && !this.socket && !this.reconnectSignal) {
+      const error = context.connectFailure?.error;
+      // Apply server timing only after adapter policy admits retry; a hint
+      // must never turn terminal authentication failures into reconnects.
+      const retryAfterMs =
+        error instanceof GatewayProtocolRequestError &&
+        error.retryable &&
+        error.retryAfterMs !== undefined &&
+        Number.isFinite(error.retryAfterMs) &&
+        error.retryAfterMs > 0
+          ? error.retryAfterMs
+          : undefined;
+      this.scheduleReconnect(
+        decision.reconnectDelayMs ?? context.connectFailure?.reconnectDelayMs,
+        retryAfterMs,
+      );
+    }
+  }
+
+  private handleSocketError(socket: GatewayProtocolSocket, generation: number, error: Error): void {
+    if (!this.isActive(socket, generation) || this.connectSent) {
+      return;
+    }
+    this.connectFailure = { error };
+    this.opts.onConnectError?.(error);
+  }
+
+=======
+  private handleClose(
+    socket: GatewayProtocolSocket,
+    generation: number,
+    code: number,
+    reason: string,
+  ): void {
+    if (this.socket !== socket) {
+      if (this.stoppedSocket?.socket === socket) {
+        const context = { ...this.stoppedSocket.context, code, reason };
+        this.stoppedSocket = undefined;
+        this.invoke("close", () => this.opts.onClose?.(context, { retry: false, notify: true }));
+      }
+      return;
+    }
+    this.socket = null;
+    this.connectionAbort?.abort();
+    this.clearHandshakeTimer();
+    const context: GatewayProtocolCloseContext = {
+      ...this.closeContext(),
+      code,
+      reason,
+      generation,
+    };
+    this.connectFailure = undefined;
+    const decision = this.opts.resolveClose(context);
+    this.requests.flush(
+      decision.pendingError ??
+        context.connectFailure?.error ??
+        new Error(`gateway closed (${code}): ${reason}`),
+    );
+    this.invoke("close", () => this.opts.onClose?.(context, decision));
+    // A close callback can reconnect synchronously and already own the next socket or retry.
+    if (decision.retry && !this.stopped && !this.socket && !this.reconnectSignal) {
+      const error = context.connectFailure?.error;
+      // Apply server timing only after adapter policy admits retry; a hint
+      // must never turn terminal authentication failures into reconnects.
+      const retryAfterMs =
+        error instanceof GatewayProtocolRequestError &&
+        error.retryable &&
+        error.retryAfterMs !== undefined &&
+        Number.isFinite(error.retryAfterMs) &&
+        error.retryAfterMs > 0
+          ? error.retryAfterMs
+          : undefined;
+      // A hello alone does not reset backoff: a socket that keeps dying soon after
+      // hello (stall, sequence gap, forced reconnect) must keep growing its delay.
+      if (
+        this.helloAtMs !== null &&
+        this.nowMs() - this.helloAtMs >= STABLE_CONNECTION_BACKOFF_RESET_MS
+      ) {
+        this.reconnectSupervisor.reset();
+      }
+      this.scheduleReconnect(
+        decision.reconnectDelayMs ?? context.connectFailure?.reconnectDelayMs,
+        retryAfterMs,
+      );
+    }
+  }
+
+  private handleSocketError(socket: GatewayProtocolSocket, generation: number, error: Error): void {
+    if (!this.isActive(socket, generation) || this.connectSent) {
+      return;
+    }
+    this.connectFailure = { error };
+    this.opts.onConnectError?.(error);
+  }
+
+>>>>>>> THEIRS/pro-main
   private scheduleReconnect(overrideMs?: number, minimumMs = 0): void {
     if (overrideMs !== undefined) {
       // Adapter-owned startup timing does not consume a transport attempt.

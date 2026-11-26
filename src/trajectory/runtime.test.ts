@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { expectDefined } from "@openclaw/normalization-core";
+import { sha256Hex } from "@openclaw/normalization-core/node-crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   observeHostDataSql,
@@ -426,6 +427,31 @@ describe("trajectory runtime", () => {
     expect(parsed.data).toEqual(data);
     expect(JSON.stringify(parsed.data)).toBe(JSON.stringify(data));
     expect(parsed.data.truncated).toBeUndefined();
+  });
+
+  // The attempt-side recorder tests mock createTrajectoryRuntimeRecorder, so they
+  // can only see the pre-limiter payload. This exercises the real limiter: a
+  // 100-name wire surface records as a plain 64-item array (the limiter's marker
+  // at index 64 is dropped by the following diagnostic projection), while the
+  // count and digest keep the full pre-truncation set.
+  it("caps a 100-name wire surface at the 64-item array limit while count and digest keep the full set", async () => {
+    const writes: string[] = [];
+    const recorder = await createCapturedRuntimeRecorder(writes);
+    const sorted = Array.from({ length: 100 }, (_value, index) => `tool_${index}`).toSorted();
+
+    expectTrajectoryRuntimeRecorder(recorder).recordEvent("session.started", {
+      wireToolNames: sorted,
+      wireToolNamesCount: sorted.length,
+      wireToolNamesHash: sha256Hex(JSON.stringify(sorted)),
+    });
+
+    expect(writes).toHaveLength(1);
+    const parsed = JSON.parse(expectDefined(writes[0], "writes[0] test invariant"));
+    expect(parsed.type).toBe("session.started");
+    expect(parsed.data.wireToolNames).toHaveLength(64);
+    expect(parsed.data.wireToolNames).toEqual(sorted.slice(0, 64));
+    expect(parsed.data.wireToolNamesCount).toBe(100);
+    expect(parsed.data.wireToolNamesHash).toBe(sha256Hex(JSON.stringify(sorted)));
   });
 
   it("omits replay state before inspecting its contents", async () => {

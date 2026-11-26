@@ -25,8 +25,100 @@ const LAZY_LOCALE_REGISTRY = {
   fa: () => import("../locales/fa.ts"),
   ru: () => import("../locales/ru.ts"),
   sv: () => import("../locales/sv.ts"),
+<<<<<<< OURS/upstream-11.10
   ca: () => import("../locales/ca.ts"),
 } satisfies Record<Exclude<Locale, typeof DEFAULT_LOCALE>, () => Promise<LocaleModule>>;
+||||||| BASE/v11.4
+} satisfies Record<string, () => Promise<LocaleModule>>;
+type LazyLocale = keyof typeof LAZY_LOCALE_REGISTRY;
+export type Locale = typeof DEFAULT_LOCALE | LazyLocale;
+// SAFETY: The record contract guarantees every own key is a LazyLocale.
+const LAZY_LOCALES = Object.keys(LAZY_LOCALE_REGISTRY) as LazyLocale[];
+
+export const SUPPORTED_LOCALES: ReadonlyArray<Locale> = [DEFAULT_LOCALE, ...LAZY_LOCALES];
+
+export function isSupportedLocale(value: string | null | undefined): value is Locale {
+  return SUPPORTED_LOCALES.some((locale) => locale === value);
+}
+
+export function resolveNavigatorLocale(browserLanguage: string): Locale {
+  const navLang = browserLanguage.toLowerCase();
+  if (navLang.startsWith("zh")) {
+    const [, ...subtags] = navLang.split("-");
+    if (subtags.includes("hant")) {
+      return "zh-TW";
+    }
+    if (subtags.includes("hans")) {
+      return "zh-CN";
+    }
+    return subtags.some((subtag) => subtag === "tw" || subtag === "hk" || subtag === "mo")
+      ? "zh-TW"
+      : "zh-CN";
+  }
+  return (
+    LAZY_LOCALES.find((locale) => navLang.startsWith(locale.split("-")[0]!.toLowerCase())) ??
+    DEFAULT_LOCALE
+  );
+}
+=======
+} satisfies Record<string, () => Promise<LocaleModule>>;
+type LazyLocale = keyof typeof LAZY_LOCALE_REGISTRY;
+
+// Config schema hint copy is only read by Settings surfaces, so it stays a
+// separate chunk rather than a static import of every locale catalog.
+const LAZY_LOCALE_CONFIG_HINTS_REGISTRY = {
+  "zh-CN": () => import("virtual:openclaw-control-ui-locale-config-hints/zh-CN"),
+  "zh-TW": () => import("virtual:openclaw-control-ui-locale-config-hints/zh-TW"),
+  "pt-BR": () => import("virtual:openclaw-control-ui-locale-config-hints/pt-BR"),
+  de: () => import("virtual:openclaw-control-ui-locale-config-hints/de"),
+  es: () => import("virtual:openclaw-control-ui-locale-config-hints/es"),
+  "ja-JP": () => import("virtual:openclaw-control-ui-locale-config-hints/ja-JP"),
+  ko: () => import("virtual:openclaw-control-ui-locale-config-hints/ko"),
+  fr: () => import("virtual:openclaw-control-ui-locale-config-hints/fr"),
+  hi: () => import("virtual:openclaw-control-ui-locale-config-hints/hi"),
+  ar: () => import("virtual:openclaw-control-ui-locale-config-hints/ar"),
+  it: () => import("virtual:openclaw-control-ui-locale-config-hints/it"),
+  tr: () => import("virtual:openclaw-control-ui-locale-config-hints/tr"),
+  uk: () => import("virtual:openclaw-control-ui-locale-config-hints/uk"),
+  id: () => import("virtual:openclaw-control-ui-locale-config-hints/id"),
+  pl: () => import("virtual:openclaw-control-ui-locale-config-hints/pl"),
+  th: () => import("virtual:openclaw-control-ui-locale-config-hints/th"),
+  vi: () => import("virtual:openclaw-control-ui-locale-config-hints/vi"),
+  nl: () => import("virtual:openclaw-control-ui-locale-config-hints/nl"),
+  fa: () => import("virtual:openclaw-control-ui-locale-config-hints/fa"),
+  ru: () => import("virtual:openclaw-control-ui-locale-config-hints/ru"),
+  sv: () => import("virtual:openclaw-control-ui-locale-config-hints/sv"),
+} satisfies Record<LazyLocale, () => Promise<{ default: TranslationMap }>>;
+export type Locale = typeof DEFAULT_LOCALE | LazyLocale;
+// SAFETY: The record contract guarantees every own key is a LazyLocale.
+const LAZY_LOCALES = Object.keys(LAZY_LOCALE_REGISTRY) as LazyLocale[];
+
+export const SUPPORTED_LOCALES: ReadonlyArray<Locale> = [DEFAULT_LOCALE, ...LAZY_LOCALES];
+
+export function isSupportedLocale(value: string | null | undefined): value is Locale {
+  return SUPPORTED_LOCALES.some((locale) => locale === value);
+}
+
+export function resolveNavigatorLocale(browserLanguage: string): Locale {
+  const navLang = browserLanguage.toLowerCase();
+  if (navLang.startsWith("zh")) {
+    const [, ...subtags] = navLang.split("-");
+    if (subtags.includes("hant")) {
+      return "zh-TW";
+    }
+    if (subtags.includes("hans")) {
+      return "zh-CN";
+    }
+    return subtags.some((subtag) => subtag === "tw" || subtag === "hk" || subtag === "mo")
+      ? "zh-TW"
+      : "zh-CN";
+  }
+  return (
+    LAZY_LOCALES.find((locale) => navLang.startsWith(locale.split("-")[0]!.toLowerCase())) ??
+    DEFAULT_LOCALE
+  );
+}
+>>>>>>> THEIRS/pro-main
 
 export async function loadLazyLocaleTranslation(locale: Locale): Promise<TranslationMap | null> {
   if (locale === DEFAULT_LOCALE) {
@@ -34,4 +126,11 @@ export async function loadLazyLocaleTranslation(locale: Locale): Promise<Transla
   }
   const module: LocaleModule = await LAZY_LOCALE_REGISTRY[locale]();
   return module[locale.replaceAll("-", "_")] ?? null;
+}
+
+export async function loadLazyLocaleConfigHints(locale: Locale): Promise<TranslationMap | null> {
+  if (locale === DEFAULT_LOCALE) {
+    return null;
+  }
+  return (await LAZY_LOCALE_CONFIG_HINTS_REGISTRY[locale]()).default;
 }

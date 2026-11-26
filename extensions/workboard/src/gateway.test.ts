@@ -178,6 +178,7 @@ describe("workboard gateway methods", () => {
   );
 
   it("registers CRUD methods with read/write scopes", async () => {
+<<<<<<< OURS/upstream-11.10
     const { methods, invoke, store } = createGateway();
     for (const [scope, names] of Object.entries({
       "operator.read":
@@ -186,6 +187,191 @@ describe("workboard gateway methods", () => {
         "cards.diagnostics.refresh cards.create cards.attachments.add boards.upsert notifications.advance",
     })) {
       for (const name of names.split(" ")) {
+||||||| BASE/v11.4
+    const { api, methods, invoke } = createGatewayMethodCapture();
+
+    const store = createWorkboardSqliteTestStore();
+    registerWorkboardGatewayMethods({ api, store });
+
+    expect([...methods.keys()]).toEqual([
+      "workboard.cards.list",
+      "workboard.cards.list.owner",
+      "workboard.cards.create",
+      "workboard.cards.create.owner",
+      "workboard.cards.captureSession",
+      "workboard.cards.update",
+      "workboard.cards.start",
+      "workboard.cards.move",
+      "workboard.cards.move.owner",
+      "workboard.cards.delete",
+      "workboard.cards.comment",
+      "workboard.cards.link",
+      "workboard.cards.linkDependency",
+      "workboard.cards.proof",
+      "workboard.cards.artifact",
+      "workboard.cards.claim",
+      "workboard.cards.heartbeat",
+      "workboard.cards.release",
+      "workboard.cards.promote",
+      "workboard.cards.reassign",
+      "workboard.cards.reclaim",
+      "workboard.cards.complete",
+      "workboard.cards.block",
+      "workboard.cards.unblock",
+      "workboard.cards.bulk",
+      "workboard.cards.diagnostics",
+      "workboard.cards.diagnostics.refresh",
+      "workboard.cards.dispatch",
+      "workboard.cards.dispatch.owner",
+      "workboard.cards.dispatchWithOptions",
+      "workboard.cards.dispatchWithOptions.owner",
+      "workboard.boards.list",
+      "workboard.boards.upsert",
+      "workboard.sessionsBoard.read",
+      "workboard.sessionsBoard.update",
+      "workboard.sessionsBoard.move",
+      "workboard.boards.archive",
+      "workboard.boards.delete",
+      "workboard.cards.stats",
+      "workboard.cards.runs",
+      "workboard.cards.specify",
+      "workboard.cards.decompose",
+      "workboard.notifications.subscribe",
+      "workboard.notifications.list",
+      "workboard.notifications.delete",
+      "workboard.notifications.events",
+      "workboard.notifications.advance",
+      "workboard.cards.attachments.list",
+      "workboard.cards.attachments.get",
+      "workboard.cards.attachments.add",
+      "workboard.cards.attachments.delete",
+      "workboard.cards.workerLog",
+      "workboard.cards.protocolViolation",
+      "workboard.cards.archive",
+      "workboard.cards.export",
+    ]);
+    for (const [scope, names] of [
+      [
+        "operator.read",
+        [
+          "cards.list",
+          "cards.diagnostics",
+          "cards.export",
+          "cards.runs",
+          "cards.attachments.get",
+          "notifications.list",
+          "notifications.events",
+        ],
+      ],
+      [
+        "operator.write",
+        [
+          "cards.diagnostics.refresh",
+          "cards.create",
+          "cards.attachments.add",
+          "boards.upsert",
+          "notifications.advance",
+        ],
+      ],
+    ] as const) {
+      for (const name of names) {
+=======
+    const { api, methods, invoke } = createGatewayMethodCapture();
+
+    const store = createWorkboardSqliteTestStore();
+    registerWorkboardGatewayMethods({ api, store });
+
+    expect([...methods.keys()]).toEqual([
+      "workboard.cards.list",
+      "workboard.cards.list.owner",
+      "workboard.cards.create",
+      "workboard.cards.create.owner",
+      "workboard.cards.captureSession",
+      "workboard.cards.draft",
+      "workboard.cards.update",
+      "workboard.cards.update.owner",
+      "workboard.cards.start",
+      "workboard.cards.move",
+      "workboard.cards.move.owner",
+      "workboard.cards.delete",
+      "workboard.cards.comment",
+      "workboard.cards.link",
+      "workboard.cards.linkDependency",
+      "workboard.cards.unlinkDependency",
+      "workboard.cards.proof",
+      "workboard.cards.artifact",
+      "workboard.cards.claim",
+      "workboard.cards.heartbeat",
+      "workboard.cards.release",
+      "workboard.cards.promote",
+      "workboard.cards.reassign",
+      "workboard.cards.reclaim",
+      "workboard.cards.complete",
+      "workboard.cards.block",
+      "workboard.cards.unblock",
+      "workboard.cards.bulk",
+      "workboard.cards.diagnostics",
+      "workboard.cards.diagnostics.refresh",
+      "workboard.cards.dispatch",
+      "workboard.cards.dispatch.owner",
+      "workboard.cards.dispatchWithOptions",
+      "workboard.cards.dispatchWithOptions.owner",
+      "workboard.boards.list",
+      "workboard.boards.upsert",
+      "workboard.boards.classifications",
+      "workboard.sessionsBoard.read",
+      "workboard.sessionsBoard.update",
+      "workboard.sessionsBoard.move",
+      "workboard.boards.archive",
+      "workboard.boards.delete",
+      "workboard.cards.stats",
+      "workboard.cards.runs",
+      "workboard.cards.specify",
+      "workboard.cards.decompose",
+      "workboard.notifications.subscribe",
+      "workboard.notifications.list",
+      "workboard.notifications.delete",
+      "workboard.notifications.events",
+      "workboard.notifications.advance",
+      "workboard.cards.attachments.list",
+      "workboard.cards.attachments.get",
+      "workboard.cards.attachments.add",
+      "workboard.artifacts.fileAccess",
+      "workboard.cards.attachments.delete",
+      "workboard.cards.workerLog",
+      "workboard.cards.protocolViolation",
+      "workboard.cards.archive",
+      "workboard.cards.export",
+    ]);
+    for (const [scope, names] of [
+      [
+        "operator.read",
+        [
+          "cards.list",
+          "cards.diagnostics",
+          "cards.export",
+          "cards.runs",
+          "cards.attachments.get",
+          "notifications.list",
+          "notifications.events",
+          "artifacts.fileAccess",
+        ],
+      ],
+      [
+        "operator.write",
+        [
+          "cards.diagnostics.refresh",
+          "cards.create",
+          "cards.draft",
+          "cards.attachments.add",
+          "boards.upsert",
+          "boards.classifications",
+          "notifications.advance",
+        ],
+      ],
+    ] as const) {
+      for (const name of names) {
+>>>>>>> THEIRS/pro-main
         expect(methods.get(`workboard.${name}`)?.opts).toEqual({ scope });
       }
     }

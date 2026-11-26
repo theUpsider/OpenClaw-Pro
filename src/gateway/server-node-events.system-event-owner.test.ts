@@ -31,11 +31,75 @@ const { handleNodeEvent } = await import("./server-node-events.js");
 
 afterEach(resetSystemEventsForTest);
 
+async function setupGlobalSessions(stateDir: string) {
+  const config = {
+    agents: {
+      ownership: "explicit" as const,
+      defaults: { systemAgent: { agentId: "research" } },
+      entries: { main: {}, research: {} },
+    },
+    session: {
+      scope: "global" as const,
+      store: path.join(stateDir, "agents", "{agentId}", "sessions", "sessions.json"),
+    },
+  };
+  setRuntimeConfigSnapshot(config, config);
+  for (const agentId of ["main", "research"]) {
+    await replaceSessionEntry(
+      { agentId, sessionKey: "global" },
+      { sessionId: `${agentId}-session`, updatedAt: 1 },
+    );
+  }
+}
+
+function createNodeEventContext(
+  authorizeNodeSystemRunEvent: NodeEventContext["authorizeNodeSystemRunEvent"] = () => false,
+): NodeEventContext {
+  return {
+    deps: {},
+    broadcast: () => {},
+    nodeSendToSession: () => {},
+    nodeSubscribe: () => {},
+    nodeUnsubscribe: () => {},
+    broadcastVoiceWakeChanged: () => {},
+    addChatRun: () => {},
+    removeChatRun: () => undefined,
+    chatAbortControllers: new Map(),
+    dedupe: new Map(),
+    agentRunSeq: new Map(),
+    getHealthCache: () => null,
+    refreshHealthSnapshot: async () => {
+      throw new Error("Unexpected health refresh");
+    },
+    loadGatewayModelCatalog: async () => [],
+    authorizeNodeSystemRunEvent,
+    logGateway: { warn: vi.fn() },
+  };
+}
+
+async function postNotification(ctx: NodeEventContext, key: string, title: string) {
+  await handleNodeEvent(
+    ctx,
+    "node-notify",
+    {
+      event: "notifications.changed",
+      payloadJSON: JSON.stringify({
+        sessionKey: "agent:research:main",
+        change: "posted",
+        key,
+        title,
+      }),
+    },
+    { connId: "notify-connection" },
+  );
+}
+
 it.each([
   { name: "explicit notification", event: "notifications.changed", explicit: true },
   { name: "system-agent notification", event: "notifications.changed", explicit: false },
   { name: "authorized exec completion", event: "exec.finished", explicit: true },
   { name: "unmatched exec completion", event: "exec.finished", explicit: true, denied: true },
+<<<<<<< OURS/upstream-11.10
   { name: "rejected notification", event: "notifications.changed", explicit: true, rejected: true },
   { name: "rejected exec completion", event: "exec.finished", explicit: true, rejected: true },
 ])(
@@ -81,6 +145,63 @@ it.each([
         authorizeNodeSystemRunEvent: () => !denied,
         logGateway: { warn: vi.fn() },
       };
+||||||| BASE/v11.4
+])("preserves the loaded global owner for $name", async ({ name, event, explicit, denied }) => {
+  requestHeartbeat.mockClear();
+  resetSystemEventsForTest();
+  await withOpenClawTestState(
+    { label: "node-event-owner", layout: "state-only" },
+    async (state) => {
+      const config = {
+        agents: {
+          ownership: "explicit" as const,
+          defaults: { systemAgent: { agentId: "research" } },
+          entries: { main: {}, research: {} },
+        },
+        session: {
+          scope: "global" as const,
+          store: path.join(state.stateDir, "agents", "{agentId}", "sessions", "sessions.json"),
+        },
+      };
+      setRuntimeConfigSnapshot(config, config);
+      for (const agentId of ["main", "research"]) {
+        await replaceSessionEntry(
+          { agentId, sessionKey: "global" },
+          { sessionId: `${agentId}-session`, updatedAt: 1 },
+        );
+      }
+      const authorizeNodeSystemRunEvent = vi.fn(() => !denied);
+      const ctx: NodeEventContext = {
+        deps: {},
+        broadcast: () => {},
+        nodeSendToSession: () => {},
+        nodeSubscribe: () => {},
+        nodeUnsubscribe: () => {},
+        broadcastVoiceWakeChanged: () => {},
+        addChatRun: () => {},
+        removeChatRun: () => undefined,
+        chatAbortControllers: new Map(),
+        dedupe: new Map(),
+        agentRunSeq: new Map(),
+        getHealthCache: () => null,
+        refreshHealthSnapshot: async () => {
+          throw new Error("Unexpected health refresh");
+        },
+        loadGatewayModelCatalog: async () => [],
+        authorizeNodeSystemRunEvent,
+        logGateway: { warn: vi.fn() },
+      };
+=======
+])("preserves the loaded global owner for $name", async ({ name, event, explicit, denied }) => {
+  requestHeartbeat.mockClear();
+  resetSystemEventsForTest();
+  await withOpenClawTestState(
+    { label: "node-event-owner", layout: "state-only" },
+    async (state) => {
+      await setupGlobalSessions(state.stateDir);
+      const authorizeNodeSystemRunEvent = vi.fn(() => !denied);
+      const ctx = createNodeEventContext(authorizeNodeSystemRunEvent);
+>>>>>>> THEIRS/pro-main
       const runId = `node-owner-${name}`;
       if (rejected) {
         enqueueSystemEventEntry("Unrelated pending occurrence", {
@@ -145,3 +266,46 @@ it.each([
     });
   },
 );
+
+it("keeps one queue slot per notification key and keeps the latest update", async () => {
+  await withOpenClawTestState(
+    { label: "node-event-notification-replace", layout: "state-only" },
+    async (state) => {
+      await setupGlobalSessions(state.stateDir);
+      const ctx = createNodeEventContext();
+
+      await postNotification(ctx, "battery", "Battery 80%");
+      await postNotification(ctx, "other", "Other app");
+      await postNotification(ctx, "battery", "Battery 79%");
+      await postNotification(ctx, "battery", "Battery 78%");
+
+      expect(peekSystemEvents("agent:research:global")).toEqual([
+        expect.stringContaining("Other app"),
+        expect.stringContaining("Battery 78%"),
+      ]);
+    },
+  );
+});
+
+it("still refuses a new notification key once the queue is full", async () => {
+  await withOpenClawTestState(
+    { label: "node-event-notification-cap", layout: "state-only" },
+    async (state) => {
+      await setupGlobalSessions(state.stateDir);
+      const ctx = createNodeEventContext();
+
+      for (let index = 0; index < 21; index += 1) {
+        await postNotification(ctx, `key-${index}`, `Notification ${index}`);
+      }
+      const queued = peekSystemEvents("agent:research:global");
+      expect(queued).toHaveLength(20);
+      expect(queued.some((text) => text.includes("key=key-20"))).toBe(false);
+
+      // An update to an already queued key still replaces its slot at capacity.
+      await postNotification(ctx, "key-0", "Notification 0 updated");
+      const afterUpdate = peekSystemEvents("agent:research:global");
+      expect(afterUpdate).toHaveLength(20);
+      expect(afterUpdate.at(-1)).toContain("Notification 0 updated");
+    },
+  );
+});

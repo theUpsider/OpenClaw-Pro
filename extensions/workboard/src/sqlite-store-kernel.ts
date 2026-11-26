@@ -55,8 +55,14 @@ import { bindNull, insertCard, prepareWorkboardUpsert } from "./sqlite-store-wri
 import {
   MAX_WORKER_CONTEXT_PARENTS,
   MAX_WORKER_CONTEXT_RECENT_CARDS,
+  WORKBOARD_PARALLELIZABLE_LABEL,
+  addWorkboardOwnerSlot,
   workboardCardConsumesOwnerSlot,
+  workboardCardIsParallelizable,
   workboardCardSlotOwner,
+  workboardOwnerSlotAdmitsCard,
+  workboardOwnerSlotLimit,
+  type WorkboardOwnerSlotUsage,
 } from "./store-constants.js";
 
 type SyncStore<T> = {
@@ -137,7 +143,15 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
       // with the shared policy, after SQLite excludes archived and inactive cards.
       const candidates = query
         .selectFrom("workboard_cards")
-        .select(["status", "agent_id", "claim_json", "execution_id", "execution_status"])
+        .select([
+          "id",
+          "status",
+          "agent_id",
+          "claim_json",
+          "automation_json",
+          "execution_id",
+          "execution_status",
+        ])
         .where("id", "!=", key)
         .where((eb) => eb.or([eb("archived_at", "is", null), eb("archived_at", "=", 0)]))
         .where((eb) =>
@@ -148,13 +162,43 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
           ]),
         );
       let ownerActive = 0;
-      for (const row of iterateSqliteQuerySync(this.db, candidates)) {
+      // Labels live in a child table, so the opt-in marker needs its own lookup.
+      // Scope it to the candidate cards: a full-table scan inside an IMMEDIATE
+      // write transaction would grow with the store, not with the board. Compare
+      // with the shared helper, so the gate matches the dispatcher's label rule
+      // exactly instead of re-implementing its case handling in SQL.
+      const candidateRows = [...iterateSqliteQuerySync(this.db, candidates)];
+      const candidateIds = candidateRows
+        .map((row) => stringValue(row, "id"))
+        .filter((id): id is string => Boolean(id));
+      const parallelizableLabelIds = new Set<string>();
+      if (candidateIds.length > 0) {
+        for (const labelRow of iterateSqliteQuerySync(
+          this.db,
+          query
+            .selectFrom("workboard_card_labels")
+            .select(["card_id", "label"])
+            .where("card_id", "in", sqliteStringSet(candidateIds)),
+        )) {
+          const labelledCardId = stringValue(labelRow, "card_id");
+          const label = stringValue(labelRow, "label");
+          if (labelledCardId && label && workboardCardIsParallelizable({ labels: [label] })) {
+            parallelizableLabelIds.add(labelledCardId);
+          }
+        }
+      }
+      const ownerUsage = new Map<string, WorkboardOwnerSlotUsage>();
+      for (const row of candidateRows) {
+        const rowId = requiredString(row, "id");
+        // SAFETY: insertCard serializes WorkboardMetadata.claim; this keeps readMetadata's optional JSON boundary.
+        const metadata: WorkboardMetadata = {
+          claim: parseJson(row.claim_json) as WorkboardMetadata["claim"],
+        };
         const card = {
           // SAFETY: insertCard persists WorkboardCard.status; this keeps readCard's required-string boundary.
           status: requiredString(row, "status") as WorkboardCard["status"],
           agentId: stringValue(row, "agent_id"),
-          // SAFETY: insertCard serializes WorkboardMetadata.claim; this keeps readMetadata's optional JSON boundary.
-          metadata: { claim: parseJson(row.claim_json) as WorkboardMetadata["claim"] },
+          metadata,
           execution: stringValue(row, "execution_id")
             ? {
                 // SAFETY: insertCard persists WorkboardExecution.status; this keeps readExecution's required-string boundary.
@@ -162,13 +206,45 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
               }
             : undefined,
         };
+<<<<<<< OURS/upstream-11.10
         if (
           workboardCardConsumesOwnerSlot(card, now) &&
           workboardCardSlotOwner(card) === ownerId &&
           ++ownerActive >= limit
         ) {
           return "owner_busy";
+||||||| BASE/v11.4
+        if (workboardCardConsumesOwnerSlot(card, now) && workboardCardSlotOwner(card) === ownerId) {
+          return "owner_busy";
+=======
+        if (!workboardCardConsumesOwnerSlot(card, now)) {
+          continue;
+>>>>>>> THEIRS/pro-main
         }
+        if (workboardCardSlotOwner(card) !== ownerId) {
+          continue;
+        }
+        // Decode automation only for rows that actually compete for this owner:
+        // a malformed row on an unrelated card must not fail the whole claim.
+        // SAFETY: insertCard serializes WorkboardMetadata.automation unchanged.
+        metadata.automation = parseJson(row.automation_json) as WorkboardMetadata["automation"];
+        const cardLimit = workboardOwnerSlotLimit({
+          labels: parallelizableLabelIds.has(rowId) ? [WORKBOARD_PARALLELIZABLE_LABEL] : [],
+          metadata: card.metadata,
+        });
+        addWorkboardOwnerSlot(ownerUsage, ownerId, cardLimit);
+      }
+      // Shared admission policy with dispatcher selection: opt-in cards may fill
+      // their declared slots, unmarked cards keep the single owner slot.
+      const targetLimit = workboardOwnerSlotLimit({
+        // A claim does not change labels, and `expectedUpdatedAt` already rejects a
+        // concurrent edit, so the incoming payload is the authoritative label set.
+        labels: value.card.labels,
+        // SAFETY: insertCard serializes WorkboardMetadata.automation unchanged.
+        metadata: value.card.metadata as WorkboardMetadata | undefined,
+      });
+      if (!workboardOwnerSlotAdmitsCard(ownerUsage, ownerId, targetLimit)) {
+        return "owner_busy";
       }
       insertCard(this.db, value.card);
       return "updated";
@@ -465,6 +541,10 @@ function readBoard(row: Row): PersistedWorkboardBoard {
   const orchestration = parseJson(row.orchestration_json) as
     | PersistedWorkboardBoard["board"]["orchestration"]
     | undefined;
+  // SAFETY: Board registration stores only normalized classification palettes.
+  const classifications = parseJson(row.classifications_json) as
+    | PersistedWorkboardBoard["board"]["classifications"]
+    | undefined;
   return {
     version: 1,
     board: definedFields({
@@ -480,6 +560,7 @@ function readBoard(row: Row): PersistedWorkboardBoard {
       automationJobId: stringValue(row, "automation_job_id"),
       ...(defaultWorkspace ? { defaultWorkspace } : {}),
       ...(orchestration ? { orchestration } : {}),
+      ...(classifications ? { classifications } : {}),
       createdAt: requiredNumber(row, "created_at"),
       updatedAt: requiredNumber(row, "updated_at"),
       archivedAt: numberValue(row, "archived_at"),
@@ -515,6 +596,7 @@ class WorkboardSqliteBoardStore implements SyncStore<WorkboardKeyedStore<Persist
         automation_job_id: () => bindNull(board.automationJobId),
         default_workspace_json: () => jsonValue(board.defaultWorkspace),
         orchestration_json: () => jsonValue(board.orchestration),
+        classifications_json: () => jsonValue(board.classifications),
         created_at: () => board.createdAt,
         updated_at: () => board.updatedAt,
         archived_at: () => bindNull(board.archivedAt),

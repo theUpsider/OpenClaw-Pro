@@ -9,7 +9,7 @@ import {
 import {
   prewarmSanitizedMarkdown,
   toSanitizedMarkdownContent,
-  toSanitizedMarkdownHtml,
+  toSanitizedInlineMarkdownHtml, toSanitizedMarkdownHtml,
 } from "./markdown.ts";
 
 function render(source: string, options?: MarkdownRenderOptions) {
@@ -304,5 +304,39 @@ describe("toSanitizedMarkdownHtml", () => {
     expect(html).not.toContain("\u0000");
     expect(locale).not.toHaveBeenCalled();
     locale.mockRestore();
+  });
+});
+
+describe("toSanitizedInlineMarkdownHtml", () => {
+  it("renders phrasing content without a block wrapper", () => {
+    const html = toSanitizedInlineMarkdownHtml("Ship **now** and `pnpm`");
+    expect(html).toBe("Ship <strong>now</strong> and <code>pnpm</code>");
+    expect(html).not.toContain("<p>");
+  });
+
+  it("shares the block path's sanitizer boundary", () => {
+    const html = toSanitizedInlineMarkdownHtml(
+      "<script>alert(1)</script> [x](javascript:alert(1)) <img src=x onerror=alert(1)>",
+    );
+    const fragment = htmlFragment(html);
+    expect(fragment.querySelector("script")).toBeNull();
+    expect(fragment.querySelector("img")).toBeNull();
+    expect(fragment.querySelector("[onerror]")).toBeNull();
+    expect(fragment.querySelector("a")?.getAttribute("href") ?? null).toBeNull();
+  });
+
+  it("drops interactive tags a control's content model forbids", () => {
+    // Inline labels live inside a button/radio, which may not contain links or
+    // nested controls; only the link text survives.
+    const fragment = htmlFragment(
+      toSanitizedInlineMarkdownHtml("See [Docs](https://example.com) now"),
+    );
+    expect(fragment.querySelector("a")).toBeNull();
+    expect(fragment.textContent).toBe("See Docs now");
+  });
+
+  it("returns empty output for blank input", () => {
+    expect(toSanitizedInlineMarkdownHtml("")).toBe("");
+    expect(toSanitizedInlineMarkdownHtml("   \n  ")).toBe("");
   });
 });

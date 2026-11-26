@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest";
+import { CLI_STREAM_JSON_OUTPUT_LIMITS } from "./cli-output-stream-limits.js";
 import { chargeClaudeStreamJsonLine } from "./cli-output-stream-limits.js";
 import {
   claudeBlockStart,
   claudeBlockStop,
   createClaudeParser,
 } from "./cli-output.test-helpers.js";
+
+const { maxTurnRawChars, maxTurnLines } = CLI_STREAM_JSON_OUTPUT_LIMITS;
+// One payload just past half the raw budget: two of them cross the raw budget
+// while a single one still fits under the pending-line budget.
+const HALF_BUDGET_TEXT = Math.ceil(maxTurnRawChars / 2) + 1;
+// JSON escaping doubles every quote, so a quarter-budget payload is needed to
+// keep one line under the pending-line budget while two cross the raw budget.
+const HALF_BUDGET_JSON = Math.ceil(maxTurnRawChars / 4) + 1;
 
 const text = { type: "text_delta", text: "a" };
 const input = { type: "input_json_delta", partial_json: "{" };
@@ -139,8 +148,8 @@ describe("Claude partial-message output budgets", () => {
   );
 
   it.each([
-    ["encoded text", () => line(frame({ ...text, text: "a".repeat(4_300_000) }))],
-    ["encoded tool input", () => line(frame({ ...input, partial_json: '"'.repeat(2_150_000) }))],
+    ["encoded text", () => line(frame({ ...text, text: "a".repeat(HALF_BUDGET_TEXT) }))],
+    ["encoded tool input", () => line(frame({ ...input, partial_json: '"'.repeat(HALF_BUDGET_JSON) }))],
     ["outer whitespace", () => " ".repeat(4_300_000) + line(frame(text))],
   ] as const)("bounds %s before retaining output", (_name, makeChunk) => {
     const parser = parserFor(),
@@ -148,11 +157,12 @@ describe("Claude partial-message output budgets", () => {
     parser.push(chunk);
     expect(parser.getErrorText()).toBeNull();
     parser.push(chunk);
-    expect(parser.getErrorText()).toContain("exceeded 8388608 characters");
+    expect(parser.getErrorText()).toContain(`exceeded ${maxTurnRawChars} characters`);
     expect(parser.getOutput()?.text).toBe("");
   });
 
   it.each([
+<<<<<<< OURS/upstream-11.10
     ["legacy tool input", input, { api_message_id: undefined }],
     [
       "maximal current thinking",
@@ -165,8 +175,136 @@ describe("Claude partial-message output budgets", () => {
     let frames = 0;
     for (; frames < 240_000 && !parser.getErrorText(); frames += 1) {
       parser.push(chunk);
+||||||| BASE/v11.4
+    { type: "text_delta", text: "a" },
+    { type: "thinking_delta", thinking: "a", estimated_tokens: null },
+  ])("accepts a long $type stream without a terminal frame", (delta) => {
+    const parser = createParser();
+    parser.push(`${JSON.stringify(streamDelta(delta))}\n`.repeat(20_001));
+    parser.finish();
+    expect(parser.getErrorText()).toBeNull();
+    expect(parser.getOutput()).not.toBeNull();
+    if (delta.type === "text_delta") {
+      expect(parser.getOutput()?.text).toBe("a".repeat(20_001));
+=======
+    { type: "text_delta", text: "a" },
+    { type: "thinking_delta", thinking: "a", estimated_tokens: null },
+  ])("accepts a long $type stream without a terminal frame", (delta) => {
+    const parser = createParser();
+    parser.push(`${JSON.stringify(streamDelta(delta))}\n`.repeat(maxTurnLines + 1));
+    parser.finish();
+    expect(parser.getErrorText()).toBeNull();
+    expect(parser.getOutput()).not.toBeNull();
+    if (delta.type === "text_delta") {
+      expect(parser.getOutput()?.text).toBe("a".repeat(maxTurnLines + 1));
+>>>>>>> THEIRS/pro-main
     }
+<<<<<<< OURS/upstream-11.10
     expect(parser.getErrorText()).toContain("exceeded 8388608 characters");
     expect(frames).toBe(233_017);
+||||||| BASE/v11.4
+  });
+
+  it.each([
+    { name: "empty deltas", record: streamDelta({ type: "text_delta", text: "" }) },
+    {
+      name: "unknown delta fields",
+      record: streamDelta({ type: "text_delta", text: "a", extra: true }),
+    },
+    {
+      name: "oversized metadata",
+      record: { ...streamDelta({ type: "text_delta", text: "a" }), uuid: "u".repeat(129) },
+    },
+  ])("keeps the ordinary frame limit for $name", ({ record }) => {
+    const parser = createParser();
+    parser.push(`${JSON.stringify(record)}\n`.repeat(20_001));
+    expect(parser.getErrorText()).toContain("exceeded 20000 lines");
+  });
+
+  it("keeps the ordinary frame limit when a custom parser claims deltas", () => {
+    const parser = createCliJsonlStreamingParser({
+      backend: { command: "claude", output: "jsonl", jsonlDialect: "claude-stream-json" },
+      providerId: "claude-cli",
+      parseJsonlEvent: () => ({ kind: "text", text: "a" }),
+      onAssistantDelta: () => {},
+    });
+    parser.push(
+      `${JSON.stringify(streamDelta({ type: "text_delta", text: "a" }))}\n`.repeat(20_001),
+    );
+    expect(parser.getErrorText()).toContain("exceeded 20000 lines");
+  });
+
+  it.each(["outer"])("still counts %s whitespace around a recognized delta", (location) => {
+    const parser = createParser();
+    const compact = JSON.stringify(streamDelta({ type: "text_delta", text: "a" }));
+    const padding = " ".repeat(4_300_000);
+    const line =
+      location === "outer" ? padding + compact : compact.replace('"event":', `"event":${padding}`);
+    parser.push(`${line}\n${line}\n`);
+    expect(parser.getErrorText()).toContain("exceeded 8388608 characters");
+  });
+
+  it("bounds tiny nonempty delta floods even without ordinary frames", () => {
+    const parser = createParser();
+    const line = `${JSON.stringify(streamDelta({ type: "input_json_delta", partial_json: "a" }))}\n`;
+    for (let index = 0; index < 262_145 && !parser.getErrorText(); index += 1) {
+      parser.push(line);
+    }
+    expect(parser.getErrorText()).toContain("CLI JSONL output exceeded");
+=======
+  });
+
+  it.each([
+    { name: "empty deltas", record: streamDelta({ type: "text_delta", text: "" }) },
+    {
+      name: "unknown delta fields",
+      record: streamDelta({ type: "text_delta", text: "a", extra: true }),
+    },
+    {
+      name: "oversized metadata",
+      record: { ...streamDelta({ type: "text_delta", text: "a" }), uuid: "u".repeat(129) },
+    },
+  ])("keeps the ordinary frame limit for $name", ({ record }) => {
+    const parser = createParser();
+    parser.push(`${JSON.stringify(record)}\n`.repeat(maxTurnLines + 1));
+    expect(parser.getErrorText()).toContain(`exceeded ${maxTurnLines} lines`);
+  });
+
+  it("keeps the ordinary frame limit when a custom parser claims deltas", () => {
+    const parser = createCliJsonlStreamingParser({
+      backend: { command: "claude", output: "jsonl", jsonlDialect: "claude-stream-json" },
+      providerId: "claude-cli",
+      parseJsonlEvent: () => ({ kind: "text", text: "a" }),
+      onAssistantDelta: () => {},
+    });
+    parser.push(
+      `${JSON.stringify(streamDelta({ type: "text_delta", text: "a" }))}\n`.repeat(
+        maxTurnLines + 1,
+      ),
+    );
+    expect(parser.getErrorText()).toContain(`exceeded ${maxTurnLines} lines`);
+  });
+
+  it.each(["outer"])("still counts %s whitespace around a recognized delta", (location) => {
+    const parser = createParser();
+    const compact = JSON.stringify(streamDelta({ type: "text_delta", text: "a" }));
+    const padding = " ".repeat(HALF_BUDGET_TEXT);
+    const line =
+      location === "outer" ? padding + compact : compact.replace('"event":', `"event":${padding}`);
+    parser.push(`${line}\n${line}\n`);
+    expect(parser.getErrorText()).toContain(`exceeded ${maxTurnRawChars} characters`);
+  });
+
+  it("bounds tiny nonempty delta floods even without ordinary frames", () => {
+    const parser = createParser();
+    const line = `${JSON.stringify(streamDelta({ type: "input_json_delta", partial_json: "a" }))}\n`;
+    // Each frame is charged at least the 32-character fixed overhead, so
+    // ceil(raw / 32) + 2 frames always cross the raw budget.
+    const floodFrames = Math.ceil(maxTurnRawChars / 32) + 2;
+    for (let index = 0; index < floodFrames && !parser.getErrorText(); index += 1) {
+      parser.push(line);
+    }
+    expect(parser.getErrorText()).toContain("CLI JSONL output exceeded");
+>>>>>>> THEIRS/pro-main
   });
 });

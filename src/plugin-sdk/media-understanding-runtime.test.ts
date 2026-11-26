@@ -25,7 +25,7 @@ const createPreflight = (
 
 it("labels and escapes machine-generated transcripts", () => {
   expect(formatAudioTranscriptForAgent('say "hi"\nthen go')).toBe(
-    '[Audio transcript (machine-generated, untrusted)]: "say \\"hi\\"\\nthen go"',
+    '[STT generated (may contain transcription mistakes)]: "say \\"hi\\"\\nthen go"',
   );
 });
 

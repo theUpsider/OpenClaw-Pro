@@ -201,6 +201,8 @@ function createFixture() {
     activeSession: f.activeSession,
     clientToolDefs: [{ name: "read" }, { name: "write" }],
     setActiveSessionSystemPrompt: vi.fn(),
+    // The trajectory call site reads the post-pin session surface from here.
+    getActiveToolNames: () => ["read", "write"],
   };
   const promptStateLease = { state: f.promptState, [Symbol.dispose]: vi.fn() };
   const transport = {
@@ -870,6 +872,10 @@ describe("prepareEmbeddedAttemptSessionRuntime", () => {
         getUserTranscriptContexts: fixture.getUserTranscriptContexts,
         preparedUserTurnMessage: { role: "user", content: "hello" },
       }),
+    );
+    // The wire basis comes from the session's post-pin accessor, not the raw catalog.
+    expect(mocks.prepareTrajectory).toHaveBeenCalledWith(
+      expect.objectContaining({ wireToolNames: ["read", "write"] }),
     );
     expect(fixture.externalAbortController.setActiveSessionAbort).toHaveBeenCalledWith(
       fixture.abortActiveSession,

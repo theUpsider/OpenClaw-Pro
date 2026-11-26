@@ -11,7 +11,7 @@ import {
   removeExpiredRuns,
   resumingRunIds,
 } from "./code-mode-state.js";
-import { applyCodeModeCatalog, createCodeModeTools } from "./code-mode.js";
+import { applyCodeModeCatalog, applyCodeModeCatalog, createCodeModeTools } from "./code-mode.js";
 import { fakeTool } from "./test-helpers/fake-tool.js";
 import {
   createToolSearchCatalogRef,
@@ -134,6 +134,10 @@ export function resultText(
     .join("\n");
 }
 
+export function expectCompleted(result: unknown, value: unknown): void {
+  expect(result).toMatchObject({ status: "completed", value });
+}
+
 /** Compare public summaries to independently constructed, normalized guest data. */
 export function expectOriginalCodeModeMarker(marker: unknown, original: unknown): void {
   expect(marker).toMatchObject({
@@ -216,6 +220,32 @@ export function createCodeModeHarness(
   };
   const tools = createCodeModeTools(ctx);
   return { catalogRef, config, ctx, tools };
+}
+
+export function createCatalogCodeModeHarness(
+  targets: AnyAgentTool[] = [],
+  options?: Parameters<typeof createCodeModeHarness>[0],
+) {
+  const h = createCodeModeHarness(options);
+  applyCodeModeCatalog({ ...h.ctx, tools: [...h.tools, ...targets] });
+  return {
+    ...h,
+    ...codeModeRunner(h.tools),
+    complete: (code: string) =>
+      runUntilCompleted({ execTool: h.tools[0]!, waitTool: h.tools[1]!, code }),
+  };
+}
+
+export function codeModeRunner(tools: AnyAgentTool[]) {
+  const execute = (code: string, id = "cell", args: Record<string, unknown> = {}) =>
+    tools[0]!.execute(id, { code, ...args });
+  return {
+    execute,
+    run: async (code: string, id = "cell", args: Record<string, unknown> = {}) =>
+      resultDetails(await execute(code, id, args)),
+    resume: async (details: Record<string, unknown>, id = "resume") =>
+      resultDetails(await tools[1]!.execute(id, { runId: details.runId })),
+  };
 }
 
 export function createCatalogCodeModeHarness(

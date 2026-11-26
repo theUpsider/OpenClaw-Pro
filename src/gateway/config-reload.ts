@@ -639,16 +639,18 @@ export function startGatewayConfigReloader(
     pluginDrainRetry?.abort();
     pluginDrainRetry = undefined;
     deferredPluginApplication = undefined;
+    const pluginInputs = { persistedHash: persistedHash ?? null, nextPluginInstallRecords };
     // No-op plans also publish the runtime snapshot before its applied receipt.
     const applyRuntime = isNoopGatewayReloadPlan(plan) ? opts.onNoopConfigCommit : opts.onHotReload;
     await opts.onConfigChange?.(plan, nextConfig);
     let applicationStatus: void | GatewayHotReloadApplication;
     try {
+      pluginDrain.assertCanApply(plan, pluginInputs);
       applicationStatus = await applyRuntime(plan, nextConfig, ownership, nextSourceConfig);
     } catch (error) {
       ownership.rollbackRuntimeEnv();
       if (!pluginLifecycle && isDeferredPluginApplication(error)) {
-        deferredPluginApplication = { snapshot: sourceSnapshot, error };
+        deferredPluginApplication = { snapshot: sourceSnapshot, error, pluginInputs };
       }
       throw error;
     }
@@ -660,6 +662,26 @@ export function startGatewayConfigReloader(
       typeof applicationStatus === "object" && applicationStatus.status === "applied"
         ? applicationStatus.runtime
         : undefined;
+<<<<<<< OURS/upstream-11.10
+||||||| BASE/v11.4
+    pluginDrain.applied(plan, runtime);
+    if (runtime) {
+      completedPluginApplication = {
+        runtime,
+        snapshot: sourceSnapshot,
+        installRecords: nextPluginInstallRecords,
+      };
+    }
+=======
+    pluginDrain.applied(plan, runtime, pluginInputs);
+    if (runtime) {
+      completedPluginApplication = {
+        runtime,
+        snapshot: sourceSnapshot,
+        installRecords: nextPluginInstallRecords,
+      };
+    }
+>>>>>>> THEIRS/pro-main
     return completeApplication(runtime);
   };
 

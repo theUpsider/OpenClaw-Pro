@@ -215,6 +215,86 @@ export function createSessionsBoardController(host: BoardDockHost, notify: () =>
     }
   };
 
+  const agentOfSession = (sessionKey: string) =>
+    host.sessions.rows.find((session) => session.key === sessionKey)?.agentId ??
+    snapshot?.sessions.find((session) => session.key === sessionKey)?.agentId ??
+    host.agents.rows.find((agent) => sessionKey.startsWith(`agent:${agent.id}:`))?.id;
+
+  // Resolve, create, or repair the saved Board agent conversation without opening it.
+  const ensureAgent = async (
+    id: string,
+    receipt: number,
+  ): Promise<{ sessionKey: string; agentId: string; label: string } | undefined> => {
+    if (!host.dock || !snapshot?.board.sessions) {
+      return undefined;
+    }
+    const board = snapshot.board;
+    const spec = board.sessions;
+    const label = t("workboard.sessionsBoard.agentLabel", { name: board.name || id });
+    let sessionKey = spec.agentSessionKey;
+    let agentId = sessionKey
+      ? agentOfSession(sessionKey)
+      : (spec.scope?.agentIds?.[0] ??
+        host.agents.scopeId ??
+        host.agents.selectedId ??
+        host.agents.defaultId ??
+        host.connection.assistantAgentId ??
+        undefined);
+    if (sessionKey) {
+      const { session } = await host.request<{ session: ControlUiSession | null }>(
+        "sessions.describe",
+        { key: sessionKey },
+      );
+      if (!current(id, receipt) || !writable()) {
+        return undefined;
+      }
+      agentId = session?.agentId ?? agentId;
+      if (!session?.isDock) {
+        sessionKey = undefined;
+      }
+    }
+    if (!sessionKey) {
+      if (createdConversation?.boardId === id) {
+        ({ sessionKey, agentId } = createdConversation);
+      } else {
+        if (!agentId) {
+          throw new Error(t("workboard.sessionsBoard.agentUnavailable"));
+        }
+        sessionKey =
+          (await host.sessions.create({
+            agentId,
+            displayName: label,
+            surface: "plugin-dock",
+          })) ?? undefined;
+        if (!sessionKey) {
+          throw new Error(t("workboard.sessionsBoard.agentCreateFailed"));
+        }
+        createdConversation = { boardId: id, sessionKey, agentId };
+      }
+      if (!current(id, receipt) || !writable()) {
+        return undefined;
+      }
+      await host.request("workboard.sessionsBoard.update", {
+        boardId: id,
+        patch: { agentSessionKey: sessionKey },
+      });
+      if (current(id, receipt) && snapshot) {
+        snapshot = {
+          ...snapshot,
+          board: { ...board, sessions: { ...spec, agentSessionKey: sessionKey } },
+        };
+        createdConversation = undefined;
+      }
+    }
+    if (!current(id, receipt) || !writable()) {
+      return undefined;
+    }
+    if (!agentId) {
+      throw new Error(t("workboard.sessionsBoard.agentUnavailable"));
+    }
+    return { sessionKey, agentId, label };
+  };
+
   return {
     hasCurrent(payload: unknown) {
       const change = normalizeWorkboardChange(payload);
@@ -315,82 +395,59 @@ export function createSessionsBoardController(host: BoardDockHost, notify: () =>
     },
     openAgent: () =>
       write(async (id, receipt) => {
-        if (!host.dock || !snapshot?.board.sessions) {
-          return;
-        }
-        const board = snapshot.board;
-        const spec = board.sessions;
-        const label = t("workboard.sessionsBoard.agentLabel", { name: board.name || id });
-        let sessionKey = spec.agentSessionKey;
-        let agentId = sessionKey
-          ? (host.sessions.rows.find((session) => session.key === sessionKey)?.agentId ??
-            snapshot.sessions.find((session) => session.key === sessionKey)?.agentId ??
-            host.agents.rows.find((agent) => sessionKey?.startsWith(`agent:${agent.id}:`))?.id)
-          : (spec.scope?.agentIds?.[0] ??
-            host.agents.scopeId ??
-            host.agents.selectedId ??
-            host.agents.defaultId ??
-            host.connection.assistantAgentId ??
-            undefined);
-        if (sessionKey) {
-          const { session } = await host.request<{ session: ControlUiSession | null }>(
-            "sessions.describe",
-            { key: sessionKey },
-          );
-          if (!current(id, receipt) || !writable()) {
-            return;
-          }
-          agentId = session?.agentId ?? agentId;
-          if (!session?.isDock) {
-            sessionKey = undefined;
-          }
-        }
-        if (!sessionKey) {
-          if (createdConversation?.boardId === id) {
-            ({ sessionKey, agentId } = createdConversation);
-          } else {
-            if (!agentId) {
-              throw new Error(t("workboard.sessionsBoard.agentUnavailable"));
-            }
-            sessionKey =
-              (await host.sessions.create({
-                agentId,
-                displayName: label,
-                surface: "plugin-dock",
-              })) ?? undefined;
-            if (!sessionKey) {
-              throw new Error(t("workboard.sessionsBoard.agentCreateFailed"));
-            }
-            createdConversation = { boardId: id, sessionKey, agentId };
-          }
-          if (!current(id, receipt) || !writable()) {
-            return;
-          }
-          await host.request("workboard.sessionsBoard.update", {
-            boardId: id,
-            patch: { agentSessionKey: sessionKey },
+        const conversation = await ensureAgent(id, receipt);
+        if (conversation && host.dock) {
+          host.dock.openSession({
+            ...conversation,
+            context: { page: "workboard", detail: { boardId: id } },
           });
-          if (current(id, receipt) && snapshot) {
-            snapshot = {
-              ...snapshot,
-              board: { ...board, sessions: { ...spec, agentSessionKey: sessionKey } },
-            };
-            createdConversation = undefined;
-          }
         }
-        if (!current(id, receipt) || !writable()) {
-          return;
-        }
-        if (!agentId) {
-          throw new Error(t("workboard.sessionsBoard.agentUnavailable"));
-        }
-        host.dock.openSession({
-          sessionKey,
-          agentId,
-          label,
-          context: { page: "workboard", detail: { boardId: id } },
-        });
       }),
+    /**
+     * Resolve the Board agent conversation for a voice turn that started on
+     * `startedOn`. Every refusal or failure throws to the microphone: the speaker
+     * watches it, and a turn must never reach another board's agent.
+     */
+    async voiceConversation(startedOn: string) {
+      if (!active || boardId !== startedOn) {
+        throw new Error(t("workboard.voice.boardChanged"));
+      }
+      if (busy) {
+        throw new Error(t("workboard.voice.busy"));
+      }
+      let conversation: Awaited<ReturnType<typeof ensureAgent>>;
+      let failure: unknown;
+      await write(async (id, receipt) => {
+        try {
+          conversation = await ensureAgent(id, receipt);
+        } catch (cause) {
+          failure = cause;
+        }
+      });
+      if (failure) {
+        throw failure;
+      }
+      if (!conversation) {
+        throw new Error(
+          t(
+            active && boardId === startedOn
+              ? "workboard.voice.boardNotReady"
+              : "workboard.voice.boardChanged",
+          ),
+        );
+      }
+      return conversation;
+    },
+    /**
+     * The saved Board agent conversation of `startedOn`, read without creating
+     * or repairing it. A saved reference that is no longer a dock conversation
+     * is replaced on send; settings changed before then stay with the old one.
+     */
+    voiceConversationTarget(startedOn: string) {
+      const sessionKey =
+        active && boardId === startedOn ? snapshot?.board.sessions?.agentSessionKey : undefined;
+      return sessionKey ? { sessionKey, agentId: agentOfSession(sessionKey) } : undefined;
+    },
     dispose() {
       active = false;
       invalidate();

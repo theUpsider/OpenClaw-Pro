@@ -80,6 +80,10 @@ function scenario() {
     hasActiveRun: true,
     activeRunIds: ["notice-run"],
     startedAt: now - 18_000,
+    model: "gpt-5.6-sol",
+    modelProvider: "openai",
+    thinkingLevel: "high",
+    subagentRole: "leaf",
   } satisfies GatewaySessionRow;
   const other = {
     ...child,
@@ -88,6 +92,11 @@ function scenario() {
     label: "Review keyboard navigation",
     activeRunIds: ["keyboard-run"],
     startedAt: now - 35_000,
+    // A spawn without explicit model or thinking must read as unknown, not as a default.
+    model: undefined,
+    modelProvider: undefined,
+    thinkingLevel: undefined,
+    subagentRole: undefined,
   } satisfies GatewaySessionRow;
   const finished = {
     ...child,
@@ -599,6 +608,7 @@ suite.define(() => {
         ).toBe('""');
         await panel
           .locator(`[data-group="waiting"][data-session-key="${queued.key}"]`)
+          .locator(".chat-subagents__metadata")
           .getByText("Queued", { exact: true })
           .waitFor();
         await panel
@@ -651,9 +661,57 @@ suite.define(() => {
           .poll(() => otherRow.locator(".subagents-desktop__open").getAttribute("title"))
           .toContain("Retry failed benchmark targets");
         await expect
+<<<<<<< OURS/upstream-11.10
           .poll(() => otherRow.locator(".subagents-desktop__open").getAttribute("title"))
           .toContain("1+ calls");
         expect(await row.locator(".subagents-desktop__avatar").count()).toBe(1);
+||||||| BASE/v11.4
+          .poll(() => otherRow.locator(".chat-subagents__calls").textContent())
+          .toBe("1+ calls");
+        expect(await row.locator("svg").count()).toBe(1);
+        if (capture) {
+          const frame = await takeControlUiScreenshotFrame(page, panel, [row, otherRow], {
+            animations: "disabled",
+          });
+          await writeFile(path.join(suite.artifactDir, "subagent-list.png"), frame.png);
+        }
+=======
+          .poll(() => otherRow.locator(".chat-subagents__calls").textContent())
+          .toBe("1+ calls");
+        expect(await row.locator(".chat-subagents__item-heading svg").count()).toBe(1);
+
+        const facts = row.locator(".chat-subagents__facts");
+        await facts.locator(`openclaw-agent-row-chip [data-agent-id="main"]`).waitFor();
+        expect(await facts.locator('[data-fact="model"]').textContent()).toBe("gpt-5.6-sol");
+        expect(await facts.locator('[data-fact="model"]').getAttribute("title")).toBe(
+          "Model: openai · gpt-5.6-sol",
+        );
+        expect(await facts.locator('[data-fact="thinking"]').textContent()).toBe("Thinking: high");
+        expect(await facts.locator('[data-fact="role"]').textContent()).toBe("Leaf");
+        const otherFacts = otherRow.locator(".chat-subagents__facts");
+        expect(await otherFacts.locator('[data-fact="model"]').textContent()).toBe(
+          "Model: unknown",
+        );
+        expect(await otherFacts.locator('[data-fact="thinking"]').textContent()).toBe(
+          "Thinking: unknown",
+        );
+        expect(await otherFacts.locator('[data-fact="status"]').textContent()).toBe("Running");
+        // The facts row sits between the title and the progress metadata.
+        const order = await row.evaluate((item) =>
+          [...item.children].map((element) => element.className),
+        );
+        expect(order).toEqual([
+          "chat-subagents__item-heading",
+          "chat-subagents__facts",
+          "chat-subagents__metadata",
+        ]);
+        if (capture) {
+          const frame = await takeControlUiScreenshotFrame(page, panel, [row, otherRow, facts], {
+            animations: "disabled",
+          });
+          await writeFile(path.join(suite.artifactDir, "subagent-list.png"), frame.png);
+        }
+>>>>>>> THEIRS/pro-main
 
         await panel
           .locator(".subagents-desktop__open")
@@ -669,6 +727,14 @@ suite.define(() => {
           .click();
         const detail = panel.locator(".chat-subagent-detail");
         await detail.getByText("Inspecting the notice component.", { exact: true }).waitFor();
+        const detailFacts = detail.locator(".chat-subagent-detail__header .chat-subagents__facts");
+        await detailFacts.locator(`openclaw-agent-row-chip [data-agent-id="main"]`).waitFor();
+        expect(await detailFacts.locator('[data-fact="model"]').textContent()).toBe(
+          "openai · gpt-5.6-sol",
+        );
+        expect(await detailFacts.locator('[data-fact="thinking"]').textContent()).toBe(
+          "Thinking: high",
+        );
         await expectAbsent(detail, [
           "textarea",
           ".agent-chat__disabled-banner",

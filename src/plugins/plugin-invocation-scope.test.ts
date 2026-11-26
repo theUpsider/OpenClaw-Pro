@@ -1,6 +1,8 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { expect, it, vi } from "vitest";
 import { createDeferredCore } from "../shared/deferred.js";
 import { PluginInstanceUnavailableError } from "./plugin-instance-error.js";
+import { pluginInvocationContext, wrapCurrentPluginInstance } from "./plugin-instance-scope.js";
 import { PluginInstance } from "./plugin-instance.js";
 import { createOwnedTestInstance } from "./plugin-instance.test-support.js";
 import { PluginInvocationScope, runPluginCleanupScope } from "./plugin-invocation-scope.js";
@@ -213,3 +215,26 @@ it.each(["idle", "active"])(
     }
   },
 );
+
+it("keeps detached plugin calls callable when their captured frame outlives the turn scope", async () => {
+  const instance = new PluginInstance("detached-closed-scope");
+  const turn = new PluginInvocationScope(createEmptyPluginRegistry(), [instance]);
+  // Production shape: a callable registered during the turn plus a captured frame
+  // (AsyncResource / timer continuation) that resumes after the turn's scope closes.
+  const registered = turn.run(() => instance.run(() => wrapCurrentPluginInstance(() => "ran")));
+  const trailing = turn.run(() => AsyncLocalStorage.snapshot());
+  turn.release();
+  const plain = () => instance.run(() => "plain-ran");
+  try {
+    // The closed scope still fences leaked callbacks; boundaries must drop it first.
+    expect(() => trailing(plain)).toThrow("Plugin invocation scope is closed");
+    expect(() => trailing(registered)).toThrow("Plugin invocation scope is closed");
+    // A boundary owner running its fresh plugin calls drops the stale frame; both
+    // the plain call and the registered callable then run without reviving custody.
+    expect(trailing(() => pluginInvocationContext.exit(plain))).toBe("plain-ran");
+    expect(trailing(() => pluginInvocationContext.exit(registered))).toBe("ran");
+  } finally {
+    turn.release();
+    await instance.dispose();
+  }
+});

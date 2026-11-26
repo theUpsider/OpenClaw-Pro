@@ -42,6 +42,7 @@ function normalizeDispatchSummary(value: unknown): WorkboardDispatchSummary {
         : null,
     started: countArray("started"),
     failures: countArray("startFailures"),
+    queued: countArray("skipped"),
     promoted: countArray("promoted"),
     blocked: countArray("blocked"),
     reclaimed: countArray("reclaimed"),
@@ -121,9 +122,9 @@ export async function addWorkboardCardComment(
   const submittedDraft = params.body ?? draftState.draftCommentBody;
   const body = submittedDraft.trim();
   if (!cardId || !body || draftState.draftSaving) {
-    return;
+    return false;
   }
-  await runWorkboardCardMutation(
+  return runWorkboardCardMutation(
     { ...params, cardId, reconcileConflict: false },
     async (state, client) => {
       const payload = await client.request("workboard.cards.comment", {
@@ -148,6 +149,7 @@ export async function addWorkboardCardComment(
       if (draftCardId === cardId && state[draftField] === submittedDraft) {
         state[draftField] = "";
       }
+      return true;
     },
   );
 }
@@ -166,16 +168,22 @@ function reconcileCardConflict(state: ReturnType<typeof getWorkboardState>, erro
   return null;
 }
 
+/** Resolves true only when every planned move was written. */
 export async function moveWorkboardCard(
   params: WorkboardClientContext & {
     cardId: string;
     status: WorkboardStatus;
     expectedUpdatedAt?: number;
   } & (
-      | { position: number; beforeCardId?: never }
-      | { beforeCardId: string | null; boardFilter: string; position?: never }
+      | { position: number; labelsRemove?: readonly string[]; beforeCardId?: never }
+      | {
+          beforeCardId: string | null;
+          boardFilter: string;
+          position?: never;
+          labelsRemove?: never;
+        }
     ),
-) {
+): Promise<boolean> {
   const current = getWorkboardState(params.host);
   if (current.nextCursor && params.beforeCardId !== undefined) {
     return;
@@ -184,6 +192,7 @@ export async function moveWorkboardCard(
   const card = cards.find((candidate) => candidate.id === params.cardId);
   const moves =
     params.beforeCardId === undefined
+<<<<<<< OURS/upstream-11.10
       ? [
           {
             id: params.cardId,
@@ -191,14 +200,26 @@ export async function moveWorkboardCard(
             ...(current.nextCursor ? {} : { position: params.position }),
           },
         ]
+||||||| BASE/v11.4
+      ? [{ id: params.cardId, status: params.status, position: params.position }]
+=======
+      ? [
+          {
+            id: params.cardId,
+            status: params.status,
+            position: params.position,
+            ...(params.labelsRemove ? { labelsRemove: params.labelsRemove } : {}),
+          },
+        ]
+>>>>>>> THEIRS/pro-main
       : card
         ? planWorkboardCardDrop(cards, card, params.status, params.beforeCardId, params.boardFilter)
         : [];
   if (!moves.length) {
-    return;
+    return false;
   }
   let reloadAfterFailure = false;
-  await runWorkboardCardMutation(
+  const moved = await runWorkboardCardMutation(
     { ...params, cardIds: moves.map((move) => move.id), reconcileConflict: false },
     async (state, client) => {
       // A recovered older load must not clear an error owned by this move.
@@ -220,6 +241,7 @@ export async function moveWorkboardCard(
                 });
           replaceCard(state, normalizeCardPayload(payload));
         }
+        return true;
       } catch (error) {
         state.error = formatError(error);
         if (!reconcileCardConflict(state, error)) {
@@ -229,6 +251,7 @@ export async function moveWorkboardCard(
           state.loadAttempted = false;
           reloadAfterFailure = true;
         }
+        return false;
       } finally {
         if (state.draggedCardId === params.cardId) {
           state.draggedCardId = null;
@@ -245,6 +268,7 @@ export async function moveWorkboardCard(
       preserveError: true,
     });
   }
+  return moved === true;
 }
 
 type WorkboardCardMutationParams = WorkboardClientContext & {
@@ -255,6 +279,8 @@ export async function runWorkboardCardMutation<T>(
   params: WorkboardCardMutationParams & {
     cardIds?: readonly string[];
     reconcileConflict?: boolean;
+    /** Shows the failure at the editing field instead of the page error. */
+    onError?: (message: string) => void;
   },
   mutate: (state: ReturnType<typeof getWorkboardState>, client: GatewayBrowserClient) => Promise<T>,
 ): Promise<T | false> {
@@ -280,7 +306,11 @@ export async function runWorkboardCardMutation<T>(
     if (params.reconcileConflict !== false) {
       reconcileCardConflict(state, error);
     }
-    state.error = formatError(error);
+    if (params.onError) {
+      params.onError(formatError(error));
+    } else {
+      state.error = formatError(error);
+    }
     return false;
   } finally {
     for (const id of cardIds) {
@@ -293,7 +323,11 @@ export async function runWorkboardCardMutation<T>(
 export async function updateWorkboardCardProperties(
   params: WorkboardClientContext & {
     card: WorkboardCard;
-    patch: Partial<Pick<WorkboardCard, "priority" | "labels" | "agentId" | "title" | "notes">>;
+    patch: Partial<Pick<WorkboardCard, "priority" | "labels" | "agentId" | "title" | "notes">> & {
+      /** Classification a new label overwrites on a full board palette. */
+      replaces?: string;
+    };
+    onError?: (message: string) => void;
   },
 ) {
   return runWorkboardCardMutation({ ...params, cardId: params.card.id }, async (state, client) => {
@@ -305,6 +339,28 @@ export async function updateWorkboardCardProperties(
     replaceCard(state, normalizeCardPayload(payload));
     return true;
   });
+}
+
+/** Best effort: a refused write only leaves the marker for the next open. */
+export async function markWorkboardCardAcceptanceSeen(
+  params: WorkboardClientContext & { card: WorkboardCard },
+) {
+  return runWorkboardCardMutation(
+    { ...params, cardId: params.card.id, reconcileConflict: false },
+    async (state, client) => {
+      try {
+        const payload = await client.request("workboard.cards.update", {
+          id: params.card.id,
+          expectedUpdatedAt: params.card.updatedAt,
+          patch: { acceptanceSeenAt: Date.now() },
+        });
+        replaceCard(state, normalizeCardPayload(payload));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  );
 }
 
 export async function deleteWorkboardCard(

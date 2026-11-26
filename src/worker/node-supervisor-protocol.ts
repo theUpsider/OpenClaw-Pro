@@ -3,7 +3,7 @@ import { safeParseJsonRecord } from "@openclaw/normalization-core/json-coercion"
 import { sha256Hex } from "@openclaw/normalization-core/node-crypto";
 import { z } from "zod";
 import { decodeNodeInvokeParams as decodeRequest } from "../node-host/invoke-payload.js";
-import { parseWorkerLaunchPlan } from "./launch-descriptor.js";
+import { parseWorkerLaunchPlan, isWorkerLaunchPlanWithinBudget } from "./launch-descriptor.js";
 import {
   WorkerGatewayNamespace,
   workerProtocolIdentifier as identifier,
@@ -62,7 +62,11 @@ const LaunchInput = workerProtocolObject({
   }),
   descriptor: z.transform((value, context) => {
     try {
-      return parseWorkerLaunchPlan(value);
+      const plan = parseWorkerLaunchPlan(value);
+      if (!isWorkerLaunchPlanWithinBudget(plan)) {
+        throw new Error("worker launch plan exceeds the protocol payload limit");
+      }
+      return plan;
     } catch {
       context.addIssue({
         code: "custom",

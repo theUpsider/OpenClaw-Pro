@@ -19,6 +19,7 @@ import {
   getAdmittedSqliteSchemaFacts,
   type SqliteDatabaseAdmissionKey,
 } from "openclaw/plugin-sdk/sqlite-worker-runtime";
+import { WORKBOARD_POSTGRES_MIGRATIONS } from "./workboard-postgres-migrations.js";
 import { workboardEngineSchema } from "./store-engine-schema.js";
 import { SCHEMA_VERSION, WORKBOARD_SCHEMA_SQL } from "./workboard-schema.js";
 export type WorkboardSqlConnection = EngineConnection;
@@ -48,6 +49,10 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
       db.exec(`ALTER TABLE workboard_boards ADD COLUMN ${column} TEXT`);
     }
   }
+  ensureColumn(db, "workboard_boards", "classifications_json", "classifications_json TEXT");
+  ensureColumn(db, "workboard_card_events", "agent_id", "agent_id TEXT");
+  ensureColumn(db, "workboard_cards", "interaction_json", "interaction_json TEXT");
+  ensureColumn(db, "workboard_cards", "review_json", "review_json TEXT");
   const migrationId = `schema-${SCHEMA_VERSION}`;
   const current = db
     .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = ?")
@@ -122,7 +127,24 @@ export function createWorkboardDatabase(
     selected = withEngineStoreAdmission(() =>
       openEngineStore({
         anchor: db,
+<<<<<<< OURS/upstream-11.10
         schema: workboardEngineSchema,
+||||||| BASE/v11.4
+        schema: {
+          id: "workboard",
+          version: SCHEMA_VERSION,
+          sqlite: WORKBOARD_SCHEMA_SQL,
+          postgres: WORKBOARD_POSTGRES_SCHEMA_SQL,
+        },
+=======
+        schema: {
+          id: "workboard",
+          version: SCHEMA_VERSION,
+          sqlite: WORKBOARD_SCHEMA_SQL,
+          postgres: WORKBOARD_POSTGRES_SCHEMA_SQL,
+          postgresMigrations: WORKBOARD_POSTGRES_MIGRATIONS,
+        },
+>>>>>>> THEIRS/pro-main
         input: postgresInput,
         inspectSqlite: () => {
           admitSqliteSchema(db);

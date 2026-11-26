@@ -285,6 +285,29 @@ describe("provider profiles", () => {
     ]);
   });
 
+  it("exposes xhigh and max from numeric effort keys without a declared effort list", () => {
+    const params = thinkingModel({
+      reasoning: true,
+      compat: { numericReasoningEfforts: { low: 40, medium: 50, high: 70, xhigh: 80, max: 100 } },
+    });
+    expect(listThinkingLevels(params.provider, params.model, params.catalog)).toEqual([
+      ...baseLevels,
+      "xhigh",
+      "max",
+    ]);
+  });
+
+  it("keeps a numeric-mapped level unexposed when its thinking map opts out", () => {
+    const params = thinkingModel({
+      reasoning: true,
+      thinkingLevelMap: { max: null },
+      compat: { numericReasoningEfforts: { low: 40, xhigh: 80, max: 100 } },
+    });
+    const levels = listThinkingLevels(params.provider, params.model, params.catalog);
+    expect(levels).toContain("xhigh");
+    expect(levels).not.toContain("max");
+  });
+
   it("uses canonical Claude params without a provider profile", () => {
     const params = thinkingModel({
       api: "anthropic-messages",

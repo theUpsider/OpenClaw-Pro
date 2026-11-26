@@ -179,10 +179,56 @@ function resolveComfyApiKey(config: ComfyProviderConfig, cfg?: OpenClawConfig) {
   return { status: "missing" as const };
 }
 
+// A capability can register a second workflow for reference-image runs. When any
+// `edit*` key is set and the request carries a reference image, those values
+// override the matching base keys for that run only; the base workflow stays the
+// text-only default.
+const COMFY_EDIT_WORKFLOW_KEY_ALIASES: ReadonlyArray<readonly [string, string]> = [
+  ["editWorkflow", "workflow"],
+  ["editWorkflowPath", "workflowPath"],
+  ["editPromptNodeId", "promptNodeId"],
+  ["editPromptInputName", "promptInputName"],
+  ["editSeedNodeId", "seedNodeId"],
+  ["editSeedInputName", "seedInputName"],
+  ["editInputImageNodeId", "inputImageNodeId"],
+  ["editInputImageInputName", "inputImageInputName"],
+  ["editOutputNodeId", "outputNodeId"],
+];
+
+function hasComfyEditWorkflowOverlay(config: ComfyProviderConfig): boolean {
+  return COMFY_EDIT_WORKFLOW_KEY_ALIASES.some(([editKey]) => config[editKey] !== undefined);
+}
+
+function applyComfyEditWorkflowOverlay(config: ComfyProviderConfig): ComfyProviderConfig {
+  const effective: ComfyProviderConfig = { ...config };
+  if (config.editWorkflow !== undefined || config.editWorkflowPath !== undefined) {
+    // loadComfyWorkflow prefers inline `workflow` over `workflowPath`; clear both
+    // base sources so the edit source stays the only one in effect.
+    delete effective.workflow;
+    delete effective.workflowPath;
+  }
+  for (const [editKey, baseKey] of COMFY_EDIT_WORKFLOW_KEY_ALIASES) {
+    const value = config[editKey];
+    if (value !== undefined) {
+      effective[baseKey] = value;
+    }
+  }
+  return effective;
+}
+
+// ComfyUI exports come in two shapes: a bare node map, or the API format
+// `{ prompt: <node map>, client_id }` that POST /prompt also accepts. Node ids are
+// numeric strings, so a top-level `prompt` record is never a node and can be the
+// node map to run.
+function normalizeComfyWorkflowShape(parsed: ComfyWorkflow): ComfyWorkflow {
+  const promptNodeMap = parsed.prompt;
+  return isRecord(promptNodeMap) ? promptNodeMap : parsed;
+}
+
 async function loadComfyWorkflow(config: ComfyProviderConfig): Promise<ComfyWorkflow> {
   const workflow = config.workflow;
   if (isRecord(workflow)) {
-    return structuredClone(workflow);
+    return normalizeComfyWorkflowShape(structuredClone(workflow));
   }
   const workflowPath = normalizeOptionalString(config.workflowPath);
   if (!workflowPath) {
@@ -197,7 +243,7 @@ async function loadComfyWorkflow(config: ComfyProviderConfig): Promise<ComfyWork
   if (!isRecord(parsed)) {
     throw new Error(`Comfy workflow at ${resolvedPath} must be a JSON object`);
   }
-  return parsed;
+  return normalizeComfyWorkflowShape(parsed);
 }
 
 function setWorkflowInput(
@@ -407,25 +453,32 @@ export async function runComfyWorkflow(params: {
 }) {
   const { config, path: configPath } = getComfyConfig(params.cfg);
   const capabilityConfig = getComfyCapabilityConfig(config, params.capability);
-  const mode = resolveComfyMode(capabilityConfig);
-  const workflow = await loadComfyWorkflow(capabilityConfig);
-  const promptNodeId = normalizeOptionalString(capabilityConfig.promptNodeId);
+  // Reference-image runs may use a dedicated second workflow; text-only runs keep
+  // the base workflow. Connection settings (mode/baseUrl/apiKey/headers/limits)
+  // always come from the base capability config.
+  const effectiveConfig =
+    params.inputImage && hasComfyEditWorkflowOverlay(capabilityConfig)
+      ? applyComfyEditWorkflowOverlay(capabilityConfig)
+      : capabilityConfig;
+  const mode = resolveComfyMode(effectiveConfig);
+  const workflow = await loadComfyWorkflow(effectiveConfig);
+  const promptNodeId = normalizeOptionalString(effectiveConfig.promptNodeId);
   if (!promptNodeId) {
     throw new Error("plugins.entries.comfy.config.promptNodeId is required");
   }
-  const promptInputName = normalizeOptionalString(capabilityConfig.promptInputName) ?? "text";
-  const inputImageNodeId = normalizeOptionalString(capabilityConfig.inputImageNodeId);
+  const promptInputName = normalizeOptionalString(effectiveConfig.promptInputName) ?? "text";
+  const inputImageNodeId = normalizeOptionalString(effectiveConfig.inputImageNodeId);
   const inputImageInputName =
-    normalizeOptionalString(capabilityConfig.inputImageInputName) ?? "image";
-  const seedNodeId = normalizeOptionalString(capabilityConfig.seedNodeId);
-  const seedInputName = normalizeOptionalString(capabilityConfig.seedInputName) ?? "seed";
-  const outputNodeId = normalizeOptionalString(capabilityConfig.outputNodeId);
+    normalizeOptionalString(effectiveConfig.inputImageInputName) ?? "image";
+  const seedNodeId = normalizeOptionalString(effectiveConfig.seedNodeId);
+  const seedInputName = normalizeOptionalString(effectiveConfig.seedInputName) ?? "seed";
+  const outputNodeId = normalizeOptionalString(effectiveConfig.outputNodeId);
   const pollIntervalMs = resolvePositiveTimerTimeoutMs(
-    readConfigInteger(capabilityConfig, "pollIntervalMs"),
+    readConfigInteger(effectiveConfig, "pollIntervalMs"),
     DEFAULT_POLL_INTERVAL_MS,
   );
   const timeoutMs = resolvePositiveTimerTimeoutMs(
-    params.timeoutMs ?? readConfigInteger(capabilityConfig, "timeoutMs"),
+    params.timeoutMs ?? readConfigInteger(effectiveConfig, "timeoutMs"),
     DEFAULT_TIMEOUT_MS,
   );
   const providerModel = normalizeOptionalString(params.model) || DEFAULT_COMFY_MODEL;
@@ -436,7 +489,7 @@ export async function runComfyWorkflow(params: {
     setWorkflowInput(workflow, seedNodeId, seedInputName, randomInt(RANDOM_SEED_EXCLUSIVE_MAX));
   }
 
-  const pluginApiKey = resolveComfyApiKey(capabilityConfig, params.cfg);
+  const pluginApiKey = resolveComfyApiKey(effectiveConfig, params.cfg);
   const apiKey =
     mode === "cloud"
       ? pluginApiKey.status === "available"
@@ -456,14 +509,14 @@ export async function runComfyWorkflow(params: {
     throw new Error("Comfy Cloud API key missing");
   }
 
-  const explicitAllowPrivateNetwork = asBoolean(capabilityConfig.allowPrivateNetwork) === true;
+  const explicitAllowPrivateNetwork = asBoolean(effectiveConfig.allowPrivateNetwork) === true;
   const { baseUrl, allowPrivateNetwork, headers, dispatcherPolicy } =
     resolveProviderHttpRequestConfig({
-      baseUrl: normalizeOptionalString(capabilityConfig.baseUrl),
+      baseUrl: normalizeOptionalString(effectiveConfig.baseUrl),
       defaultBaseUrl:
         mode === "cloud" ? DEFAULT_COMFY_CLOUD_BASE_URL : DEFAULT_COMFY_LOCAL_BASE_URL,
       allowPrivateNetwork: mode === "local" || explicitAllowPrivateNetwork,
-      headers: await resolveComfyHeadersConfig(capabilityConfig.headers, params.cfg, configPath),
+      headers: await resolveComfyHeadersConfig(effectiveConfig.headers, params.cfg, configPath),
       defaultHeaders:
         mode === "cloud"
           ? {
@@ -491,7 +544,7 @@ export async function runComfyWorkflow(params: {
   if (params.inputImage) {
     if (!inputImageNodeId) {
       throw new Error(
-        "Comfy edit requests require plugins.entries.comfy.config.<capability>.inputImageNodeId to be configured",
+        "Comfy edit requests require plugins.entries.comfy.config.<capability>.inputImageNodeId (or editInputImageNodeId) to be configured",
       );
     }
     const form = new FormData();

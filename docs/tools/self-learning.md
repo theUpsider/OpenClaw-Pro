@@ -119,8 +119,11 @@ chip per changed skill, each opening that skill in the Skill Workshop, and an
 
 Channel messages are off by default. Set
 `plugins.entries.skill-workshop.config.autonomous.channelNotices: true` to post the notice to the
-conversation that triggered the review instead. That session's Control UI
-chat then shows the channel message as plain text, not the **Learned** row:
+conversation that triggered the review instead, when that conversation is a
+direct chat and the reviewed turn came from the owner. That session's Control
+UI chat then shows the channel message as plain text, not the **Learned** row.
+Groups, channels, Slack, other senders, and chats whose type cannot be
+established keep the **Learned** row, because the notice names your skills:
 
 ```text
 💾 Learned: updated `deploy-staging` (tightened the rollback step). Say "undo" to revert this skill change.

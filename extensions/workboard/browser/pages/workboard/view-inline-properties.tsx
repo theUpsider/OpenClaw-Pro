@@ -7,14 +7,13 @@ import {
   createSignal,
   createEffect,
   onSettled,
-  For,
+  For, Show,
   untrack,
 } from "solid-js";
-import { AgentPicker } from "../../components/host-components.tsx";
+import { AgentPicker, DictationControl } from "../../components/host-components.tsx";
 import { icons } from "../../components/icons.tsx";
 import { t } from "../../i18n/index.ts";
 import { listen } from "../../lib/listener.ts";
-import { normalizeDraftLabels } from "../../lib/workboard/card-state.ts";
 import { updateWorkboardCardProperties } from "../../lib/workboard/mutations.ts";
 import { getWorkboardState } from "../../lib/workboard/runtime.ts";
 import {
@@ -25,6 +24,12 @@ import {
 } from "../../lib/workboard/types.ts";
 import { buildAssignableAgentPickerOptions } from "./agent-filter.ts";
 import { moveCardToStatus } from "./view-card-actions.tsx";
+import { CardNotes } from "./view-card-notes.tsx";
+import {
+  ClassificationPaletteEditor,
+  createClassificationDraft,
+  focusClassificationEditor,
+} from "./view-classification-palette.tsx";
 import {
   formatPriorityLabel,
   formatStatusLabel,
@@ -270,6 +275,7 @@ export function InlineText(props: InlineTextProps) {
   let editorInput: HTMLInputElement | HTMLTextAreaElement | undefined;
   let base: WorkboardCard | undefined;
   let editing = false;
+  // Title/notes: the field text. Labels: the Create field (names not yet on the card).
   let value = "";
   let busy = false;
   const [saving, setSaving] = createOptimistic(false);
@@ -293,17 +299,27 @@ export function InlineText(props: InlineTextProps) {
   };
   const disabled = () =>
     props.disabled || props.readOnly || !props.owner.connected || !props.owner.client;
+  const classifications = createClassificationDraft({
+    owner: () => props.owner,
+    card: () => props.card,
+    base: () => base,
+    typed: () => value,
+    inert: () => disabled() || saving,
+    revision,
+    publish,
+  });
   const changed = () => {
     revision();
     if (!base) {
       return false;
     }
     return props.field === "labels"
-      ? JSON.stringify(normalizeDraftLabels(value)) !== JSON.stringify(base.labels)
+      ? JSON.stringify(classifications.payload()) !== JSON.stringify(base.labels)
       : value.trim() !== (base[props.field] ?? "").trim();
   };
   const finish = (restoreFocus = true) => {
     base = undefined;
+    classifications.reset();
     const doc = host.ownerDocument;
     const previousFocus = doc.activeElement;
     popover?.hidePopover();
@@ -319,8 +335,11 @@ export function InlineText(props: InlineTextProps) {
       }
     });
   };
-  const save = async () => {
+  const save = async (replaces?: string) => {
     if (busy || disabled() || !base || (props.field === "title" && !value.trim())) {
+      return;
+    }
+    if (props.field === "labels" && replaces === undefined && classifications.awaitOverwrite()) {
       return;
     }
     const doc = host.ownerDocument;
@@ -345,14 +364,24 @@ export function InlineText(props: InlineTextProps) {
       stopFocus();
       stopPointer();
     };
+<<<<<<< OURS/upstream-11.10
     busy = true;
+||||||| BASE/v11.4
+    saving = true;
+    publish();
+=======
+    saving = true;
+    classifications.setError(undefined);
+    publish();
+>>>>>>> THEIRS/pro-main
     const owner = props.owner;
     const field = props.field;
     const observed = base;
     const patch =
       field === "labels"
         ? {
-            labels: normalizeDraftLabels(value),
+            labels: classifications.payload(),
+            ...(replaces ? { replaces } : {}),
           }
         : {
             [field]: value,
@@ -363,6 +392,10 @@ export function InlineText(props: InlineTextProps) {
         ...workboardMutationContext(owner),
         card: observed,
         patch,
+        // A refused label write stays at the field with the typed name; the card is unchanged.
+        ...(field === "labels"
+          ? { onError: (message: string) => classifications.refuse(message, host) }
+          : {}),
       });
       // Publish the owner's busy state before joining the saving transition.
       await Promise.resolve();
@@ -389,8 +422,8 @@ export function InlineText(props: InlineTextProps) {
   const openEditor = () => {
     if (!base || !changed()) {
       base = props.card;
-      value =
-        props.field === "labels" ? props.card.labels.join(", ") : (props.card[props.field] ?? "");
+      classifications.reset(props.card.labels);
+      value = props.field === "labels" ? "" : (props.card[props.field] ?? "");
     }
     editing = true;
     publish();
@@ -401,7 +434,11 @@ export function InlineText(props: InlineTextProps) {
       if (props.field === "labels") {
         popover?.showPopover();
       }
-      editorInput?.focus();
+      if (props.field === "labels") {
+        focusClassificationEditor(host, "open");
+      } else {
+        editorInput?.focus();
+      }
     });
   };
   createEffect(
@@ -411,6 +448,7 @@ export function InlineText(props: InlineTextProps) {
         base = undefined;
         editing = false;
         value = "";
+        classifications.reset();
         publish();
       }
     },
@@ -456,6 +494,9 @@ export function InlineText(props: InlineTextProps) {
         ) : (
           t("workboard.inlineAddLabels")
         )
+      ) : props.field === "notes" && props.card.notes ? (
+        // Code-block copy buttons would nest controls inside the editor trigger.
+        <CardNotes notes={props.card.notes} chrome="none" />
       ) : (
         props.card[props.field] || t("workboard.inlineAddDescription")
       )}
@@ -478,6 +519,8 @@ export function InlineText(props: InlineTextProps) {
             const target = event.currentTarget;
             if (
               triggerDisabled() ||
+              // Links in rendered notes navigate instead of opening the editor.
+              (event.target instanceof Element && event.target.closest("a")) ||
               (selection &&
                 !selection.isCollapsed &&
                 target instanceof Node &&
@@ -525,10 +568,21 @@ export function InlineText(props: InlineTextProps) {
     event,
   ) => {
     value = event.currentTarget.value;
+    classifications.typed();
+    publish();
+  };
+  const appendTranscript = (text: string) => {
+    if (!editing) {
+      return;
+    }
+    // Dictation only fills the draft; Save stays the single owner of the write.
+    value = !value || /\s$/.test(value) ? `${value}${text}` : `${value} ${text}`;
     publish();
   };
   const Editor = () => {
     const bindValue = liveInputValue(draftValue);
+    const [dictating, setDictating] = createSignal(false);
+    const [dictationError, setDictationError] = createSignal<string>();
     const Input = dynamic(() => (props.field === "notes" ? "textarea" : "input"));
     return (
       <span
@@ -543,7 +597,7 @@ export function InlineText(props: InlineTextProps) {
           if (event.key === "Escape") {
             event.preventDefault();
             event.stopPropagation();
-            if (!busy) {
+            if (!(props.field === "labels" && classifications.stepBack(host)) && !busy) {
               finish();
             }
           } else if (
@@ -558,19 +612,47 @@ export function InlineText(props: InlineTextProps) {
           }
         }}
       >
-        <Input
-          class="settings-input"
-          aria-label={fieldLabel()}
-          rows={props.field === "notes" ? 12 : undefined}
-          ref={(element: HTMLInputElement | HTMLTextAreaElement) => {
+        {props.field === "labels" ? (
+          <ClassificationPaletteEditor
+            id={labelsPopoverId()}
+            draft={classifications}
+            typed={draftValue}
+            bindValue={bindValue}
+            onInput={input}
+            readOnly={Boolean(props.readOnly)}
+            inert={disabled() || isSaving()}
+            inputDisabled={isSaving() || (disabled() && !props.readOnly)}
+            onSave={(replaces) => void save(replaces)}
+          />
+        ) : (
+          <Input
+            class="settings-input"
+            aria-label={fieldLabel()}
+            rows={props.field === "notes" ? 12 : undefined}
+            ref={(element: HTMLInputElement | HTMLTextAreaElement) => {
             bindValue(element);
             editorInput = element;
           }}
-          disabled={saving() || (disabled() && !props.readOnly)}
-          readonly={props.readOnly}
-          onInput={input}
-        />
+            disabled={saving() || (disabled() && !props.readOnly)}
+            readonly={props.readOnly}
+            onInput={input}
+          />
+        )}
         <span class="workboard-detail__text-actions">
+          {props.field === "notes" && !props.readOnly ? (
+            <DictationControl
+              enabled={!disabled() && !isSaving()}
+              accessibleLabel={t("workboard.notesDictate")}
+              onStart={() => setDictationError(undefined)}
+              onTranscript={appendTranscript}
+              onError={(message) => setDictationError(message)}
+              onStateChange={({ active }) => setDictating(active)}
+              class={[
+                "workboard-detail__dictation",
+                dictating() ? "workboard-detail__dictation--active" : "",
+              ].join(" ")}
+            />
+          ) : null}
           <button
             type="button"
             class="btn"
@@ -582,6 +664,13 @@ export function InlineText(props: InlineTextProps) {
           <button type="button" class="btn" disabled={saving()} onClick={() => finish()}>
             {t("common.cancel")}
           </button>
+          <Show when={dictationError()}>
+            {(message) => (
+              <span class="workboard-voice__error" role="alert">
+                {message()}
+              </span>
+            )}
+          </Show>
         </span>
       </span>
     );
@@ -602,7 +691,7 @@ export function InlineText(props: InlineTextProps) {
         ) : props.field === "title" ? (
           props.card.title
         ) : props.card.notes ? (
-          <p class="workboard-detail__description">{props.card.notes}</p>
+          <CardNotes notes={props.card.notes} class="workboard-detail__description" />
         ) : null
       ) : props.field === "labels" ? (
         <>

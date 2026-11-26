@@ -146,6 +146,71 @@ describe("resolveMediaToolLocalRoots", () => {
     expect(normalizedRoots).not.toContain(normalizeHostPath(picturesDir));
     expect(normalizedRoots).not.toContain(normalizeHostPath("/"));
   });
+
+  it.each([
+    { workspaceOnly: false, agentWorkspaceReadable: true },
+    { workspaceOnly: true, agentWorkspaceReadable: false },
+  ])(
+    "keeps the agent workspace next to a session cwd only for unconfined reads (workspaceOnly=$workspaceOnly)",
+    async ({ workspaceOnly, agentWorkspaceReadable }) => {
+      const stateDir = path.join("/tmp", "openclaw-media-tool-session-state");
+      const agentWorkspaceDir = path.join(stateDir, "workspace-ops");
+      const sessionCwd = path.join("/tmp", "openclaw-media-tool-session-project");
+
+      const { localRoots } = await withEnvAsync({ OPENCLAW_STATE_DIR: stateDir }, () =>
+        resolveMediaToolReferenceAccess({
+          input: path.join(agentWorkspaceDir, "reports", "screenshot.png"),
+          isDataUrl: false,
+          workspaceDir: sessionCwd,
+          agentWorkspaceDir,
+          cwd: sessionCwd,
+          fsPolicy: { workspaceOnly },
+        }),
+      );
+
+      const normalizedRoots = localRoots.map(normalizeHostPath);
+      expect(normalizedRoots).toContain(normalizeHostPath(sessionCwd));
+      expect(normalizedRoots.includes(normalizeHostPath(agentWorkspaceDir))).toBe(
+        agentWorkspaceReadable,
+      );
+    },
+  );
+
+  it("does not add the agent workspace to sandboxed reads", async () => {
+    const root = path.join("/tmp", "openclaw-media-tool-sandbox-root");
+    const agentWorkspaceDir = path.join(
+      "/tmp",
+      "openclaw-media-tool-sandbox-state",
+      "workspace-ops",
+    );
+    const sandbox = resolveMediaToolSandboxConfig(
+      {
+        root,
+        bridge: createSandboxFsBridge({
+          sandbox: {
+            ...createSandboxTestContext({
+              overrides: { workspaceDir: root, agentWorkspaceDir: root },
+            }),
+            backend: {
+              runShellCommand: async () => {
+                throw new Error("Path resolution must not execute backend commands");
+              },
+            },
+          },
+        }),
+      },
+      false,
+    );
+
+    const { localRoots } = await resolveMediaToolReferenceAccess({
+      input: "screenshot.png",
+      isDataUrl: false,
+      agentWorkspaceDir,
+      sandbox,
+    });
+
+    expect(localRoots.map(normalizeHostPath)).not.toContain(normalizeHostPath(agentWorkspaceDir));
+  });
 });
 
 describe("resolveMediaToolReferenceAccess", () => {

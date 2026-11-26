@@ -20,7 +20,10 @@ import {
   WORKER_GATEWAY_TOOL_METHODS,
   WORKER_GATEWAY_TOOLS_PROTOCOL_FEATURE,
 } from "../../../../packages/gateway-protocol/src/schema/worker-gateway-tool.js";
-import { WORKER_INFERENCE_METHODS } from "../../../../packages/gateway-protocol/src/schema/worker-inference.js";
+import {
+  WORKER_INFERENCE_METHODS,
+  validateWorkerInferenceStartRequestFrame,
+} from "../../../../packages/gateway-protocol/src/schema/worker-inference.js";
 import { WORKER_PROTOCOL_MAX_CONCURRENT_TOOLS } from "../../../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
 import { WORKER_TURN_ADMISSION_METHOD } from "../../../../packages/gateway-protocol/src/schema/worker-turn-admission.js";
 import { GATEWAY_STARTUP_RETRY_AFTER_MS } from "../../../../packages/gateway-protocol/src/startup-unavailable.js";
@@ -386,20 +389,23 @@ export function attachWorkerWsMessageHandler(params: WorkerWsMessageHandlerParam
       closeWorker(1008, "invalid-frame");
       return;
     }
-    const mediaTranscript =
-      parsed.method === "worker.transcript.commit" &&
-      validateWorkerTranscriptCommitParams(parsed.params) &&
-      isWorkerTranscriptFrameWithinBudget({
-        ...parsed,
-        method: "worker.transcript.commit",
-        params: parsed.params,
-      });
-    if (
-      frameBytes > WORKER_PROTOCOL_MAX_PAYLOAD_BYTES &&
-      parsed.method !== WORKER_INFERENCE_METHODS[0] &&
-      parsed.method !== WORKER_TURN_ADMISSION_METHOD &&
-      !mediaTranscript
-    ) {
+    // Large data-plane allowances require the exact carrier schema. Small invalid
+    // requests retain dispatch-owned authority checks and structured error replies.
+    const withinBudget =
+      parsed.method === "worker.transcript.commit"
+        ? (validateWorkerTranscriptCommitParams(parsed.params) &&
+            isWorkerTranscriptFrameWithinBudget({
+              ...parsed,
+              method: "worker.transcript.commit",
+              params: parsed.params,
+            })) ||
+          frameBytes <= WORKER_PROTOCOL_MAX_PAYLOAD_BYTES
+        : parsed.method === WORKER_INFERENCE_METHODS[0]
+          ? validateWorkerInferenceStartRequestFrame(parsed) ||
+            frameBytes <= WORKER_PROTOCOL_MAX_PAYLOAD_BYTES
+          : frameBytes <= WORKER_PROTOCOL_MAX_PAYLOAD_BYTES;
+    if (parsed.method !== WORKER_TURN_ADMISSION_METHOD &&
+      !withinBudget) {
       failConnection(1009);
       return;
     }

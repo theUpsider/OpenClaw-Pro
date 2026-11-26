@@ -114,6 +114,8 @@ describe("CLI stream-json output limit", () => {
     vi.spyOn(cliTranscript, "claudeCliSessionTranscriptHasContent").mockResolvedValue(true);
     const record = { type: "system", subtype: "fixture_padding", padding: "x".repeat(1024 * 1024) };
     const recordChars = JSON.stringify(record).length + 1;
+    // Derive the yield target from the budget so the fixture crosses it at any size.
+    const yieldLimit = Math.floor(maxTurnRawChars / recordChars) + 2;
     let yielded = 0;
     let closed = false;
     let aborted = false;
@@ -128,7 +130,7 @@ describe("CLI stream-json output limit", () => {
         try {
           yield { type: "system", subtype: "init", session_id: "native-first-turn" };
           // The baseline keeps pulling these records after the turn is already lost.
-          while (yielded < 12) {
+          while (yielded < yieldLimit) {
             yielded += 1;
             yield record;
           }

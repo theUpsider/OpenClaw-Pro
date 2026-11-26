@@ -622,6 +622,7 @@ describe("notifications changed events", () => {
       await notify({ change, packageName, sessionKey: requestedKey });
 
       const routing = { sessionKey, contextKey: "notification:notif" };
+        replace: true,
       expect(enqueue).toHaveBeenCalledWith(
         `Notification ${change} (node=node key=notif${packageName ? ` package=${packageName}` : ""})`,
         expect.objectContaining(routing),

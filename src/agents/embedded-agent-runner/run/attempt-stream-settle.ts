@@ -563,6 +563,9 @@ export async function prepareEmbeddedAttemptTransport(input: {
             }),
         }
       : {}),
+    ...(attempt.skillExposure
+      ? { skillExposure: { runId: attempt.runId, collector: attempt.skillExposure } }
+      : {}),
   });
   session.agent.streamFn = wrapStreamFnWithProviderReviewContinuation({
     streamFn: session.agent.streamFn,

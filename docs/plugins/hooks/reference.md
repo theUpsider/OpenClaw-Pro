@@ -40,6 +40,7 @@ modifications explicitly instead of relying on in-place mutation.
 | `priority`              | Ordering; higher runs first.                                                                                                                                                                                                                          |
 | `registrationId`        | Stable identity for one registration inside a plugin. Skill evaluators use it as `evaluatorId`; otherwise the plugin id is used.                                                                                                                      |
 | `timeoutMs`             | Per-handler asynchronous await budget. Expiry applies the hook's failure policy below; it does not cancel the handler or its side effects. Omit to use the runner's default, if any.                                                                  |
+| `failurePolicy`         | Per-handler `"fail-open"` or `"fail-closed"` override. Overridden by operator config; see [Failure policy](#failure-policy) below.                                                                                                                    |
 | `eligibleTriggers`      | For `before_agent_reply` only, limits host dispatch to one or more of `cron`, `heartbeat`, or `user`.                                                                                                                                                 |
 | `eligibleDispatchKinds` | For `reply_dispatch` only, limits host dispatch to `agent`, `acp`, or both. Omit to handle all dispatch kinds.                                                                                                                                        |
 | `requiresToolAuthority` | For `before_prompt_build` only, runs the handler after the host finalizes the current turn's tool surface and supplies ephemeral `ctx.toolAuthority`. Use this for context retrieval that must follow tool policy.                                    |
@@ -74,6 +75,69 @@ Operators can set hook budgets without patching plugin code:
 plugin-authored `api.on(..., { timeoutMs })` value. The two operator config
 fields accept positive integers up to 600000 ms. Prefer per-hook overrides for
 known-slow hooks so one plugin does not get a longer budget everywhere.
+
+## Failure policy
+
+Each registration runs under a failure policy that decides what happens when a
+handler throws or exceeds its timeout.
+
+| Policy        | Effect                                                                                        |
+| ------------- | --------------------------------------------------------------------------------------------- |
+| `fail-open`   | Log the failure and continue. The guarded operation proceeds without that handler's decision. |
+| `fail-closed` | Abort the guarded operation instead of proceeding without the handler's decision.             |
+
+Fail-open is the default for every hook except the Gate hooks listed above. That
+is the right default for optional enrichment: one wedged plugin must not stall
+unrelated delivery or finalization.
+
+It is the wrong default for a policy guard. An outbound guard registered on
+`message_sending` or `reply_payload_sending` that times out under fail-open lets
+the message leave the Gateway without the guard's verdict. Set the policy per
+hook when the operation must be denied on guard failure:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "my-guard": {
+        "hooks": {
+          "failurePolicies": {
+            "message_sending": "fail-closed",
+            "reply_payload_sending": "fail-closed"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Precedence, highest first:
+
+1. `plugins.entries.<id>.hooks.failurePolicies.<hookName>`
+2. `plugins.entries.<id>.hooks.failurePolicy`
+3. `api.on(name, handler, { failurePolicy })`
+4. The Gateway's per-hook default (`fail-closed` for `before_agent_run`,
+   `before_install`, and `before_tool_call`)
+5. `fail-open`
+
+<Warning>
+Operator config outranks the Gateway's Gate defaults. A plugin-level
+`hooks.failurePolicy: "fail-open"` also turns fail-open on for that plugin's
+`before_tool_call`, `before_install`, and `before_agent_run` handlers, so a
+blanket setting meant for outbound hooks can silently weaken tool gating. To
+relax only outbound hooks, set them by name under `hooks.failurePolicies`
+instead.
+</Warning>
+
+A fail-closed timeout cannot cancel the handler; it only denies the operation
+while that handler's work may still continue. A fail-closed outbound denial
+suppresses only the affected payload, not the rest of the batch. It is recorded
+as a suppressed delivery rather than a failed send, with
+`hookEffect.cancelReason: "plugin_hook_failed_closed"` and the hook name and
+plugin id in its metadata where the delivery lane keeps hook effects; the Gateway
+log also names the plugin that failed closed. The plugin's own error handling
+remains the first line of defense.
 
 A timed-out handler promise continues running because hook callbacks do not
 receive a timeout-owned cancellation signal. `before_tool_call` may receive the

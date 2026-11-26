@@ -21,6 +21,7 @@ import {
   getGatewayShutdownCleanupSignal,
   getGatewaySuspendAdmissionPhase,
   isGatewayRestartDrainError,
+  isGatewayRestartDraining,
   isGatewaySubordinateWorkAdmissionClosed,
   isGatewayWorkAdmissionClosed,
   markGatewayRestartDraining,
@@ -32,6 +33,7 @@ import {
   runWithGatewayDetachedWorkContinuation,
   runWithGatewayIndependentRootWorkAdmission,
   runWithGatewayIndependentRootWorkContinuation,
+  runWithGatewayRootWorkReadmission,
   runWithRetainedGatewayRootWork,
   runOutsideGatewayRootWorkAdmission,
   tryBeginGatewayPreparedRestartRootWorkAdmission,
@@ -772,3 +774,110 @@ it("retires surviving root records across an in-process reset", async () => {
   root?.release();
   expect(getActiveGatewayRootWorkCount()).toBe(0);
 });
+
+it("admits work chained off a continuation root that released while admission is open", async () => {
+  const chained = createDeferredCore();
+  let observedAdmissionClosed: boolean | undefined;
+  await runWithGatewayRootWorkAdmissionForTest(async () => {
+    await runWithGatewayIndependentRootWorkContinuation(async () => {
+      // Registered inside the continuation root: the follow-on keeps that
+      // released lease through ALS, like a started channel or queue delivery
+      // continuing after the pump root that admitted it settled.
+      void chained.promise.then(() => {
+        observedAdmissionClosed = isGatewaySubordinateWorkAdmissionClosed();
+      });
+    }, "test:inbound-dispatch");
+  });
+  // The request root and the continuation root are both released here.
+  expect(getActiveGatewayRootWorkCount()).toBe(0);
+
+  chained.resolve();
+  await nextTurn();
+  expect(observedAdmissionClosed).toBe(false);
+});
+
+it.each(["resolve", "reject"] as const)(
+  "re-admits work chained off a released lease onto a tracked root (%s)",
+  async (outcome) => {
+    const go = createDeferredCore();
+    const tracked = createDeferredCore<number>();
+    const settled = createDeferredCore<"fulfilled" | "rejected">();
+    await runWithGatewayRootWorkAdmissionForTest(async () => {
+      await runWithGatewayIndependentRootWorkContinuation(async () => {
+        void go.promise
+          .then(() =>
+            runWithGatewayRootWorkReadmission(async () => {
+              tracked.resolve(getActiveGatewayRootWorkCount());
+              if (outcome === "reject") {
+                throw new Error("chained work failed");
+              }
+            }),
+          )
+          .then(
+            () => settled.resolve("fulfilled"),
+            () => settled.resolve("rejected"),
+          );
+      }, "test:continuation");
+    });
+    expect(getActiveGatewayRootWorkCount()).toBe(0);
+
+    go.resolve();
+    await expect(tracked.promise).resolves.toBe(1);
+    await expect(settled.promise).resolves.toBe(outcome === "reject" ? "rejected" : "fulfilled");
+    expect(getActiveGatewayRootWorkCount()).toBe(0);
+  },
+);
+
+it("still refuses work chained off a reset-retired lease while admission is open", async () => {
+  const chained = createDeferredCore();
+  let observed: boolean | undefined;
+  let readmitted: Promise<number> | undefined;
+  const root = tryBeginGatewayRootWorkAdmission();
+  expect(root).not.toBeNull();
+  await root?.run(async () => {
+    void chained.promise.then(() => {
+      observed = isGatewaySubordinateWorkAdmissionClosed();
+      readmitted = runWithGatewayRootWorkReadmission(async () => getActiveGatewayRootWorkCount());
+    });
+  });
+  resetGatewayWorkAdmission();
+  root?.release();
+  expect(getActiveGatewayRootWorkCount()).toBe(0);
+  expect(isGatewayWorkAdmissionClosed()).toBe(false);
+
+  chained.resolve();
+  await nextTurn();
+  expect(observed).toBe(true);
+  // Explicit re-entry remains available; the retired lease itself stays refused.
+  await expect(readmitted).resolves.toBe(1);
+  expect(getActiveGatewayRootWorkCount()).toBe(0);
+});
+
+it.each(["suspend", "restart"] as const)(
+  "still refuses work chained off a released lease while the %s fence is closed",
+  async (fence) => {
+    const chained = createDeferredCore();
+    let observed: boolean | undefined;
+    const root = tryBeginGatewayRootWorkAdmission();
+    expect(root).not.toBeNull();
+    await root?.run(async () => {
+      void chained.promise.then(() => {
+        observed = isGatewaySubordinateWorkAdmissionClosed();
+      });
+    });
+    root?.release();
+    if (fence === "suspend") {
+      const suspension = tryBeginGatewaySuspendAdmission(() => {});
+      expect(suspension?.commit()).toBe(true);
+      expect(getGatewaySuspendAdmissionPhase()).toBe("prepared");
+    } else {
+      markGatewayRestartDraining();
+      expect(isGatewayRestartDraining()).toBe(true);
+    }
+
+    chained.resolve();
+    await nextTurn();
+    expect(observed).toBe(true);
+    expect(getActiveGatewayRootWorkCount()).toBe(0);
+  },
+);

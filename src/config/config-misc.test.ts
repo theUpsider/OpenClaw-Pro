@@ -162,6 +162,46 @@ const schemaCases: Array<[string, unknown, boolean]> = [
 ];
 it.each(schemaCases)("validates %s = %j (accepted: %s)", (path, value, accepted) => {
   expect(accepts(configAt(path, value))).toBe(accepted);
+
+  it("accepts a per-hook failure policy for outbound guards", () => {
+    const result = OpenClawSchema.safeParse({
+      plugins: {
+        entries: {
+          "my-guard": {
+            hooks: {
+              failurePolicy: "fail-open",
+              failurePolicies: {
+                message_sending: "fail-closed",
+                reply_payload_sending: "fail-closed",
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it.each([
+    { name: "unknown policy value", failurePolicy: "closed" },
+    { name: "boolean policy", failurePolicy: true },
+  ])("rejects a $name", ({ failurePolicy }) => {
+    const result = OpenClawSchema.safeParse({
+      plugins: { entries: { "my-guard": { hooks: { failurePolicy } } } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an unknown per-hook failure-policy value", () => {
+    const result = OpenClawSchema.safeParse({
+      plugins: {
+        entries: {
+          "my-guard": { hooks: { failurePolicies: { message_sending: "deny" } } },
+        },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("model provider localService config", () => {

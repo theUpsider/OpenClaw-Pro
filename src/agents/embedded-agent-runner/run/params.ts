@@ -1,3 +1,4 @@
+import type { ChatWorkContext } from "../../../../packages/gateway-protocol/src/chat-work-context.js";
 import type { ReasoningStreamPayload } from "../../../auto-reply/get-reply-options.types.js";
 import type { ReplyPayload } from "../../../auto-reply/reply-payload.js";
 import type { SessionDeliveryState } from "../../../config/sessions/types.js";
@@ -77,7 +78,23 @@ export type RunEmbeddedAgentParams = Pick<
   sandboxSessionKey?: string;
   /** Explicit sandbox and tool-policy owner when the policy session key is unscoped. */
   sandboxAgentId?: string;
+<<<<<<< OURS/upstream-11.10
   /** The user, event, automation, or maintenance owner that initiated this run. */
+||||||| BASE/v11.4
+  /** Out-of-band plugin bindings attached by the run initiator. */
+  toolBindings?: Readonly<Record<string, unknown>>;
+  /** Raw peer observed by the inbound routing owner, before identity linking. */
+  conversationRoutePeerId?: string;
+  /** What initiated this agent run: "user", "heartbeat", "cron", "memory", "overflow", or "manual". */
+=======
+  /** Out-of-band plugin bindings attached by the run initiator. */
+  toolBindings?: Readonly<Record<string, unknown>>;
+  /** Captured chat.send work context for plugin tools; quoted reference data, never authority. */
+  workContext?: ChatWorkContext;
+  /** Raw peer observed by the inbound routing owner, before identity linking. */
+  conversationRoutePeerId?: string;
+  /** What initiated this agent run: "user", "heartbeat", "cron", "memory", "overflow", or "manual". */
+>>>>>>> THEIRS/pro-main
   trigger?: EmbeddedRunTrigger;
   /** Store-private runtime authority forwarded only by the cron execution owner. */
   scheduledRuntimeAuthority?: CronRuntimeAuthority;
@@ -222,6 +239,8 @@ export type RunEmbeddedAgentParams = Pick<
   onToolResult?: (payload: ReplyPayload) => void | Promise<void>;
   /** Synchronous private observer for the sanitized per-tool result. */
   onAgentToolResult?: (event: { toolName: string; result: unknown; isError: boolean }) => void;
+  /** Opt-in, invocation-owned evidence from the final provider serialization owner. */
+  skillExposure?: import("../../skill-exposure-receipt.js").SkillExposureReceiptCollector;
   /** Reports a committed generic recovery compaction before its retry starts. */
   onAutoCompactionSucceeded?: (count: number) => void;
   onAgentEvent?: (evt: EmbeddedAgentEvent) => void | Promise<void>;

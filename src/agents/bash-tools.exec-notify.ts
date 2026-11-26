@@ -11,6 +11,7 @@ import {
   SystemEventQueueFullError,
 } from "../infra/system-events.js";
 import { logWarn } from "../logger.js";
+import { pluginInvocationContext } from "../plugins/plugin-instance-scope.js";
 import { parseAgentSessionKey } from "../routing/session-key.js";
 import { isOneShotRunSessionKey, isSubagentSessionKey } from "../sessions/session-key-utils.js";
 import {
@@ -292,6 +293,7 @@ async function notifyOnExit(
       return;
     }
     try {
+<<<<<<< OURS/upstream-11.10
       // Admission resolves the chat by key: a deleted chat refuses the wake.
       const receipt = enqueueExecExitNotification(
         eventText,
@@ -299,6 +301,27 @@ async function notifyOnExit(
         processSessionInstanceId(session),
         { ...eventOptions, sourceRunId: session.startedByRunId },
       );
+||||||| BASE/v11.4
+      const receipt = enqueueSessionEvent(eventText, {
+        ...eventOptions,
+        agentId,
+        source: "exec",
+        sourceTurnId: `exec:${processSessionInstanceId(session)}`,
+        expectedTarget: session.notifySessionTarget,
+      });
+=======
+      // Completion outlives the producing turn; this boundary owns fresh plugin calls,
+      // not the closed turn's finite invocation scope.
+      const receipt = pluginInvocationContext.exit(() =>
+        enqueueSessionEvent(eventText, {
+          ...eventOptions,
+          agentId,
+          source: "exec",
+          sourceTurnId: `exec:${processSessionInstanceId(session)}`,
+          expectedTarget: session.notifySessionTarget,
+        }),
+      );
+>>>>>>> THEIRS/pro-main
       recordNotifyOnExitRemoval(session, receipt.cancel);
       const wake = { agentId, sessionKey: eventSessionKey };
       pendingExitWakes.add(wake);

@@ -29,6 +29,12 @@ export const AGENT_MODEL_FIELD_LABELS: Record<string, string> = {
   "agents.defaults.decisionModel": "Decision Model",
   "agents.defaults.experimental.decisionAssistance": "Decision Assistance (Experimental)",
   "agents.defaults.experimental.usageRankedToolIndex": "Usage-ranked Tool Index (Experimental)",
+  "agents.defaults.experimental.goalCompletionVerification":
+    "Goal Completion Verification (Experimental)",
+  "agents.defaults.experimental.goalVerificationModel": "Goal Verifier Model",
+  "agents.defaults.experimental.goalVerificationCooldownMs": "Goal Verifier Cooldown (ms)",
+  "agents.defaults.experimental.goalVerificationMaxContinuationTurns": "Goal Continuation Turn Cap",
+  "agents.defaults.experimental.goalVerificationMaxAttempts": "Goal Verifier Attempt Cap",
   "agents.entries.*.decisionModel": "Agent Decision Model",
   "agents.defaults.imageModel.primary": "Image Model",
   "agents.defaults.imageModel.fallbacks": "Image Model Fallbacks",

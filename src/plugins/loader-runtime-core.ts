@@ -181,6 +181,17 @@ function bindRuntimeLoadContext(
   );
 }
 
+/**
+ * Checked at entry and after every step boundary. After a boundary it runs inside the
+ * generator's try, so a stale or cancelled run takes the same rollback as a failed candidate.
+ */
+function assertPluginInventoryCurrent(signal: AbortSignal | undefined): void {
+  signal?.throwIfAborted();
+  if (getPluginCache().retirement) {
+    throw new Error("Plugin inventory has retired; begin a new plugin operation.");
+  }
+}
+
 export function loadOpenClawPluginsCore(
   ...args: Parameters<typeof loadOpenClawPluginsSteps>
 ): PluginRegistry {
@@ -199,10 +210,20 @@ export function* loadOpenClawPluginsSteps(
   overrides?: InternalPluginLoadOverrides,
   inspectionResources?: PluginRegistryInspectionResources,
   trackActivationCleanup?: (completion: Promise<void>) => void,
+<<<<<<< OURS/upstream-11.10
 ): Generator<(() => Promise<void>) | undefined, PluginRegistry> {
   if (getPluginCache().retirement) {
     throw new PluginInventoryRetiredError();
   }
+||||||| BASE/v11.4
+): Generator<void, PluginRegistry> {
+  if (getPluginCache().retirement) {
+    throw new Error("Plugin inventory has retired; begin a new plugin operation.");
+  }
+=======
+): Generator<string | void, PluginRegistry> {
+  assertPluginInventoryCurrent(options.signal);
+>>>>>>> THEIRS/pro-main
   const requestedOnlyPluginIds = normalizePluginIdScope(options.onlyPluginIds);
   const requestedOnlyPluginIdSet = createPluginIdScopeSet(requestedOnlyPluginIds);
   if (requestedOnlyPluginIdSet && requestedOnlyPluginIdSet.size === 0) {
@@ -404,6 +425,9 @@ export function* loadOpenClawPluginsSteps(
       manifestRegistry,
       memorySlot,
     });
+    // Inventory preparation is its own step so a slow scan is not attributed to a candidate.
+    yield "plugin inventory";
+    assertPluginInventoryCurrent(options.signal);
     const inputs = new Map<string, PluginLoadInput>();
     const retained = new Map<string, PluginRegistry["plugins"][number]>();
     const lendingConfig =
@@ -533,6 +557,10 @@ export function* loadOpenClawPluginsSteps(
           projectPluginContributions(retention.registry, retention.record, registry);
         }
       }
+      // Signatures, validation, and projection are independent per candidate. Retained
+      // projections already outlive main-loop yields, so this boundary adds no new staleness.
+      yield manifest.id;
+      assertPluginInventoryCurrent(options.signal);
     }
     for (const source of [options.previousRegistry, options.borrowRegistry]) {
       registry.diagnostics.push(
@@ -611,7 +639,6 @@ export function* loadOpenClawPluginsSteps(
         }
         continue;
       }
-      const attemptedBefore = state.pluginLoadAttemptCount;
       const input = inputs.get(manifestRecord.id);
       const candidateSteps = loadRuntimePluginCandidate({
         candidate,
@@ -642,6 +669,7 @@ export function* loadOpenClawPluginsSteps(
         }
         continue;
       }
+<<<<<<< OURS/upstream-11.10
       // A candidate with visible preflight effects is an ordering barrier.
       yield* finishPluginPreparations(preparing, runCandidate);
       yield* finishPluginCandidate(candidateSteps, candidateStep, runCandidate);
@@ -651,6 +679,19 @@ export function* loadOpenClawPluginsSteps(
           throw new PluginInventoryRetiredError();
         }
       }
+||||||| BASE/v11.4
+      if (state.pluginLoadAttemptCount !== attemptedBefore) {
+        yield;
+        if (getPluginCache().retirement) {
+          throw new Error("Plugin inventory has retired; begin a new plugin operation.");
+        }
+      }
+=======
+      // Every candidate is a boundary, including metadata-only and skipped ones: a preflight
+      // without module loads must not hold the event loop for the whole inventory.
+      yield manifestRecord.id;
+      assertPluginInventoryCurrent(options.signal);
+>>>>>>> THEIRS/pro-main
     }
     yield* finishPluginPreparations(preparing, runCandidate);
     const pluginLoadElapsedMs = performance.now() - pluginLoadStartMs;

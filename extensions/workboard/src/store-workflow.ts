@@ -22,6 +22,9 @@ import {
   cardRunId,
   cardSessionKey,
   closeRunningAttempts,
+  isDependencyPromotableStatus,
+  latestRunningAttempt,
+  mutationActorId,
   retryBudgetExhausted,
 } from "./store-card-helpers.js";
 import {
@@ -31,6 +34,7 @@ import {
   MAX_CARD_ARTIFACTS,
   secondsToDurationMs,
   workboardBoardOwnerSlotLimit,
+  workboardCardIsExternallyDispatched,
 } from "./store-constants.js";
 import {
   appendEvidence,
@@ -54,7 +58,9 @@ import type {
 } from "./store-inputs.js";
 import {
   appendCompletionProof,
+  appendWorkerLogEntry,
   capText,
+  capWorkboardSummary,
   clearDiagnostics,
   deriveChildIdempotencyKey,
   normalizeArtifact,
@@ -65,6 +71,9 @@ import {
 } from "./store-normalizers.js";
 import { WorkboardPromoteStore } from "./store-promote.js";
 import { finishRun } from "./store-status-write.js";
+
+export const WORKBOARD_DANGLING_SESSION_REASON =
+  "Linked session is missing; termination unconfirmed.";
 
 class WorkboardClaimRefusedError extends Error {
   constructor(message: string) {
@@ -114,6 +123,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         (guarded.status !== expectedAuthority.status ||
           cardBoardId(guarded) !== expectedAuthority.boardId ||
           guarded.agentId !== expectedAuthority.agentId ||
+          // A native start assumes the card is still locally placed: an edit to
+          // external placement between selection and claim must refuse the claim
+          // instead of racing the external controller. An absent flag means the
+          // caller assumed native, which is the only placement a pass starts.
+          Boolean(expectedAuthority.externallyDispatched) !==
+            workboardCardIsExternallyDispatched(guarded) ||
           !isDeepStrictEqual(
             guarded.metadata?.automation?.workspace,
             expectedAuthority.workspace,
@@ -129,6 +144,9 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       const activeClaim =
         existingClaim &&
         (isFutureDateTimestampMs(existingClaim.expiresAt, { nowMs: now }) ||
+          // External transport may still be alive after an outage. Its owner
+          // confirms cleanup and explicitly releases/reclaims before replacement.
+          workboardCardIsExternallyDispatched(guarded) ||
           // Direct claims must honor the same running-worker heartbeat grace
           // as dispatcher recovery; otherwise they silently steal live tokens.
           (guarded.status === "running" && !isWorkboardClaimReclaimable(existingClaim, now)))
@@ -154,6 +172,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       }
       if (activeClaim) {
         throw new WorkboardClaimRefusedError(`card already claimed by ${activeClaim.ownerId}.`);
+      }
+      // A claim from a startable status begins a new attempt; an open one would run twice.
+      if (isDependencyPromotableStatus(guarded.status) && latestRunningAttempt(guarded)) {
+        throw new WorkboardClaimRefusedError(
+          "card still has a running attempt; complete, block, or reclaim it before claiming.",
+        );
       }
       const metadata = clearDiagnostics(guarded.metadata, ["stranded_ready"]);
       const board = await this.boardStore.lookup(cardBoardId(guarded));
@@ -217,6 +241,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
   async releaseClaim(
     id: string,
     input: WorkboardHeartbeatInput & { status?: unknown } = {},
+    scope: WorkboardMutationScope | null | undefined = input,
   ): Promise<WorkboardCard> {
     return await this.enqueueMutation(async () => {
       const existing = await this.requireCard(id);
@@ -231,7 +256,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
           status,
           metadata: { ...existing.metadata, claim: undefined },
         },
-        { enforceStatusHolds: input.status !== undefined },
+        { actor: scope ?? null, enforceStatusHolds: input.status !== undefined },
       );
     });
   }
@@ -241,16 +266,36 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     input: WorkboardCompleteInput = {},
     scope: WorkboardMutationScope | null | undefined = input,
   ): Promise<WorkboardCard> {
-    return await this.enqueueMutation(() => this.completeDirect(id, input, scope));
+    return await this.enqueueMutation(() => this.completeDirect(id, input, scope, "review"));
   }
 
+  /**
+   * A worker's own completion is not acceptance: it lands in `review` with an
+   * acceptance marker until someone moves the card to `done`. Acceptance is decided
+   * by identity, not by status: operator completion (null scope) accepts, and so
+   * does a completion by anyone other than the owner that reported the pending
+   * result. Decomposition otherwise completes its parent as `done`, because the
+   * children wait on that parent.
+   */
   private async completeDirect(
     id: string,
-    input: WorkboardCompleteInput = {},
-    scope: WorkboardMutationScope | null | undefined = input,
+    input: WorkboardCompleteInput,
+    scope: WorkboardMutationScope | null | undefined,
+    unacceptedStatus: "review" | "done",
   ): Promise<WorkboardCard> {
     const existing = await this.requireCard(id);
     assertCanMutateClaimedCard(existing, scope === null ? undefined : scope);
+    const completedBy = scope === null ? undefined : mutationActorId(existing, scope);
+    const { awaitingAcceptance, autoCompletedBy } = existing.metadata?.automation ?? {};
+    const acceptsPendingResult = Boolean(
+      awaitingAcceptance && autoCompletedBy && completedBy && autoCompletedBy !== completedBy,
+    );
+    const status =
+      scope === null || acceptsPendingResult
+        ? "done"
+        : awaitingAcceptance
+          ? "review"
+          : unacceptedStatus;
     const now = Date.now();
     const createdCardIds = normalizeStringList(input.createdCardIds, "created card ids", 120);
     const childIds = cardChildIds(existing);
@@ -265,7 +310,14 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         throw new Error(`created card is not linked to this card: ${createdCardId}`);
       }
     }
-    const summary = normalizeBoundedString(input.summary, undefined, 2000, "summary");
+    // Prose, not authority: cap an over-long summary instead of discarding the
+    // proof, artifacts, and status move that travel with it. The truncation is
+    // recorded on the card as a warning worker log.
+    const { summary, workerLog: summaryCapLog } = capWorkboardSummary(
+      input.summary,
+      "completion summary",
+      now,
+    );
     const proofInput = isRecord(input.proof) ? input.proof : undefined;
     const proofId = normalizeBoundedString(input.proofId, undefined, 120, "proof id");
     if (input.proofId !== undefined && !proofId) {
@@ -287,7 +339,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       );
     }
     const claims = claimedBy ? buildCompletionClaims(existing, input.claims, claimedBy, now) : [];
-    const finished = finishRun(existing, "done", now);
+    const finished = finishRun(existing, status, now);
     const metadata = clearDiagnostics(finished.metadata, ["missing_proof"]);
     const notifications = this.appendNotification(metadata, now, {
       kind: "completed",
@@ -301,8 +353,37 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         ...finished,
         metadata: {
           ...metadata,
+<<<<<<< OURS/upstream-11.10
           automation: { ...metadata.automation, summary, createdCardIds },
+||||||| BASE/v11.4
+          automation: normalizeAutomation(
+            {
+              ...metadata.automation,
+              summary,
+              createdCardIds,
+            },
+            metadata.automation,
+          ),
+=======
+          automation: normalizeAutomation(
+            {
+              ...metadata.automation,
+              summary,
+              createdCardIds,
+              ...(status === "review"
+                ? {
+                    awaitingAcceptance: true,
+                    autoCompletedAt: now,
+                    autoCompletedBy: completedBy,
+                    acceptanceSeenAt: undefined,
+                  }
+                : { awaitingAcceptance: false }),
+            },
+            metadata.automation,
+          ),
+>>>>>>> THEIRS/pro-main
           comments: appendComment(metadata.comments, summary, now),
+          workerLogs: appendWorkerLogEntry(metadata.workerLogs, summaryCapLog),
           proof: appendCompletionProof(metadata.proof, proof, proofId),
           artifacts: artifacts.length
             ? [...(metadata.artifacts ?? []), ...artifacts].slice(-MAX_CARD_ARTIFACTS)
@@ -311,12 +392,15 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         },
       },
       {
+        actor: scope ?? null,
         enforceStatusHolds: true,
         preserveProofId: proofId ?? proof?.id,
         preserveNotificationId: notifications.at(-1)?.id,
         ...(claims.length
           ? { automationEvidence: appendEvidence(existing.metadata?.automation?.evidence, claims) }
           : {}),
+        agentId: scope?.agentId,
+        interaction: scope?.interaction,
       },
     );
   }
@@ -383,6 +467,71 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     };
   }
 
+  /**
+   * Records what an authoritative sweep saw of a running card's accepted session link.
+   * A first miss is only marked; a second consecutive miss for the same attempt blocks
+   * the card once through the normal block path. Link, execution and attempt history
+   * stay for the operator. A reappearing session clears an unreconciled marker.
+   */
+  async reconcileDanglingSession(
+    id: string,
+    input: { sessionKey: string; present: boolean; now: number },
+  ): Promise<"marked" | "blocked" | "cleared" | undefined> {
+    return await this.enqueueMutation(async () => {
+      let outcome: "marked" | "blocked" | "cleared" | undefined;
+      const result = await this.updateLatestCard(id, (card) => {
+        const automation = card.metadata?.automation;
+        const marker = automation?.danglingSession;
+        if (input.present) {
+          if (!marker || card.status === "blocked") {
+            return undefined;
+          }
+          outcome = "cleared";
+          return {
+            metadata: {
+              ...card.metadata,
+              automation: { ...automation, danglingSession: undefined },
+            },
+          };
+        }
+        const launch = automation?.launch;
+        if (
+          card.metadata?.archivedAt ||
+          card.sessionKey !== input.sessionKey ||
+          (card.status !== "running" && card.execution?.status !== "running") ||
+          (launch && launch.phase !== "accepted")
+        ) {
+          return undefined;
+        }
+        const runId = cardRunId(card);
+        if (!marker || marker.sessionKey !== input.sessionKey || marker.runId !== runId) {
+          outcome = "marked";
+          const danglingSession = {
+            sessionKey: input.sessionKey,
+            ...(runId ? { runId } : {}),
+            detectedAt: input.now,
+            misses: 1,
+          };
+          return { metadata: { ...card.metadata, automation: { ...automation, danglingSession } } };
+        }
+        outcome = "blocked";
+        const reason = `${WORKBOARD_DANGLING_SESSION_REASON} Session: ${input.sessionKey}`;
+        const patch = this.buildBlockedCardPatch(card, reason, input.now);
+        return {
+          ...patch,
+          metadata: {
+            ...patch.metadata,
+            automation: {
+              ...patch.metadata.automation,
+              danglingSession: { ...marker, misses: marker.misses + 1 },
+            },
+          },
+        };
+      });
+      return result.updated ? outcome : undefined;
+    });
+  }
+
   async block(
     id: string,
     input: WorkboardBlockInput = {},
@@ -396,9 +545,18 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       const reason =
         normalizeBoundedString(input.reason, undefined, 2000, "block reason") ??
         "Workboard card blocked.";
+      const patch = this.buildBlockedCardPatch(existing, reason, now, options);
       return await this.updateCard(
         existing,
-        this.buildBlockedCardPatch(existing, reason, now, options),
+        {
+          ...patch,
+          ...(input.decisionOptions === undefined
+            ? {}
+            : { decisionOptions: input.decisionOptions }),
+          ...(input.ask === undefined ? {} : { ask: input.ask }),
+          ...(input.askKind === undefined ? {} : { askKind: input.askKind }),
+        },
+        { actor: scope ?? null, agentId: scope?.agentId, interaction: scope?.interaction },
       );
     });
   }
@@ -408,10 +566,11 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       const existing = await this.requireCard(id);
       assertCanMutateClaimedCard(existing, scope);
       const metadata = clearDiagnostics(existing.metadata, ["blocked_too_long"]);
-      return await this.updateCard(existing, {
-        status: "todo",
-        metadata: { ...metadata, stale: null },
-      });
+      return await this.updateCard(
+        existing,
+        { status: "todo", metadata: { ...metadata, stale: null } },
+        { actor: scope ?? null },
+      );
     });
   }
 
@@ -439,7 +598,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       return await this.updateCard(
         existing,
         { agentId, status, metadata },
-        { enforceStatusHolds: true },
+        {
+          actor: scope ?? null,
+          enforceStatusHolds: true,
+          agentId: scope?.agentId,
+          interaction: scope?.interaction,
+        },
       );
     });
   }
@@ -475,7 +639,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
             stale: null,
           },
         },
-        { enforceStatusHolds: true },
+        { actor: scope ?? null, enforceStatusHolds: true },
       );
       return await this.promoteDependencyReady(reclaimed, now);
     });
@@ -506,10 +670,15 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         throw new Error("specified cards must move to todo.");
       }
       const now = Date.now();
-      const summary = normalizeBoundedString(input.summary, undefined, 2000, "spec summary");
+      const { summary, workerLog: summaryCapLog } = capWorkboardSummary(
+        input.summary,
+        "spec summary",
+        now,
+      );
       const metadata = {
         ...existing.metadata,
         comments: appendComment(existing.metadata?.comments, summary, now),
+        workerLogs: appendWorkerLogEntry(existing.metadata?.workerLogs, summaryCapLog),
         automation: {
           ...existing.metadata?.automation,
           summary: summary ?? existing.metadata?.automation?.summary,
@@ -523,7 +692,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
           status: "todo",
           metadata,
         },
-        { enforceStatusHolds: true, event: { kind: "specified" }, eventAt: now },
+        {
+          actor: scope ?? null,
+          enforceStatusHolds: true,
+          event: { kind: "specified" },
+          eventAt: now,
+        },
       );
     });
   }
@@ -555,6 +729,8 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
             parents: [parent.id],
             boardId: child.boardId ?? parentAutomation?.boardId,
             tenant: child.tenant ?? parentAutomation?.tenant,
+            // Persist placement before the child can ever be promoted to ready.
+            dispatchMode: child.dispatchMode ?? parentAutomation?.dispatchMode,
             createdByCardId: parent.id,
             idempotencyKey:
               child.idempotencyKey ??
@@ -571,16 +747,24 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
               }),
         );
       }
-      const summary = normalizeBoundedString(input.summary, undefined, 2000, "decompose summary");
       const completeParent = input.completeParent !== false;
+      // A completing decomposition routes through completeDirect, which caps and
+      // marks the summary; an open parent is capped here at the same shared path.
       const updatedParent = completeParent
         ? await this.completeDirect(
             parent.id,
-            { summary, createdCardIds: children.map((child) => child.id) },
+            { summary: input.summary, createdCardIds: children.map((child) => child.id) },
             scope,
+            "done",
           )
         : await (async () => {
             const latestParent = await this.requireCard(parent.id);
+            const now = Date.now();
+            const { summary, workerLog: summaryCapLog } = capWorkboardSummary(
+              input.summary,
+              "decompose summary",
+              now,
+            );
             return await this.updateCard(
               latestParent,
               {
@@ -590,6 +774,10 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
                     : latestParent.status,
                 metadata: {
                   ...latestParent.metadata,
+                  workerLogs: appendWorkerLogEntry(
+                    latestParent.metadata?.workerLogs,
+                    summaryCapLog,
+                  ),
                   automation: {
                     ...latestParent.metadata?.automation,
                     summary,
@@ -597,7 +785,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
                   },
                 },
               },
-              { enforceStatusHolds: true },
+              { actor: scope ?? null, enforceStatusHolds: true },
             );
           })();
       const decomposedParent = await this.updateCard(

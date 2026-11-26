@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import type {
   WorkboardCard,
   WorkboardDeleteResult,
+  WorkboardEvent,
   WorkboardLink,
   WorkboardMetadata,
   WorkboardStatus,
@@ -10,11 +11,16 @@ import type {
 import { resolveNonNegativeIntegerOption } from "openclaw/plugin-sdk/number-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { definedFields } from "../record-fields.js";
+import {
+  applyWorkboardCardClassifications,
+  type WorkboardClassificationChange,
+} from "./classification-palette.js";
 import type { PersistedWorkboardCard } from "./persistence-types.js";
 import { normalizeAutomationPatch, normalizeCardAutomation } from "./store-automation.js";
 import { WorkboardBoardStore } from "./store-boards.js";
 import {
   assertCanMutateClaimedCard,
+  assertCanSettlePendingResult,
   cardBoardId,
   cardParentIds,
   cardSessionKey,
@@ -24,7 +30,12 @@ import {
   updateEvent,
   appendEvent,
 } from "./store-card-helpers.js";
-import { MAX_CARD_COMMENTS, MAX_CARD_WORKER_LOGS, POSITION_STEP } from "./store-constants.js";
+import {
+  MAX_CARD_COMMENTS,
+  MAX_CARD_WORKER_LOGS,
+  POSITION_STEP,
+  workboardCardIsExternallyDispatched,
+} from "./store-constants.js";
 import { normalizeWithoutEvidence, withStoredEvidence } from "./store-evidence.js";
 import type {
   WorkboardCardPatch,
@@ -43,6 +54,7 @@ import {
   normalizeBoardId,
   normalizeBoundedString,
   normalizeExecution,
+  normalizeInteraction,
   normalizeLinkType,
   normalizeMetadata,
   normalizeNotes,
@@ -57,6 +69,7 @@ import {
   trimMetadataToBudget,
 } from "./store-normalizers.js";
 import { readCards } from "./store-read.js";
+import { reviewWrittenInPatch } from "./store-review.js";
 import { resolveLifecycleStatusWrite, settleManualStatusTransition } from "./store-status-write.js";
 import { normalizeCappedStringList } from "./store-string-lists.js";
 
@@ -134,16 +147,53 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
   protected async updateMetadata(
     id: string,
     mutate: (existing: WorkboardCard) => WorkboardMetadata,
-    options: { preserveProofId?: string; expectedUpdatedAt?: number } = {},
+    options: {
+      preserveProofId?: string;
+      expectedUpdatedAt?: number;
+      agentId?: string;
+      interaction?: WorkboardUpdateCardOptions["interaction"];
+      /**
+       * Explicit audit event for a metadata write whose change the generic
+       * `updateEvent` inference would misreport (for example an unlink, which
+       * would otherwise be recorded as `link_added`).
+       */
+      event?: Omit<WorkboardEvent, "id" | "at">;
+      eventAt?: number;
+    } = {},
   ): Promise<WorkboardCard> {
-    return await this.enqueueMutation(async () => {
-      const result = await this.updateLatestCard(
-        id,
-        (current) => ({ metadata: mutate(current) }),
-        options,
-      );
-      return result.card;
-    });
+    return await this.enqueueMutation(
+      async () => await this.updateMetadataDirect(id, mutate, options),
+    );
+  }
+
+  /**
+   * The write half of `updateMetadata`, for callers already inside one queued
+   * mutation: the queue is not reentrant, so a queued writer must reach the
+   * card write directly (the same split as `linkCards`/`linkCardsDirect`).
+   * Returning `undefined` from `mutate` skips the write entirely, so a caller
+   * can make a replay a no-op instead of bumping `updatedAt` and the event log.
+   */
+  protected async updateMetadataDirect(
+    id: string,
+    mutate: (existing: WorkboardCard) => WorkboardMetadata | undefined,
+    options: {
+      preserveProofId?: string;
+      expectedUpdatedAt?: number;
+      agentId?: string;
+      interaction?: WorkboardUpdateCardOptions["interaction"];
+      event?: Omit<WorkboardEvent, "id" | "at">;
+      eventAt?: number;
+    } = {},
+  ): Promise<WorkboardCard> {
+    const result = await this.updateLatestCard(
+      id,
+      (current) => {
+        const metadata = mutate(current);
+        return metadata === undefined ? undefined : { metadata };
+      },
+      options,
+    );
+    return result.card;
   }
 
   protected async deleteDetachedAttachments(
@@ -246,14 +296,46 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     input: WorkboardLinkedCreateInput,
     scope?: WorkboardMutationScope,
     assertOwnerCurrent?: () => void,
+    onClassifications?: WorkboardUpdateCardOptions["onClassifications"],
   ): Promise<WorkboardCard> {
-    return await this.enqueueMutation(() => this.createDirect(input, scope), assertOwnerCurrent);
+    return await this.enqueueMutation(
+      () => this.createDirect(input, scope, { onClassifications }),
+      assertOwnerCurrent,
+    );
+  }
+
+  /**
+   * The one palette gate for card label writes: create and the shared update path
+   * both call it. It refuses before the card write and stores palette changes only
+   * after that write lands, so a rejected or conflicting write leaves the palette as is.
+   */
+  private async prepareCardClassifications(params: {
+    boardId: string;
+    previousLabels: readonly string[];
+    labels: readonly string[];
+    replaces: unknown;
+    boardCards?: readonly WorkboardCard[];
+  }): Promise<{ labels: string[]; commit: () => Promise<WorkboardClassificationChange> }> {
+    const palette = await this.seedClassificationsDirect(params.boardId, params.boardCards);
+    const { labels, change, changed } = applyWorkboardCardClassifications({ ...params, palette });
+    return {
+      labels,
+      commit: async () => {
+        if (changed) {
+          await this.writeClassificationsDirect(params.boardId, change.classifications);
+        }
+        return change;
+      },
+    };
   }
 
   protected async createDirect(
     input: WorkboardLinkedCreateInput,
     scope?: WorkboardMutationScope,
-    options: { cardId?: string; insertIfAbsent?: boolean } = {},
+    options: Pick<WorkboardUpdateCardOptions, "onClassifications"> & {
+      cardId?: string;
+      insertIfAbsent?: boolean;
+    } = {},
   ): Promise<WorkboardCard> {
     const now = Date.now();
     const requestedStatus = normalizeStatus(input.status, "todo");
@@ -265,7 +347,8 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
       requestedStatus !== "blocked";
     let status: WorkboardStatus = heldBySchedule ? "scheduled" : requestedStatus;
     let heldByDependencies = false;
-    if (parents.length > 0 && (status === "running" || status === "review")) {
+    // A requested `review` records finished work, which dependencies never hide.
+    if (parents.length > 0 && status === "running") {
       status = "todo";
       heldByDependencies = true;
     }
@@ -326,6 +409,10 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     );
     const syncedMetadata = trimMetadataToBudget(
       syncExecutionAttemptMetadata(metadata, execution, now),
+      // Same non-terminality as in `updateCard`: this trim runs after the guarded
+      // `normalizeMetadata` and adds the attempt data, so a create carrying a review must
+      // carry the flag here too or it would shed a comment for the review (R27/A9).
+      { reviewWritten: reviewWrittenInPatch(input.metadata) },
     );
     const boardId = syncedMetadata.automation?.boardId ?? "default";
     const position = Number.isFinite(normalizedPosition)
@@ -336,12 +423,19 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
             .filter((card) => card.status === status && cardBoardId(card) === boardId)
             .map((card) => card.position),
         ) + POSITION_STEP;
+    const classified = await this.prepareCardClassifications({
+      boardId,
+      previousLabels: [],
+      labels: normalizeCappedStringList(input.labels, "labels"),
+      replaces: input.replaces,
+      boardCards: cards.filter((card) => cardBoardId(card) === boardId),
+    });
     let card: WorkboardCard = {
       id: options.cardId ?? randomUUID(),
       title: normalizeTitle(input.title),
       status,
       priority: normalizePriority(input.priority, "normal"),
-      labels: normalizeCappedStringList(input.labels, "labels"),
+      labels: classified.labels,
       position,
       createdAt: now,
       updatedAt: now,
@@ -377,6 +471,8 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     } else {
       await this.store.register(card.id, { version: 1, card });
     }
+    const classificationChange = await classified.commit();
+    options.onClassifications?.(classificationChange);
     for (const parent of parentCards) {
       card = await this.linkCardsDirect(parent.id, card.id, now, {
         allowStatusOnlyActiveChild: true,
@@ -436,14 +532,23 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
   async update(
     id: string,
     patch: WorkboardCardPatch,
-    options: { expectedUpdatedAt?: number } = {},
+    options: Pick<
+      WorkboardUpdateCardOptions,
+      "expectedUpdatedAt" | "onClassifications" | "agentId" | "interaction"
+    > = {},
   ): Promise<WorkboardCard> {
     return await this.enqueueMutation(
       async () =>
+        // Operator-only: Gateway, CLI and bulk edits. Agent tools route only
+        // label, priority and parallelism patches here.
         await this.updateCard(await this.requireCard(id), patch, {
+          actor: null,
           allowMetadataDependencyLinks: false,
           enforceStatusHolds: true,
           expectedUpdatedAt: options.expectedUpdatedAt,
+          onClassifications: options.onClassifications,
+          agentId: options.agentId,
+          interaction: options.interaction,
         }),
     );
   }
@@ -489,6 +594,37 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
           : syncExecutionSessionKey(existing.execution, sessionKey)
         : normalizeExecution(effectivePatch.execution);
     let metadata = normalizeWithoutEvidence(effectivePatch.metadata, existing, options);
+    // The guard has to hold for the whole write, not only where the patch was normalized:
+    // `normalizeMetadata` is the *first* of several metadata trims this write runs through,
+    // and the ones below add card data of their own (the interaction stamp, the automation
+    // patch, the execution-attempt sync, a settle notification). Reaching them without the
+    // flag is how a single write carrying a review *and* another field shed a comment and a
+    // proof to make room for the review (R27/A9) - measured 2026-11-20. Same reader as the
+    // resolution inside `normalizeMetadata`, so both answer alike for one write.
+    const metadataWriteOptions = {
+      ...options,
+      reviewWritten: reviewWrittenInPatch(effectivePatch.metadata, existing.metadata?.review),
+    };
+    // A card-bound turn records which session is editing the card. Reference data
+    // only (like the voice board binding): `startedAt` keeps the first turn of an
+    // existing link, `updatedAt` moves on every turn, and nothing here is read as
+    // execution or as authority. Absent for operator, CLI, and unbound writes.
+    if (options.interaction) {
+      const stamp = options.interaction;
+      const nextInteraction = normalizeInteraction({
+        sessionKey: stamp.sessionKey,
+        agentId: stamp.agentId,
+        surface: stamp.surface,
+        startedAt: metadata.interaction?.startedAt ?? stamp.at,
+        updatedAt: stamp.at,
+      });
+      if (nextInteraction) {
+        metadata = trimMetadataToBudget(
+          { ...metadata, interaction: nextInteraction },
+          metadataWriteOptions,
+        );
+      }
+    }
     if (status !== existing.status && !hasFreshLifecycleStatusSource) {
       ({ execution, metadata } = settleManualStatusTransition({
         existing,
@@ -496,8 +632,14 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
         execution,
         metadata,
         now,
+        // Only the operator's own settle (null actor: operator or system) stamps
+        // acceptance; a reviewer's acceptance leaves the result unseen for the operator.
+        acceptedByOperator: options.actor === null,
         nextNotificationSequence: () => this.nextNotificationSequence(now),
         preserveProofId: options.preserveProofId,
+        // The settle appends a notification and runs its own trim; without the flag that
+        // trim is unguarded and would shed a comment for the review in the same write.
+        reviewWritten: metadataWriteOptions.reviewWritten,
       }));
     }
     const automationPatch: Record<string, unknown> = {};
@@ -511,7 +653,14 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
       "workspaceAccess",
       "maxRuntimeSeconds",
       "maxRetries",
+      "parallelizable",
+      "maxConcurrentPerOwner",
+      "dispatchMode",
       "scheduledAt",
+      "acceptanceSeenAt",
+      "decisionOptions",
+      "ask",
+      "askKind",
     ] as const) {
       if (Object.hasOwn(effectivePatch, key) && effectivePatch[key] !== undefined) {
         automationPatch[key] = effectivePatch[key];
@@ -523,7 +672,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
           ...metadata,
           automation: normalizeAutomationPatch(automationPatch, metadata.automation),
         },
-        options,
+        metadataWriteOptions,
       );
     }
     const next = definedFields<WorkboardCard>({
@@ -565,11 +714,23 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     next.metadata = withStoredEvidence(
       syncExecutionAttemptMetadata(next.metadata ?? {}, execution, now),
       existing,
-      options,
+      metadataWriteOptions,
     );
+    // Placement stays fixed from claim through execution settlement. Check the
+    // existing owner after normalizing the entire patch so metadata replacement
+    // or a simultaneous claim/status clear cannot bypass the launch fence.
+    if (
+      workboardCardIsExternallyDispatched(existing) !== workboardCardIsExternallyDispatched(next) &&
+      isActiveDependencyTarget(existing, { allowStatusOnly: true })
+    ) {
+      throw new Error(
+        "dispatch mode cannot change while a claim or execution owns the card; complete, block, or reclaim it first.",
+      );
+    }
+    const event = options.event ?? updateEvent(existing, next);
     next.events = appendEvent(
       next,
-      options.event ?? updateEvent(existing, next),
+      options.agentId ? { ...event, agentId: options.agentId } : event,
       options.eventAt ?? now,
     );
     if (options.enforceStatusHolds && effectivePatch.status !== undefined) {
@@ -586,6 +747,20 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     }
     if (metadataIsEmpty(next.metadata)) {
       delete next.metadata;
+    }
+    assertCanSettlePendingResult(existing, next, options.actor);
+    // Writes that leave labels alone (status, metadata, claims) never touch the palette.
+    const classified =
+      effectivePatch.labels === undefined && effectivePatch.replaces === undefined
+        ? undefined
+        : await this.prepareCardClassifications({
+            boardId: cardBoardId(next),
+            previousLabels: existing.labels,
+            labels: next.labels,
+            replaces: effectivePatch.replaces,
+          });
+    if (classified) {
+      next.labels = classified.labels;
     }
     const expectedUpdatedAt = options.expectedUpdatedAt ?? existing.updatedAt;
     const nextEntry: PersistedWorkboardCard = { version: 1, card: next };
@@ -606,6 +781,10 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     }
     if (updated) {
       await this.deleteDetachedAttachments(existing, next);
+      if (classified) {
+        const classificationChange = await classified.commit();
+        options.onClassifications?.(classificationChange);
+      }
       return next;
     }
     const current = await this.get(next.id);
@@ -628,8 +807,11 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     ) {
       return;
     }
+    // Dependencies gate starts (`ready`/`running`) and acceptance (`done`); they never
+    // block recording completion (`review`). The schedule hold stays in force for every
+    // gated status except `done`.
     const parents = cardParentIds(next);
-    if (parents.length > 0 && !(await this.parentsDone(parents))) {
+    if (next.status !== "review" && parents.length > 0 && !(await this.parentsDone(parents))) {
       throw new Error("card dependencies are not done.");
     }
     if (next.status === "done") {
@@ -684,13 +866,17 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
       throw new Error("comment body is required.");
     }
     const comment = { id: randomUUID(), body, createdAt: now };
-    return await this.updateMetadata(id, (existing) => {
-      assertCanMutateClaimedCard(existing, scope);
-      return {
-        ...existing.metadata,
-        comments: [...(existing.metadata?.comments ?? []), comment].slice(-MAX_CARD_COMMENTS),
-      };
-    });
+    return await this.updateMetadata(
+      id,
+      (existing) => {
+        assertCanMutateClaimedCard(existing, scope);
+        return {
+          ...existing.metadata,
+          comments: [...(existing.metadata?.comments ?? []), comment].slice(-MAX_CARD_COMMENTS),
+        };
+      },
+      { agentId: scope?.agentId, interaction: scope?.interaction },
+    );
   }
 
   async addLink(id: string, input: WorkboardLinkInput): Promise<WorkboardCard> {
@@ -782,6 +968,61 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
       metadata: { ...child.metadata, links: nextChildLinks },
     });
     return await this.promoteDependencyReady(nextChild);
+  }
+
+  async unlinkCards(
+    parentId: string,
+    childId: string,
+    scope?: WorkboardMutationScope,
+  ): Promise<WorkboardCard> {
+    return await this.enqueueMutation(() => this.unlinkCardsDirect(parentId, childId, { scope }));
+  }
+
+  /**
+   * Removes one dependency pair: the parent's `child` link to `childId` and the
+   * child's `parent` link to `parentId`. Each side is filtered against exactly
+   * one target, so every other link (including other parent/child pairs) survives
+   * byte-for-byte - unlike the generic metadata path, which reinstates dependency
+   * links from the old card and therefore cannot remove them.
+   *
+   * A side without the link skips its write, so a repeated unlink is a no-op:
+   * no event, no `updatedAt` bump. Purely structural: this never calls
+   * `promoteDependencyReady`, because dropping a gate is not dropping work - the
+   * caller moves or completes the card next.
+   */
+  protected async unlinkCardsDirect(
+    parentId: string,
+    childId: string,
+    options: { scope?: WorkboardMutationScope } = {},
+  ): Promise<WorkboardCard> {
+    if (parentId.trim() === childId.trim()) {
+      throw new Error("parent and child cards must differ.");
+    }
+    const parent = await this.requireCard(parentId);
+    const child = await this.requireCard(childId);
+    assertCanMutateClaimedCard(parent, options.scope);
+    assertCanMutateClaimedCard(child, options.scope);
+    const withoutDependencyLink = (
+      current: WorkboardCard,
+      type: "parent" | "child",
+      targetCardId: string,
+    ): WorkboardMetadata | undefined => {
+      const links = current.metadata?.links ?? [];
+      const next = links.filter(
+        (link) => !(link.type === type && link.targetCardId === targetCardId),
+      );
+      return next.length === links.length ? undefined : { ...current.metadata, links: next };
+    };
+    await this.updateMetadataDirect(
+      parent.id,
+      (current) => withoutDependencyLink(current, "child", child.id),
+      { event: { kind: "unlinked" } },
+    );
+    return await this.updateMetadataDirect(
+      child.id,
+      (current) => withoutDependencyLink(current, "parent", parent.id),
+      { event: { kind: "unlinked" } },
+    );
   }
 
   protected async parentsDone(parentIds: readonly string[]): Promise<boolean> {

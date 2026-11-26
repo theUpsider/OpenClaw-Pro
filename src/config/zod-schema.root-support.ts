@@ -151,6 +151,14 @@ export const PluginEntrySchema = z.strictObject({
       timeoutMs: z.number().int().positive().max(600_000).optional(),
       /** Per typed-hook timeout overrides in milliseconds. */
       timeouts: z.record(z.string(), z.number().int().positive().max(600_000)).optional(),
+      /**
+       * Default failure policy for this plugin's typed hooks when a handler throws
+       * or times out. Use "fail-closed" to make a guard deny the operation instead
+       * of silently letting it through.
+       */
+      failurePolicy: z.enum(["fail-open", "fail-closed"]).optional(),
+      /** Per typed-hook failure-policy overrides keyed by typed hook name. */
+      failurePolicies: z.record(z.string(), z.enum(["fail-open", "fail-closed"])).optional(),
     })
     .optional(),
   subagent: z

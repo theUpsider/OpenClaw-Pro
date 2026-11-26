@@ -653,11 +653,231 @@ async function handlePreparedNodeEvent(
       return admitNodeAgentRequest({
         ctx,
         nodeId,
+<<<<<<< OURS/upstream-11.10
         input: nodeAgentInput,
         isConnectionCurrent: opts?.isConnectionCurrent,
         pending: source?.pending,
         onRejected: () => cleanupNodeEventMedia(persistedTranscriptMedia.entries, ctx),
       });
+||||||| BASE/v11.4
+        {
+          runId: sessionId,
+          message,
+          images,
+          imageOrder,
+          ...(transcriptMedia.length > 0 ||
+          persistedTranscriptMedia.omission === "inline-image-save-failed"
+            ? { transcriptMessage, ...(transcriptMedia.length > 0 ? { transcriptMedia } : {}) }
+            : {}),
+          sessionId,
+          sessionKey: canonicalKey,
+          thinking: link?.thinking ?? undefined,
+          deliver,
+          to: deliveryTo,
+          channel: deliveryChannel,
+          timeout:
+            typeof link?.timeoutSeconds === "number" ? link.timeoutSeconds.toString() : undefined,
+          messageChannel: "node",
+          allowModelOverride: false,
+        },
+        opts?.isConnectionCurrent,
+        () => cleanupNodeEventMedia(persistedTranscriptMedia.entries, ctx),
+      );
+      source?.pending.push(agentWork);
+      return undefined;
+    }
+    case "notifications.changed": {
+      const obj = parseNodeEventPayload(evt.payloadJSON);
+      if (!obj) {
+        return undefined;
+      }
+      const change = normalizeLowercaseStringOrEmpty(obj.change);
+      if (change !== "posted" && change !== "removed") {
+        return undefined;
+      }
+      const key = normalizeOptionalString(obj.key);
+      if (!key) {
+        return undefined;
+      }
+      const requestedSessionKey = normalizeOptionalString(obj.sessionKey);
+      let target: { sessionKey: string; agentId?: string };
+      try {
+        target = requestedSessionKey
+          ? { sessionKey: requestedSessionKey }
+          : resolveSystemMainSessionTarget(getRuntimeConfig());
+      } catch (error) {
+        ctx.logGateway.warn(
+          `notification event not delivered node=${nodeId}: ${formatErrorMessage(error)}`,
+        );
+        return undefined;
+      }
+      const {
+        canonicalKey: sessionKey,
+        entry,
+        agentId,
+      } = source?.loaded ??
+      (await loadGatewaySessionEntryReadOnlyInWorker({
+        cfg: getRuntimeConfig(),
+        key: target.sessionKey,
+        agentId: target.agentId,
+        excludeInternalEffects: true,
+      }));
+      if (resolveAgentHarnessSessionContextError(sessionKey, entry)) {
+        return undefined;
+      }
+      const packageName = normalizeOptionalString(obj.packageName);
+      const title = compactNodeEventText(
+        normalizeOptionalString(obj.title) ?? "",
+        MAX_NOTIFICATION_EVENT_TEXT_CHARS,
+      );
+      const text = compactNodeEventText(
+        normalizeOptionalString(obj.text) ?? "",
+        MAX_NOTIFICATION_EVENT_TEXT_CHARS,
+      );
+
+      let summary = `Notification ${change} (node=${nodeId} key=${key}`;
+      if (packageName) {
+        summary += ` package=${packageName}`;
+      }
+      summary += ")";
+      if (change === "posted") {
+        const messageParts = [title, text].filter(Boolean);
+        if (messageParts.length > 0) {
+          summary += `: ${messageParts.join(" - ")}`;
+        }
+      }
+
+      if (!(await isNodeEventConnectionCurrent(opts))) {
+        return pairingChangedResult(evt.event);
+      }
+      source?.assertCurrent();
+      const queued = enqueueSystemEvent(
+        summary,
+        withSystemEventOwner({ sessionKey, contextKey: `notification:${key}` }, agentId),
+      );
+      if (queued) {
+        requestHeartbeat({
+          source: "notifications-event",
+          intent: "event",
+          reason: "notifications-event",
+          agentId,
+          sessionKey,
+        });
+      }
+      return undefined;
+=======
+        {
+          runId: sessionId,
+          message,
+          images,
+          imageOrder,
+          ...(transcriptMedia.length > 0 ||
+          persistedTranscriptMedia.omission === "inline-image-save-failed"
+            ? { transcriptMessage, ...(transcriptMedia.length > 0 ? { transcriptMedia } : {}) }
+            : {}),
+          sessionId,
+          sessionKey: canonicalKey,
+          thinking: link?.thinking ?? undefined,
+          deliver,
+          to: deliveryTo,
+          channel: deliveryChannel,
+          timeout:
+            typeof link?.timeoutSeconds === "number" ? link.timeoutSeconds.toString() : undefined,
+          messageChannel: "node",
+          allowModelOverride: false,
+        },
+        opts?.isConnectionCurrent,
+        () => cleanupNodeEventMedia(persistedTranscriptMedia.entries, ctx),
+      );
+      source?.pending.push(agentWork);
+      return undefined;
+    }
+    case "notifications.changed": {
+      const obj = parseNodeEventPayload(evt.payloadJSON);
+      if (!obj) {
+        return undefined;
+      }
+      const change = normalizeLowercaseStringOrEmpty(obj.change);
+      if (change !== "posted" && change !== "removed") {
+        return undefined;
+      }
+      const key = normalizeOptionalString(obj.key);
+      if (!key) {
+        return undefined;
+      }
+      const requestedSessionKey = normalizeOptionalString(obj.sessionKey);
+      let target: { sessionKey: string; agentId?: string };
+      try {
+        target = requestedSessionKey
+          ? { sessionKey: requestedSessionKey }
+          : resolveSystemMainSessionTarget(getRuntimeConfig());
+      } catch (error) {
+        ctx.logGateway.warn(
+          `notification event not delivered node=${nodeId}: ${formatErrorMessage(error)}`,
+        );
+        return undefined;
+      }
+      const {
+        canonicalKey: sessionKey,
+        entry,
+        agentId,
+      } = source?.loaded ??
+      (await loadGatewaySessionEntryReadOnlyInWorker({
+        cfg: getRuntimeConfig(),
+        key: target.sessionKey,
+        agentId: target.agentId,
+        excludeInternalEffects: true,
+      }));
+      if (resolveAgentHarnessSessionContextError(sessionKey, entry)) {
+        return undefined;
+      }
+      const packageName = normalizeOptionalString(obj.packageName);
+      const title = compactNodeEventText(
+        normalizeOptionalString(obj.title) ?? "",
+        MAX_NOTIFICATION_EVENT_TEXT_CHARS,
+      );
+      const text = compactNodeEventText(
+        normalizeOptionalString(obj.text) ?? "",
+        MAX_NOTIFICATION_EVENT_TEXT_CHARS,
+      );
+
+      let summary = `Notification ${change} (node=${nodeId} key=${key}`;
+      if (packageName) {
+        summary += ` package=${packageName}`;
+      }
+      summary += ")";
+      if (change === "posted") {
+        const messageParts = [title, text].filter(Boolean);
+        if (messageParts.length > 0) {
+          summary += `: ${messageParts.join(" - ")}`;
+        }
+      }
+
+      if (!(await isNodeEventConnectionCurrent(opts))) {
+        return pairingChangedResult(evt.event);
+      }
+      source?.assertCurrent();
+      // One queue slot per notification key: ongoing updates replace instead of filling the
+      // shared queue, so host events (exec/cron/hooks) keep their slots. Accepted: `removed`
+      // drops a queued `posted` for the same key, and the key is not node-scoped.
+      const queued = enqueueSystemEvent(
+        summary,
+        withSystemEventOwner(
+          { sessionKey, contextKey: `notification:${key}`, replace: true },
+          agentId,
+        ),
+      );
+      if (queued) {
+        requestHeartbeat({
+          source: "notifications-event",
+          intent: "event",
+          reason: "notifications-event",
+          agentId,
+          sessionKey,
+        });
+      }
+      return undefined;
+>>>>>>> THEIRS/pro-main
     }
     case "notifications.changed":
       return handleNodeNotificationEvent(ctx, nodeId, evt, opts, source);

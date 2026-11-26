@@ -90,6 +90,8 @@ export type PluginLoadOptions = {
   /** Validate captured source before evaluation; this never grants plugin authority. */
   expectedSourceDigests?: Readonly<Record<string, string>>;
   loadModules?: boolean;
+  /** Cancels an incremental load at its next step boundary; the run rolls back like any failure. */
+  signal?: AbortSignal;
   throwOnLoadError?: boolean;
   /** Exact lifecycle inventory supplied by a prepared load owner. */
   metadataSnapshot?: PluginMetadataSnapshot;

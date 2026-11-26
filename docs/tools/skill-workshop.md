@@ -69,11 +69,16 @@ When a background run changes a skill, the Control UI chat shows a compact
 **Learned** row; each skill name opens that skill in the Workshop. Channel
 messages are off by default. Set `plugins.entries.skill-workshop.config.autonomous.channelNotices:
 true` to post the notice to the conversation that triggered the review
-instead; that session's Control UI chat then shows it as plain text:
+instead, when that conversation is a direct chat and the reviewed turn came
+from the owner; that session's Control UI chat then shows it as plain text:
 
 ```text
 💾 Learned: updated `deploy-staging` (tightened the rollback step). Say "undo" to revert this skill change.
 ```
+
+The notice names your skills and procedures, so groups, channels, other
+senders, and chats whose type cannot be established never get it; their
+notices stay in the Control UI's **Learned** row.
 
 Say "undo" in the conversation and the agent restores the previous version
 with `skill_workshop`, whether channel notices are on or off. Nothing appears
@@ -288,11 +293,25 @@ one and should be merged.
 }
 ```
 
+<<<<<<< OURS/upstream-11.10
 | Setting                                                           | Default  | Effect                                                                                                                                                                            |
 | ----------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `plugins.entries.skill-workshop.config.autonomous.mode`           | `"auto"` | `"auto"` enables the background review, unused-skill cleanup, and the [skill diet](#skill-diet). `"propose"` makes the review save [drafts](#drafts). `"off"` disables all three. |
 | `plugins.entries.skill-workshop.config.autonomous.channelNotices` | `false`  | Also post background review notices to channel conversations, except Slack.                                                                                                       |
 | `plugins.entries.skill-workshop.config.maxSkillBytes`             | `40000`  | Maximum `SKILL.md` size in bytes (1024-200000).                                                                                                                                   |
+||||||| BASE/v11.4
+| Setting                                     | Default  | Effect                                                                                  |
+| ------------------------------------------- | -------- | --------------------------------------------------------------------------------------- |
+| `skills.workshop.autonomous.mode`           | `"auto"` | `"auto"` enables the background review and unused-skill cleanup. `"off"` disables both. |
+| `skills.workshop.autonomous.channelNotices` | `false`  | Also post background review notices to channel conversations, except Slack.             |
+| `skills.workshop.maxSkillBytes`             | `40000`  | Maximum `SKILL.md` size in bytes (1024-200000).                                         |
+=======
+| Setting                                     | Default  | Effect                                                                                  |
+| ------------------------------------------- | -------- | --------------------------------------------------------------------------------------- |
+| `skills.workshop.autonomous.mode`           | `"auto"` | `"auto"` enables the background review and unused-skill cleanup. `"off"` disables both. |
+| `skills.workshop.autonomous.channelNotices` | `false`  | Also post background review notices to the owner's direct chats, except on Slack.       |
+| `skills.workshop.maxSkillBytes`             | `40000`  | Maximum `SKILL.md` size in bytes (1024-200000).                                         |
+>>>>>>> THEIRS/pro-main
 
 ```bash
 openclaw config set plugins.entries.skill-workshop.config.autonomous.mode off

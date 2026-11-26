@@ -65,6 +65,21 @@ provider replay checkpoint. If that replay unit cannot fit, the turn fails befor
 handoff with a visible retry instruction. The managed line limit excludes its final
 newline; standalone stdin counts every byte.
 
+Transcript, inference, and launch data use separate bounded text allowances:
+text, reasoning, and content signatures together may occupy up to 1 MiB per
+message and 8 MiB per context or commit batch. System prompts and typed runtime
+context count toward the context total. Opaque provider replay has a separate
+8 MiB allowance; it is preserved whole or rejected. Complete non-image payloads
+must fit 16 MiB, while the complete media transport ceiling remains 25 MiB.
+These are serialized UTF-8 byte limits, including JSON escaping. Tool arguments,
+tool definitions, diagnostics, identifiers, and other residual control structure
+still share 64 KiB. The private, exactly validated connection endpoint retains its
+own bounded transport allowance and counts toward the 16 MiB and 25 MiB ceilings;
+managed-turn framing counts toward the 64 KiB residual limit. Launch fitting
+reserves both before handoff. Large contexts therefore depend on both message size and
+structure; these limits do not promise that every million-token input or
+maximum-length generation will fit.
+
 Admission is refused if the envelope is invalid, the credential is rejected,
 the bundle or protocol features do not match, or the session and owner epoch are
 no longer current. Missing, duplicate, or unknown tool names also invalidate the

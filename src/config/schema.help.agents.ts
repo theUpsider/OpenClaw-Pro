@@ -41,6 +41,10 @@ export const AGENT_FIELD_HELP: Record<string, string> = {
     "Default timeout in milliseconds for this plugin's typed hooks, capped at 600000. When unset, each hook uses the plugin's declared timeout or the Gateway's per-hook policy; there is no single fixed default. Per-hook values in hooks.timeouts take precedence.",
   "plugins.entries.*.hooks.timeouts":
     "Per-hook timeout overrides in milliseconds keyed by typed hook name, capped at 600000. Use narrow overrides for known slow hooks such as before_prompt_build or agent_end instead of raising every hook timeout.",
+  "plugins.entries.*.hooks.failurePolicy":
+    'Default failure policy for this plugin\'s typed hooks when a handler throws or times out. "fail-open" logs and continues; "fail-closed" aborts the guarded operation, so an outbound guard denies delivery instead of letting the message through.',
+  "plugins.entries.*.hooks.failurePolicies":
+    "Per-hook failure-policy overrides keyed by typed hook name. Use fail-closed for outbound guards such as message_sending or reply_payload_sending so a guard timeout suppresses delivery rather than sending unguarded content.",
   "plugins.entries.*.subagent":
     "Per-plugin subagent runtime controls for model override trust and allowlists. Keep this unset unless a plugin must explicitly steer subagent model selection.",
   "plugins.entries.*.subagent.allowModelOverride":

@@ -135,6 +135,60 @@ describe("UsageInsights", () => {
     expect(text(provider, ".usage-list-value")).toContain("Unpriced");
     expect(provider?.textContent).not.toContain("$0.00");
   });
+  it("hides cost shares while the overall total is a lower bound", () => {
+    const container = document.createElement("div");
+    const complete = { ...totals, totalCost: 10 };
+    const partialTotals = { ...complete, usageReport: { state: "unavailable" as const } };
+    mountSolid(
+      () =>
+        UsageInsights({
+          totals: partialTotals,
+          aggregates: {
+            ...aggregates,
+            byProvider: [{ provider: "openai", count: 1, totals: complete }],
+          },
+          stats: { durationCount: 0, avgDurationMs: 0, errorRate: 0 },
+          showCostHint: false,
+          showCostShares: true,
+          errorHours: [],
+          sessionCount: 1,
+          totalSessions: 1,
+        }),
+      { container },
+    );
+    flush();
+    // A complete provider's share of an incomplete total is unknown, not 100%.
+    expect(container.textContent).toContain("openai");
+    expect(container.textContent).not.toContain("of cost");
+  });
+
+  it("labels usage without a known price as unpriced, never free", () => {
+    const container = document.createElement("div");
+    const unpriced = { ...totals, totalCost: 0, missingCostEntries: 3 };
+    mountSolid(
+      () =>
+        UsageInsights({
+          totals: unpriced,
+          aggregates: {
+            ...aggregates,
+            byProvider: [{ provider: "ollama", count: 1, totals: unpriced }],
+          },
+          stats: { durationCount: 0, avgDurationMs: 0, errorRate: 0 },
+          showCostHint: false,
+          showCostShares: true,
+          errorHours: [],
+          sessionCount: 1,
+          totalSessions: 1,
+        }),
+      { container },
+    );
+    flush();
+    const provider = [...container.querySelectorAll(".usage-list-item")].find((item) =>
+      item.textContent?.includes("ollama"),
+    );
+    expect(provider?.querySelector(".usage-list-value")?.textContent).toContain("Unpriced");
+    expect(provider?.textContent).not.toContain("$0.00");
+  });
 
   it("names the provider of each top model so same-named models stay distinct", () => {
     const container = document.createElement("div");
@@ -307,7 +361,13 @@ describe("SessionsCard", () => {
     expect(onSelectSession).toHaveBeenLastCalledWith("Alpha", true, ["Beta", "Alpha"]);
   });
 
+<<<<<<< OURS/upstream-11.10
   it("keeps metadata and usage labels localized without replacing a row", async () => {
+||||||| BASE/v11.4
+  it("keeps metadata and unavailable usage labels localized without replacing a row", async () => {
+=======
+  it("keeps metadata and lower-bound usage labels localized without replacing a row", async () => {
+>>>>>>> THEIRS/pro-main
     const restoreI18n = captureI18nStateForTesting();
     const entry = session("Alpha");
     const sessionUsage = entry.usage!;
@@ -328,13 +388,30 @@ describe("SessionsCard", () => {
         SessionsCard({ sessions: [entry], selectedRows: [], usage, overview, totalSessions: 1 }),
       );
       const row = container.querySelector(".session-bar-row");
+<<<<<<< OURS/upstream-11.10
       const value = () => text(row, ".session-bar-value");
       const average = () => text(container, ".sessions-card-stats > span");
       expect(text(row, ".session-bar-meta")).toContain("1m");
       const englishValue = value();
+||||||| BASE/v11.4
+      const value = () => row?.querySelector(".session-bar-value")?.textContent;
+      const average = () => container.querySelector(".sessions-card-stats > span")?.textContent;
+      expect(row?.querySelector(".session-bar-meta")?.textContent).toContain("dur:1m");
+      expect(value()).toBe("unknown");
+      expect(average()).toContain("unknown");
+=======
+      const value = () => row?.querySelector(".session-bar-value")?.textContent;
+      const average = () => container.querySelector(".sessions-card-stats > span")?.textContent;
+      expect(row?.querySelector(".session-bar-meta")?.textContent).toContain("dur:1m");
+      // A response that ended before final usage leaves its subtotal as a lower bound.
+      expect(value()).toMatch(/^≥ \d/);
+      expect(average()).toMatch(/^≥ /);
+      const englishValue = value();
+>>>>>>> THEIRS/pro-main
       await i18n.setLocale("de");
       flush();
       expect(container.querySelector(".session-bar-row")).toBe(row);
+<<<<<<< OURS/upstream-11.10
       const germanMinute = new Intl.NumberFormat("de", {
         style: "unit",
         unit: "minute",
@@ -342,8 +419,24 @@ describe("SessionsCard", () => {
       }).format(1);
       expect(text(row, ".session-bar-meta")).toContain(germanMinute);
       expect(value()).toBe(englishValue);
+||||||| BASE/v11.4
+      expect(row?.querySelector(".session-bar-meta")?.textContent).toContain("dur:1 Min.");
+      expect(value()).toBe("unbekannt");
+      expect(average()).toContain("unbekannt");
+=======
+      const germanMinute = new Intl.NumberFormat("de", {
+        style: "unit",
+        unit: "minute",
+        unitDisplay: "narrow",
+      }).format(1);
+      expect(row?.querySelector(".session-bar-meta")?.textContent).toContain(`dur:${germanMinute}`);
+      // The lower bound keeps the same number in every locale.
+      expect(value()).toBe(englishValue);
+      expect(average()).toMatch(/^≥ /);
+>>>>>>> THEIRS/pro-main
       setDisplay({ ...base.display, chartMode: "cost" });
       flush();
+<<<<<<< OURS/upstream-11.10
       expect(value()).toBe(
         new Intl.NumberFormat(i18n.getLocale(), {
           style: "currency",
@@ -352,9 +445,15 @@ describe("SessionsCard", () => {
           maximumFractionDigits: 2,
         }).format(0),
       );
+||||||| BASE/v11.4
+      expect(value()).toBe("unbekannt");
+=======
+      expect(value()).toMatch(/^≥ \$/);
+>>>>>>> THEIRS/pro-main
       await i18n.setLocale("en");
       flush();
       expect(container.querySelector(".session-bar-row")).toBe(row);
+<<<<<<< OURS/upstream-11.10
       expect(value()).toBe(
         new Intl.NumberFormat(i18n.getLocale(), {
           style: "currency",
@@ -364,6 +463,13 @@ describe("SessionsCard", () => {
         }).format(0),
       );
       expect(average()).toBe("$0.00 avg");
+||||||| BASE/v11.4
+      expect(value()).toBe("unknown");
+      expect(average()).toContain("unknown");
+=======
+      expect(value()).toBe("≥ $0.00");
+      expect(average()).toMatch(/^≥ \$/);
+>>>>>>> THEIRS/pro-main
     } finally {
       await restoreI18n();
     }

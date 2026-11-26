@@ -4,6 +4,8 @@ import { en } from "./en.ts";
 // Analysis copy loads with Usage; shared labels and Settings search stay eager.
 const enUsage = {
   usage: {
+    lowerBound:
+      "≥ marks a lower bound: some responses ended before their final usage arrived, so their tokens and cost are partly counted.",
     moreActions: "More actions",
     partialShort: "Partial results",
     presets: {
@@ -137,6 +139,7 @@ const enUsage = {
     overview: {
       messageCounts: "{user} user · {assistant} assistant",
       uniqueToolsCount: "{count} tools used",
+      unpriced: "Unpriced",
       unpriced: "Unpriced",
       messages: "Messages",
       messagesAbbrev: "msgs",

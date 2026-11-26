@@ -2,11 +2,19 @@ import { jsonResult, readStringParam } from "openclaw/plugin-sdk/core";
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import { asNonArrayRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { Type } from "typebox";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { resolveLivePluginConfigObject } from "openclaw/plugin-sdk/plugin-config-runtime";
 import { definePluginEntry } from "./api.js";
 import { registerWorkboardGatewayMethods, WorkboardStore } from "./runtime-api.js";
 import { createWorkboardAutomationNudgeService } from "./src/automation-nudge.js";
 import { createWorkboardChangeEventService } from "./src/change-events.js";
 import { registerWorkboardCommand } from "./src/command.js";
+import {
+  createWorkboardFileAccessHandler,
+  createWorkboardFileAccessStore,
+  parseWorkboardFileRoots,
+  WORKBOARD_FILE_ACCESS_ROUTE_PATH,
+} from "./src/file-access.js";
 import {
   createWorkboardLifecycleService,
   readWorkboardLifecycleSessions,
@@ -17,6 +25,7 @@ import { resolveWorkboardSqliteWorkerModuleUrl } from "./src/sqlite-store-paths.
 import { registerWorkboardStoreLifecycle } from "./src/store-lifecycle.js";
 import { strictObject } from "./src/tools-card-mutations.js";
 import { createWorkboardTools } from "./src/tools.js";
+import { readVoiceBoardBinding } from "./src/voice-board-binding.js";
 import {
   guardWorkboardToolsForWorkspaceAccess,
   WORKBOARD_CARD_TOOL_NAMES,
@@ -185,7 +194,28 @@ export default definePluginEntry({
         requiredScopes: [scope],
       });
     }
-    registerWorkboardGatewayMethods({ api, store, sessionsBoard });
+    // File roots are operator configuration, read live so a reload needs no plugin restart.
+    const fileAccessStore = createWorkboardFileAccessStore();
+    const readFileRoots = () =>
+      parseWorkboardFileRoots(
+        resolveLivePluginConfigObject(
+          () => api.runtime.config.current() as OpenClawConfig,
+          "workboard",
+          api.pluginConfig,
+        ),
+      );
+    api.registerHttpRoute({
+      path: WORKBOARD_FILE_ACCESS_ROUTE_PATH,
+      auth: "plugin",
+      match: "prefix",
+      handler: createWorkboardFileAccessHandler(fileAccessStore),
+    });
+    registerWorkboardGatewayMethods({
+      api,
+      store,
+      sessionsBoard,
+      fileAccess: { store: fileAccessStore, roots: readFileRoots },
+    });
     registerWorkboardCommand({ api, store });
     for (const service of [changeEvents, automationNudge, sessionsBoard, lifecycleSync]) {
       api.registerService(service);
@@ -289,6 +319,7 @@ export default definePluginEntry({
                 );
               },
             },
+            voiceBoard: readVoiceBoardBinding(ctx),
           ];
           for (const tool of tools) {
             const execute = tool.execute;

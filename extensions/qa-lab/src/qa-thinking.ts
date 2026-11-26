@@ -1,6 +1,7 @@
 import type { CliBackendThinkingLevel } from "openclaw/plugin-sdk/cli-backend";
 
-export type QaThinkingLevel = CliBackendThinkingLevel;
+export type QaThinkingLevel = CliBackendThinkingLevel
+  | "ultra";
 
 export function normalizeQaThinkingLevel(input: unknown): QaThinkingLevel | undefined {
   const value = typeof input === "string" ? input.trim().toLowerCase() : "";
@@ -14,6 +15,7 @@ export function normalizeQaThinkingLevel(input: unknown): QaThinkingLevel | unde
     case "xhigh":
     case "adaptive":
     case "max":
+    case "ultra":
       return collapsed;
     case "min":
       return "minimal";

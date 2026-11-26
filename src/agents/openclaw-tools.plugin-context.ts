@@ -52,6 +52,7 @@ export type OpenClawPluginToolOptions = Pick<
   | "sandboxed"
   | "allowGatewaySubagentBinding"
   | "toolBindings"
+  | "workContext"
   | "sandbox"
   | "abortSignal"
   | "pluginExecutionSkillsSnapshot"
@@ -135,6 +136,7 @@ export function resolveOpenClawPluginToolInputs(params: {
           ? [options.approvalReviewerDeviceId]
           : undefined,
       toolBindings: options?.toolBindings,
+      workContext: options?.workContext,
       activeProjectKeys: options?.activeProjectKeys,
       conversationRecall: options?.conversationRecall,
       activeModel,

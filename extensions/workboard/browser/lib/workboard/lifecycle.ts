@@ -24,6 +24,20 @@ export function findWorkboardSession(
   );
 }
 
+/**
+ * A running row whose run is gone and whose last update is old is stale, not live.
+ * One owner for the boundary: the execution lifecycle and the interaction fallback
+ * both read it, so the two can never disagree about the same row.
+ */
+export function isWorkboardSessionStale(session: GatewaySessionRow, now = Date.now()): boolean {
+  return (
+    session.status === "running" &&
+    session.hasActiveRun === false &&
+    typeof session.updatedAt === "number" &&
+    !(now - session.updatedAt < 30 * 60 * 1000)
+  );
+}
+
 export function getWorkboardLifecycle(
   card: WorkboardCard,
   sessions: readonly GatewaySessionRow[],
@@ -48,12 +62,7 @@ export function getWorkboardLifecycle(
   if (session.status === "queued") {
     return { session, state: "queued" };
   }
-  if (
-    session.status === "running" &&
-    session.hasActiveRun === false &&
-    typeof session.updatedAt === "number" &&
-    !(Date.now() - session.updatedAt < 30 * 60 * 1000)
-  ) {
+  if (session.status === "running" && isWorkboardSessionStale(session)) {
     return { session, state: "stale" };
   }
   if (session.hasActiveRun === true || session.status === "running") {

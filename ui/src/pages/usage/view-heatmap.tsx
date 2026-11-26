@@ -168,7 +168,9 @@ function HeatmapSvg(props: UsageHeatmapProps) {
           const tooltip = createMemo(
             () =>
               `${dateLabel()} · ${t("usage.heatmap.cellTokens", {
-                tokens: formatNumber(day.tokens, { maximumFractionDigits: 0 }),
+                tokens: day.partial
+                    ? t("usage.common.atLeast", { value: numberFormat.format(day.tokens) })
+                    : formatNumber(day.tokens, { maximumFractionDigits: 0 }),
               })}`,
           );
           return (

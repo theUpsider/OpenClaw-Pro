@@ -257,6 +257,9 @@ In either mode, internal QA, research, coding, review, and test lanes use ordina
 <ParamField path="completionTarget" type='"parent"'>
   Return the result in a private requester turn with no automatic channel delivery. The parent reviews the result, continues unfinished work, and records the outcome internally. If the parent yielded while waiting, it resumes and answers under the conversation's normal reply rules; message-tool-only rooms still require the `message` tool. Supported only for hidden native `mode: "run"` children; unavailable with ACP, `collect`, `visible`, `thread`, session mode, or `expectsCompletionMessage: false`. Omit to keep normal completion delivery. See [Private parent completion](/tools/subagents/announce#private-parent-completion).
 </ParamField>
+<ParamField path="allowMessaging" type="boolean" default="false">
+  Give this one child the `message` tool. Disabled by default: a sub-agent can only send messages when the spawn passes `allowMessaging: true`. Omitted falls back to the requester agent's `subagents.messageTool.enabled`, then `agents.defaults.subagents.messageTool.enabled`, then `false`; an explicit `false` always wins. Configured `tools.subagents.tools.deny` and inherited requester denies still apply. Hidden native children only: rejected with ACP, `visible`, or `collect`, and a sub-agent requester can only grant it when its own session has it. See [Tool policy](/tools/subagents/tool-policy#tool-policy).
+</ParamField>
 <ParamField path="sandbox" type='"inherit" | "require"' default="inherit">
   `require` rejects the spawn unless the target child runtime is sandboxed.
 </ParamField>
