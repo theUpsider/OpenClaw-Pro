@@ -4,7 +4,12 @@ import type { HookFailurePolicy } from "./hook-failure-policy.js";
 import { createEmptyPluginRegistry } from "./registry-empty.js";
 import type { PluginRegistry } from "./registry.js";
 import { createPluginRecord } from "./status.test-helpers.js";
-import type { PluginHookAgentTrigger, PluginHookRegistration, PluginToolMatcher } from "./types.js";
+import type {
+  PluginHookAgentTrigger,
+  PluginHookRegistration,
+  PluginHookReplyDispatchKind,
+  PluginToolMatcher,
+} from "./types.js";
 
 export function createMockPluginRegistry(
   hooks: Array<{
@@ -17,6 +22,7 @@ export function createMockPluginRegistry(
     timeoutMs?: number;
     failurePolicy?: HookFailurePolicy;
     eligibleTriggers?: readonly PluginHookAgentTrigger[];
+    eligibleDispatchKinds?: readonly PluginHookReplyDispatchKind[];
     requiresToolAuthority?: true;
     conversationAccessAllowed?: true;
   }>,
@@ -46,6 +52,9 @@ export function createMockPluginRegistry(
       ...(h.timeoutMs !== undefined ? { timeoutMs: h.timeoutMs } : {}),
       ...(h.failurePolicy !== undefined ? { failurePolicy: h.failurePolicy } : {}),
       ...(h.eligibleTriggers !== undefined ? { eligibleTriggers: h.eligibleTriggers } : {}),
+      ...(h.eligibleDispatchKinds !== undefined
+        ? { eligibleDispatchKinds: h.eligibleDispatchKinds }
+        : {}),
       ...(h.requiresToolAuthority ? { requiresToolAuthority: true } : {}),
       ...(h.conversationAccessAllowed ? { conversationAccessAllowed: true } : {}),
       source: "test",

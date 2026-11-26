@@ -144,3 +144,21 @@ export function installReplyDispatchHook(eligibleDispatchKinds?: readonly ["acp"
   initializeGlobalHookRunner(registry);
   return handler;
 }
+
+/**
+ * Registers a host-wide execution gate, mirroring a deployment plugin that guards
+ * every agent run (for example a document-scope policy). Such a gate must not refuse
+ * Goal start/resume: it is not reply-claiming and re-runs inside the recovered turn.
+ */
+export function installBeforeAgentRunHook() {
+  const handler = vi.fn(async () => undefined);
+  const registry = getTestPluginRegistry();
+  registry.typedHooks.push({
+    pluginId: "goal-run-gate-fixture",
+    hookName: "before_agent_run",
+    handler,
+    source: "test",
+  });
+  initializeGlobalHookRunner(registry);
+  return handler;
+}

@@ -43,6 +43,7 @@ import { registerGoalAutomaticContinuationCases } from "./server.chat-goal-conti
 import {
   createGoalChatStartRequest,
   expectGoalChatRetryResponses,
+  installBeforeAgentRunHook,
   installReplyDispatchHook,
   readGoalChatUserMessages,
   registerGoalChatRestartSettlementCase,
@@ -378,6 +379,19 @@ describe("Goal chat admission and continuation", () => {
     expect(loadSessionEntry(scope())).toBeUndefined();
     expectNoDispatch();
     expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("admits a fresh Goal under a host-wide before_agent_run execution gate", async () => {
+    // Regression: a deployment plugin that guards every agent run (for example a
+    // document-scope before_agent_run hook) is not reply-claiming and must not
+    // refuse the Goal. Host-wide gates previously refused every Goal start/resume
+    // with "Goal start or resume requires the built-in OpenClaw runtime ...".
+    await useFreshSessionStore();
+    const gate = installBeforeAgentRunHook();
+    const response = await rpc("chat.send", freshGoalStart("Work under a global run gate"));
+    expect(response.mock.calls[0]?.[0]).toBe(true);
+    expect(loadSessionEntry(scope())?.goal?.objective).toBe("Work under a global run gate");
+    expect(gate).not.toHaveBeenCalled();
   });
 
   it("does not revive another deleted session's retained window through a Goal retry ID", async () => {

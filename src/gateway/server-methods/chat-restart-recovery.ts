@@ -32,7 +32,10 @@ import { resolveProjectedAgentRunProgressState } from "../../infra/agent-run-reg
 import { loadOrCreateProcessDeviceIdentityAsync } from "../../infra/device-identity-async.js";
 import { assertExistingDatabaseIdentity } from "../../infra/sqlite-worker-identity.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import { findRestartRecoveryUnsafeChatAdmissionHook } from "../../plugins/restart-recovery-hook-safety.js";
+import {
+  findRestartRecoveryUnsafeChatAdmissionHook,
+  findRestartRecoveryUnsafeGoalAdmissionHook,
+} from "../../plugins/restart-recovery-hook-safety.js";
 import {
   isCronSessionKey,
   isIncognitoSessionKey,
@@ -259,11 +262,16 @@ function hasRestartUnsafeChatWork(params: {
   sessionKey: string;
   agentId: string;
   entry?: SessionEntry;
+  goalAdmission?: boolean;
 }): boolean {
+  const dispatchKind = resolveSessionDispatchKind(params.sessionKey, params.entry);
+  // A Goal only refuses a reply-claiming hook; a deployment-wide execution gate
+  // must not block every Goal start and resume. See the goal hook set.
+  const unsafeHook = params.goalAdmission
+    ? findRestartRecoveryUnsafeGoalAdmissionHook(dispatchKind)
+    : findRestartRecoveryUnsafeChatAdmissionHook(dispatchKind);
   if (
-    findRestartRecoveryUnsafeChatAdmissionHook(
-      resolveSessionDispatchKind(params.sessionKey, params.entry),
-    ) !== undefined ||
+    unsafeHook !== undefined ||
     resolveProjectedAgentRunProgressState({
       agentId: params.agentId,
       sessionId: params.sessionId,
@@ -321,6 +329,8 @@ export function resolveRestartSafeChatAdmission(params: {
   context: Pick<GatewayRequestContext, "chatAbortControllers" | "chatQueuedTurns">;
   entry?: SessionEntry;
   acpMeta: SessionEntry["acp"] | null;
+  /** A Goal only refuses a reply-claiming hook; other hooks run in the recovered turn. */
+  goalAdmission?: boolean;
   initialSessionEntry?: SessionEntry;
   lifecycleTimestamps?: SessionLifecycleTimestamps;
   now: number;

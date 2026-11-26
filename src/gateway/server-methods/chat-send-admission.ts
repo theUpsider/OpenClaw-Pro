@@ -349,6 +349,7 @@ export async function admitChatSend(params: ChatSendAdmissionParams) {
           clientRunId,
           context,
           entry: latestEntry,
+          goalAdmission: request.goalOperation !== undefined,
           initialSessionEntry,
           lifecycleTimestamps: latestSession.lifecycleTimestamps,
           acpMeta,
