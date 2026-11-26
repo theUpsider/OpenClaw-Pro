@@ -2,8 +2,13 @@ import { expect, it, vi } from "vitest";
 import { setRuntimeConfigSnapshot } from "../../config/runtime-snapshot.js";
 import { replaceSessionEntrySync } from "../../config/sessions/session-accessor.sqlite-entry.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
-import { clearAgentRunContext } from "../../infra/agent-run-registry.js";
+import { clearAgentRunContext, registerAgentRunContext } from "../../infra/agent-run-registry.js";
 import { loadOrCreateProcessDeviceIdentityAsync } from "../../infra/device-identity-async.js";
+import {
+  initializeGlobalHookRunner,
+  resetGlobalHookRunner,
+} from "../../plugins/hook-runner-global.js";
+import { createMockPluginRegistry } from "../../plugins/hooks.test-fixtures.js";
 import { requireOpenClawStateDatabaseIdentity } from "../../state/openclaw-state-db-cache.js";
 import { openOpenClawStateDatabase } from "../../state/openclaw-state-db.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
@@ -157,6 +162,145 @@ it.each([
         admitted.value.cleanupAdmittedRun();
       }
       clearAgentRunContext(runId);
+    }
+  });
+});
+
+it("refuses a Goal start with a typed honest reason when an admission hook owns admission", async () => {
+  await withOpenClawTestState({ label: "goal-admission-hook-read" }, async () => {
+    await loadOrCreateProcessDeviceIdentityAsync();
+    initializeGlobalHookRunner(
+      createMockPluginRegistry([{ hookName: "before_agent_run", handler: vi.fn() }]),
+    );
+    try {
+      const cfg: OpenClawConfig = { agents: { ownership: "explicit", entries: { main: {} } } };
+      setRuntimeConfigSnapshot(cfg, cfg);
+      const scope = {
+        agentId: "main",
+        sessionKey: "agent:main:goal-admission-hook-read",
+        sessionId: "goal-admission-hook-read",
+      };
+      replaceSessionEntrySync(scope, {
+        sessionId: scope.sessionId,
+        updatedAt: 1,
+        status: "done",
+        agentHarnessId: "openclaw",
+      });
+      const client = sharingPolicyClient({
+        scopes: ["operator.admin", "operator.read", "operator.write"],
+      });
+      const runId = "goal-admission-hook-read-run";
+      const request = await normalizeChatSendRequest({
+        client,
+        params: {
+          sessionKey: scope.sessionKey,
+          sessionId: scope.sessionId,
+          message: "Finish the release checklist",
+          idempotencyKey: runId,
+          intent: { kind: "session-goal-start", version: 1, issuedAtMs: Date.now() },
+        },
+      });
+      if (!request.ok) {
+        throw new Error(request.error);
+      }
+      const context = createDirectChatContext({ getRuntimeConfig: () => cfg });
+      const prepared = await prepareChatSendSession({ request: request.value, client, context });
+      if (!prepared.ok) {
+        throw new Error("Session preparation failed");
+      }
+      const session = await qualifyChatSendSession(prepared.value);
+      const respond = vi.fn();
+      const admitted = await admitChatSend({
+        request: request.value,
+        session,
+        client,
+        context,
+        respond,
+      });
+      expect(admitted.ok).toBe(false);
+      expect(respond).toHaveBeenCalledWith(
+        false,
+        undefined,
+        expect.objectContaining({
+          code: "INVALID_REQUEST",
+          message: expect.stringContaining("active execution hook"),
+          details: { code: "GOAL_OPERATION_REJECTED", reason: "admission-gate" },
+        }),
+      );
+      expect(respond.mock.calls[0]?.[2]?.message).not.toContain("native Codex");
+      clearAgentRunContext(runId);
+    } finally {
+      resetGlobalHookRunner();
+    }
+  });
+});
+
+it("keeps the runtime message when an admission hook and other unsafe work both block a Goal", async () => {
+  await withOpenClawTestState({ label: "goal-admission-hook-busy" }, async () => {
+    await loadOrCreateProcessDeviceIdentityAsync();
+    initializeGlobalHookRunner(
+      createMockPluginRegistry([{ hookName: "before_agent_run", handler: vi.fn() }]),
+    );
+    const busyRunId = "goal-admission-hook-busy-active";
+    try {
+      const cfg: OpenClawConfig = { agents: { ownership: "explicit", entries: { main: {} } } };
+      setRuntimeConfigSnapshot(cfg, cfg);
+      const scope = {
+        agentId: "main",
+        sessionKey: "agent:main:goal-admission-hook-busy",
+        sessionId: "goal-admission-hook-busy",
+      };
+      replaceSessionEntrySync(scope, {
+        sessionId: scope.sessionId,
+        updatedAt: 1,
+        status: "done",
+        agentHarnessId: "openclaw",
+      });
+      registerAgentRunContext(busyRunId, {
+        agentId: "main",
+        sessionId: scope.sessionId,
+        sessionKey: scope.sessionKey,
+        projectSessionActive: true,
+      });
+      const client = sharingPolicyClient({
+        scopes: ["operator.admin", "operator.read", "operator.write"],
+      });
+      const runId = "goal-admission-hook-busy-run";
+      const request = await normalizeChatSendRequest({
+        client,
+        params: {
+          sessionKey: scope.sessionKey,
+          sessionId: scope.sessionId,
+          message: "Finish the release checklist",
+          idempotencyKey: runId,
+          intent: { kind: "session-goal-start", version: 1, issuedAtMs: Date.now() },
+        },
+      });
+      if (!request.ok) {
+        throw new Error(request.error);
+      }
+      const context = createDirectChatContext({ getRuntimeConfig: () => cfg });
+      const prepared = await prepareChatSendSession({ request: request.value, client, context });
+      if (!prepared.ok) {
+        throw new Error("Session preparation failed");
+      }
+      const session = await qualifyChatSendSession(prepared.value);
+      const respond = vi.fn();
+      const admitted = await admitChatSend({
+        request: request.value,
+        session,
+        client,
+        context,
+        respond,
+      });
+      expect(admitted.ok).toBe(false);
+      // The hook is not the sole blocker here, so the historical runtime message stays.
+      expect(respond.mock.calls[0]?.[2]?.details).toBeUndefined();
+      expect(respond.mock.calls[0]?.[2]?.message).not.toContain("active execution hook");
+      clearAgentRunContext(runId);
+    } finally {
+      clearAgentRunContext(busyRunId);
+      resetGlobalHookRunner();
     }
   });
 });

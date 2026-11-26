@@ -350,6 +350,7 @@ export async function admitChatSend(params: ChatSendAdmissionParams) {
           clientRunId,
           context,
           entry: latestEntry,
+          goalAdmission: request.goalOperation !== undefined,
           initialSessionEntry,
           lifecycleTimestamps: latestSession.lifecycleTimestamps,
           acpMeta,
@@ -362,7 +363,7 @@ export async function admitChatSend(params: ChatSendAdmissionParams) {
           storePath: latestSession.storePath,
         });
         if (request.goalOperation && !restartSafeAdmission) {
-          throw goalAdmissionRefusalError(latestSession.canonicalKey, latestEntry);
+          throw goalAdmissionRefusalError();
         }
         if (retryableClaim && !restartSafeAdmission) {
           throw new Error("chat retry does not match its durable admission");

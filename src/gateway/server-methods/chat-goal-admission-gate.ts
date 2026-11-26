@@ -1,28 +1,19 @@
 import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/index.js";
 import { SessionGoalOperationError } from "../../config/sessions/goals-operations.js";
-import type { SessionEntry } from "../../config/sessions/types.js";
-import { findRestartRecoveryUnsafeChatAdmissionHook } from "../../plugins/restart-recovery-hook-safety.js";
-import { resolveSessionDispatchKind } from "../../sessions/session-key-utils.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
 
 /**
- * A Goal start/resume refused because an active admission hook owns chat admission.
+ * The typed refusal for a Goal start/resume whose sole admission blocker is an active
+ * admission hook.
  *
  * The restart-safe admission lists `before_dispatch`, `before_agent_run`,
- * `before_message_write`, and `reply_dispatch` as admission-unsafe. A deployment
- * plugin can register such a hook globally (for example a lane document-scope
- * `before_agent_run` guard), so the plausible-looking refusal is not about the
- * built-in runtime or session history it names. Naming the hook and tagging a typed
- * reason lets the Control UI show a definitive rejection instead of an unconfirmed
- * Goal that leaves a stuck "Retry resume".
+ * `before_message_write`, and `reply_dispatch` as admission-unsafe, and a deployment plugin
+ * may register one globally (for example a lane document-scope guard) even on a pure
+ * OpenClaw-runtime host. The historical message names a built-in runtime it does not
+ * reflect, and the Control UI shows that untyped refusal as an unconfirmed Goal stuck behind
+ * "Retry resume". Thrown by the resolver only for the hook case; the caller keeps the
+ * historical message for every other refusal.
  */
-export function hasUnsafeChatAdmissionHook(sessionKey: string, entry?: SessionEntry): boolean {
-  return (
-    findRestartRecoveryUnsafeChatAdmissionHook(resolveSessionDispatchKind(sessionKey, entry)) !==
-    undefined
-  );
-}
-
 export function goalAdmissionGateError(): SessionGoalOperationError {
   return new SessionGoalOperationError(
     "admission-gate",
@@ -30,19 +21,11 @@ export function goalAdmissionGateError(): SessionGoalOperationError {
   );
 }
 
-/**
- * The refusal for a Goal that no admission path accepted: the ambiguous hook case gets
- * its own typed, honest message; every other case keeps the historical runtime message.
- */
-export function goalAdmissionRefusalError(
-  sessionKey: string,
-  entry?: SessionEntry,
-): SessionGoalOperationError | Error {
-  return hasUnsafeChatAdmissionHook(sessionKey, entry)
-    ? goalAdmissionGateError()
-    : new Error(
-        "Goal start or resume requires the built-in OpenClaw runtime and an idle local session with recoverable history. This action is unavailable for native Codex and other external runtimes.",
-      );
+/** The historical refusal for a Goal refused by anything other than an admission hook. */
+export function goalAdmissionRefusalError(): Error {
+  return new Error(
+    "Goal start or resume requires the built-in OpenClaw runtime and an idle local session with recoverable history. This action is unavailable for native Codex and other external runtimes.",
+  );
 }
 
 /**

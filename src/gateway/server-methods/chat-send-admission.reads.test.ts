@@ -18,11 +18,6 @@ import { loadOrCreateProcessDeviceIdentityAsync } from "../../infra/device-ident
 import * as brokerReply from "../../infra/sqlite-worker-broker-reply.js";
 import * as operationAdmission from "../../infra/sqlite-worker-operation-admission.js";
 import { setGatewayPluginMetadataSnapshot } from "../../plugins/current-plugin-metadata-snapshot.js";
-import {
-  initializeGlobalHookRunner,
-  resetGlobalHookRunner,
-} from "../../plugins/hook-runner-global.js";
-import { createMockPluginRegistry } from "../../plugins/hooks.test-fixtures.js";
 import { retainGatewayPluginMetadata } from "../../plugins/plugin-metadata-lifecycle.js";
 import { resolvePluginMetadataSnapshotAsync } from "../../plugins/plugin-metadata-snapshot.js";
 import * as sessionLifecycle from "../../sessions/session-lifecycle-admission.js";
@@ -950,74 +945,6 @@ it.each([
     ).toBeUndefined();
     if (admitted?.ok) {
       expect(admitted.value.gatewayWorkAdmission.isActive()).toBe(false);
-    }
-  });
-});
-
-it("refuses a Goal start with a typed honest reason when an admission hook owns chat admission", async () => {
-  await withOpenClawTestState({ label: "goal-admission-gate-read" }, async () => {
-    await loadOrCreateProcessDeviceIdentityAsync();
-    initializeGlobalHookRunner(
-      createMockPluginRegistry([{ hookName: "before_agent_run", handler: vi.fn() }]),
-    );
-    try {
-      const cfg: OpenClawConfig = { agents: { ownership: "explicit", entries: { main: {} } } };
-      setRuntimeConfigSnapshot(cfg, cfg);
-      const scope = {
-        agentId: "main",
-        sessionKey: "agent:main:goal-admission-gate-read",
-        sessionId: "goal-admission-gate-read-session",
-      };
-      replaceSessionEntrySync(scope, {
-        sessionId: scope.sessionId,
-        updatedAt: 1,
-        status: "done",
-        agentHarnessId: "openclaw",
-      });
-      const client = sharingPolicyClient({
-        scopes: ["operator.admin", "operator.read", "operator.write"],
-      });
-      const request = await normalizeChatSendRequest({
-        client,
-        params: {
-          sessionKey: scope.sessionKey,
-          sessionId: scope.sessionId,
-          message: "Finish the release checklist",
-          idempotencyKey: "goal-admission-gate-read-run",
-          intent: { kind: "session-goal-start", version: 1, issuedAtMs: Date.now() },
-        },
-      });
-      if (!request.ok) {
-        throw new Error(request.error);
-      }
-      const context = createDirectChatContext({ getRuntimeConfig: () => cfg });
-      const prepared = await prepareChatSendSession({ request: request.value, client, context });
-      if (!prepared.ok) {
-        throw new Error("Session preparation failed");
-      }
-      const session = await qualifyChatSendSession(prepared.value);
-      const respond = vi.fn();
-      const admitted = await admitChatSend({
-        request: request.value,
-        session,
-        client,
-        context,
-        respond,
-      });
-      expect(admitted.ok).toBe(false);
-      expect(respond).toHaveBeenCalledWith(
-        false,
-        undefined,
-        expect.objectContaining({
-          code: "INVALID_REQUEST",
-          message: expect.stringContaining("active execution hook"),
-          details: { code: "GOAL_OPERATION_REJECTED", reason: "admission-gate" },
-        }),
-      );
-      expect(respond.mock.calls[0]?.[2]?.message).not.toContain("native Codex");
-      clearAgentRunContext("goal-admission-gate-read-run");
-    } finally {
-      resetGlobalHookRunner();
     }
   });
 });
