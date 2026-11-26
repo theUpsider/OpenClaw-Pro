@@ -52,10 +52,10 @@ export async function steerPluginActiveRun(params: {
       params.assertCurrent();
       return true;
     },
-    // Supply the reply-tool-authority preparation so the injection uses the
-    // prepared `queueMessageAsync` path instead of the deprecated synchronous
-    // `ReplyBackendMessageInjectionV2.queueMessage` fallback. The preparation
-    // reuses the caller's lifetime assertion, so the guards are unchanged.
+    // Supply the reply-tool-authority preparation so injection uses the prepared
+    // `queueMessageAsync` path instead of the deprecated synchronous V2 queue
+    // fallback. The preparation reuses the caller's lifetime assertion, so the
+    // authority guards are unchanged.
     {
       assertCurrent: params.assertCurrent,
       compatAssertCurrent: params.assertCurrent,
