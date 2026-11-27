@@ -248,6 +248,34 @@ describe("session goal verification store", () => {
     expect(paused.recorded).toBe(false);
   });
 
+  it("records a wake-suppressed marker for an active goal", async () => {
+    // The automatic wake can be refused for a non-terminal reason while the goal
+    // stays active; that stop must surface on the same durable marker the budget
+    // caps use, not vanish.
+    await seed();
+    await createSessionGoal({
+      storePath: fixture.storePath(),
+      sessionKey,
+      objective: "verified goal",
+      now: 10,
+    });
+    const recorded = await markSessionGoalAttention({
+      storePath: fixture.storePath(),
+      sessionKey,
+      goalId: goal().id,
+      reason: "wake-suppressed",
+      detail: "pending-queue-work",
+      now: 30,
+      summary: "goal automation stopped: wake-suppressed",
+    });
+    expect(recorded.recorded).toBe(true);
+    expect(goal().attention).toMatchObject({
+      reason: "wake-suppressed",
+      detail: "pending-queue-work",
+    });
+    expect(goal().status).toBe("active");
+  });
+
   it("clears the marker and budget on an explicit resume", async () => {
     await seed();
     await createSessionGoal({

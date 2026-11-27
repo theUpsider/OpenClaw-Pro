@@ -31,6 +31,9 @@ import type { InternalGetReplyOptions } from "./get-reply.types.js";
 import {
   isGoalContinuationCurrent,
   isGoalContinuationPlacementCurrent,
+  GOAL_WAKE_DEFER_LIMIT,
+  markGoalWakeSuppressed,
+  type GoalContinuation,
 } from "./goal-continuation.js";
 import { refreshActiveGoalContext } from "./inbound-meta.js";
 import { isFollowupRunAborted, resolveFollowupAbortSignal, type FollowupRun } from "./queue.js";
@@ -79,12 +82,100 @@ export type AdmittedFollowupTurn = {
 
 type FollowupAdmissionResult =
   | { kind: "admitted"; turn: AdmittedFollowupTurn }
-  | { kind: "deferred"; reason: "active-run" }
+  | { kind: "deferred"; reason: "active-run" | "goal-wake-transient" }
   | {
       kind: "skipped";
       reason: "aborted" | "lifecycle-invalidated" | "goal-inactive";
       operation?: ReplyOperation;
     };
+
+type GoalWakeGateDecision = { kind: "current" } | { kind: "skipped" } | { kind: "deferred" };
+
+/**
+ * Names the transient blocker an automatic wake met, if any. Queue work and
+ * unsettled requester children are both recoverable: the same queue item is
+ * retried once the gate clears, so neither may silently consume the wake.
+ */
+async function resolveTransientWakeBlocker(params: {
+  run: FollowupRun["run"];
+  replySessionKey: string;
+}): Promise<"pending-queue-work" | "unsettled-children" | undefined> {
+  if (!params.replySessionKey) {
+    return undefined;
+  }
+  if (getFollowupQueueDepth(params.replySessionKey) > 0) {
+    return "pending-queue-work";
+  }
+  const { listUnsettledRequesterChildren } =
+    await import("../../agents/subagents/registry/subagent-registry.js");
+  const children = await listUnsettledRequesterChildren({
+    requesterSessionKey: params.replySessionKey,
+    requesterAgentId: params.run.agentId,
+  });
+  return children.length > 0 ? "unsettled-children" : undefined;
+}
+
+/**
+ * Classifies a queued automatic Goal wake against the session it will run in.
+ *
+ * Terminal refusals (goal replaced/paused/cleared/rotated, aborted turn) stay a
+ * silent skip: discarding them is correct, and the goal state owns itself.
+ * Non-terminal refusals must never vanish. Transient gates (pending queue work,
+ * unsettled requester children) defer within a bounded per-wake budget so the
+ * queued item retries once the gate clears; a spent budget — or a wake that
+ * cannot run although the goal is still current (placement unavailable) —
+ * records the durable `wake-suppressed` attention stop and the one-time notice
+ * instead of letting the loop disappear without a trace.
+ */
+async function classifyAutomaticGoalWake(params: {
+  goalContinuation: GoalContinuation;
+  run: FollowupRun["run"];
+  replySessionKey: string;
+  storePath?: string;
+  goalEntry: SessionEntry | undefined;
+  placementCurrent: boolean;
+  aborted: boolean;
+  onGoalNotice?: (text: string) => void | Promise<void>;
+}): Promise<GoalWakeGateDecision> {
+  const { goalContinuation } = params;
+  if (params.aborted || !isGoalContinuationCurrent(goalContinuation, params.goalEntry)) {
+    return { kind: "skipped" };
+  }
+  const suppress = async (detail: string): Promise<GoalWakeGateDecision> => {
+    const objective = params.goalEntry?.goal?.objective;
+    if (!objective || !params.storePath || !params.replySessionKey) {
+      return { kind: "skipped" };
+    }
+    // The durable marker and the one-time notice are emitted here through the
+    // caller's visible path; a missing objective/store only loses the notice,
+    // never the queued item.
+    await markGoalWakeSuppressed({
+      sessionKey: params.replySessionKey,
+      storePath: params.storePath,
+      goalId: goalContinuation.goalId,
+      objective,
+      detail,
+      onNotice: params.onGoalNotice,
+    });
+    return { kind: "skipped" };
+  };
+  if (!params.placementCurrent) {
+    return await suppress("placement-unavailable");
+  }
+  const blocker = await resolveTransientWakeBlocker({
+    run: params.run,
+    replySessionKey: params.replySessionKey,
+  });
+  if (!blocker) {
+    return { kind: "current" };
+  }
+  const deferrals = goalContinuation.wakeDeferrals ?? 0;
+  if (deferrals >= GOAL_WAKE_DEFER_LIMIT) {
+    return await suppress(blocker);
+  }
+  goalContinuation.wakeDeferrals = deferrals + 1;
+  return { kind: "deferred" };
+}
 
 function isSameSessionGeneration(
   left: SessionEntry | undefined,
@@ -102,6 +193,12 @@ export async function admitFollowupTurn(params: {
   queued: FollowupRun;
   defaults: FollowupRunnerParams;
   onCompactionNoticePayload?: (payload: ReplyPayload, turn: AdmittedFollowupTurn) => Promise<void>;
+  /**
+   * Delivers the one-time "needs attention" notice when an automatic Goal wake is
+   * refused for a non-terminal reason. Absence only loses the visible message;
+   * the durable attention marker still surfaces the stop through goal status.
+   */
+  onGoalNotice?: (text: string) => void | Promise<void>;
 }): Promise<FollowupAdmissionResult> {
   const assertOperatorCurrent = () => params.queued.operatorAuthority?.assertCurrent();
   assertOperatorCurrent();
@@ -227,11 +324,25 @@ export async function admitFollowupTurn(params: {
         requiresWorker: Boolean(run.config?.cloudWorkers?.requiredProfile),
       });
       assertOperatorCurrent();
-      if (
-        !placementCurrent ||
-        !isGoalContinuationCurrent(goalContinuation, goalEntry) ||
-        getFollowupQueueDepth(replySessionKey ?? "") > 0
-      ) {
+      const wakeDecision = await classifyAutomaticGoalWake({
+        goalContinuation,
+        run,
+        replySessionKey: replySessionKey ?? "",
+        storePath: params.defaults.storePath,
+        goalEntry,
+        placementCurrent,
+        aborted: false,
+        onGoalNotice: params.onGoalNotice,
+      });
+      if (wakeDecision.kind === "deferred") {
+        // Transient refusal: the queued item stays for the drain to retry. This
+        // turn never ran, so release presentation and the reply lane instead of
+        // settling them, exactly as the active-run deferral does.
+        queuedFollowupAdmitted = false;
+        operation.complete();
+        return { kind: "deferred", reason: "goal-wake-transient" };
+      }
+      if (wakeDecision.kind === "skipped") {
         return { kind: "skipped", reason: "goal-inactive", operation };
       }
     }
@@ -489,12 +600,22 @@ export async function admitFollowupTurn(params: {
         requiresWorker: Boolean(run.config?.cloudWorkers?.requiredProfile),
       });
       assertOperatorCurrent();
-      if (
-        !placementCurrent ||
-        operation.abortSignal.aborted ||
-        !isGoalContinuationCurrent(goalContinuation, currentEntry) ||
-        getFollowupQueueDepth(replySessionKey ?? "") > 0
-      ) {
+      const wakeDecision = await classifyAutomaticGoalWake({
+        goalContinuation,
+        run,
+        replySessionKey: replySessionKey ?? "",
+        storePath: params.defaults.storePath,
+        goalEntry: currentEntry,
+        placementCurrent,
+        aborted: operation.abortSignal.aborted,
+        onGoalNotice: params.onGoalNotice,
+      });
+      if (wakeDecision.kind === "deferred") {
+        queuedFollowupAdmitted = false;
+        operation.complete();
+        return { kind: "deferred", reason: "goal-wake-transient" };
+      }
+      if (wakeDecision.kind === "skipped") {
         return { kind: "skipped", reason: "goal-inactive", operation };
       }
     }

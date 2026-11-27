@@ -1,6 +1,8 @@
 import type { EmbeddedAgentRunResult } from "../../agents/embedded-agent-runner/types.js";
 import { getRegisteredAgentHarness } from "../../agents/harness/registry.js";
+import { GOAL_VERIFICATION_DEFAULT_MAX_CONTINUATION_TURNS } from "../../config/sessions/goal-verification-config.js";
 import { accountSessionGoalUsage } from "../../config/sessions/goals-transitions.js";
+import { markSessionGoalAttention } from "../../config/sessions/goals.js";
 import { readSessionEntryReadOnlyInWorker } from "../../config/sessions/session-entry-read-runtime.js";
 import type { SessionEntryCohortReader } from "../../config/sessions/session-entry-read-runtime.types.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
@@ -9,6 +11,7 @@ import { getInProcessGatewayRequestContext } from "../../plugins/runtime/gateway
 import { formatSystemTurnPrompt } from "../../sessions/system-turn-prompt.js";
 import { SkillLibraryError } from "../../skills/skill-library-error.js";
 import {
+  buildAttentionNotice,
   decideGoalTurnEndContinuation,
   type DecideGoalTurnEndParams,
   type GoalTurnEndDecision,
@@ -43,7 +46,73 @@ export type GoalContinuation = Pick<SessionEntry, "sessionId" | "lifecycleRevisi
   goalId: string;
   workerGoal?: true;
   localCodexGoal?: true;
+  /**
+   * Bounded recovery bookkeeping for one queued wake: how many times admission
+   * deferred this exact continuation at a transient gate. Lives on the
+   * continuation (inside the queued run) so every drain retry of the same item
+   * counts, while a fresh continuation turn starts again at zero.
+   */
+  wakeDeferrals?: number;
 };
+
+/**
+ * Defer cap for one automatic wake. Past this many transient refusals the wake
+ * is not retried again; it stops visibly (attention + notice) instead of
+ * spinning while the goal would otherwise stay silently stuck.
+ */
+export const GOAL_WAKE_DEFER_LIMIT = 5;
+
+/**
+ * Durable, visible stop for an automatic wake that kept being refused while the
+ * goal stayed active. Uses the same attention marker and one-time notice as the
+ * continuation/attempt caps so the stop is surfaced by `/goal status` and can be
+ * resumed, instead of the loop vanishing without a trace.
+ *
+ * Returns the one-time notice text when this call recorded the marker (the first
+ * caller wins), or `undefined` when a marker already existed / the goal moved.
+ */
+export async function markGoalWakeSuppressed(params: {
+  sessionKey: string;
+  storePath: string;
+  goalId: string;
+  objective: string;
+  detail?: string;
+  onNotice?: (text: string) => void | Promise<void>;
+}): Promise<string | undefined> {
+  const record = await markSessionGoalAttention({
+    sessionKey: params.sessionKey,
+    storePath: params.storePath,
+    goalId: params.goalId,
+    reason: "wake-suppressed",
+    ...(params.detail ? { detail: params.detail } : {}),
+    summary: "goal automation stopped: wake-suppressed",
+  });
+  if (!record.recorded) {
+    return undefined;
+  }
+  const notice = buildAttentionNotice({
+    objective: params.objective,
+    reason: "wake-suppressed",
+    missingPoints: [],
+    verification: undefined,
+    maxContinuationTurns: GOAL_VERIFICATION_DEFAULT_MAX_CONTINUATION_TURNS,
+    ...(params.detail ? { detail: params.detail } : {}),
+  });
+  if (params.onNotice) {
+    try {
+      await params.onNotice(notice);
+    } catch (error) {
+      // The marker is already durable and surfaces through goal status, so a
+      // failed notice is logged rather than allowed to turn the stop into an error.
+      goalVerificationLog.warn("goal wake-suppressed notice could not be delivered", {
+        sessionKey: params.sessionKey,
+        goalId: params.goalId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return notice;
+}
 
 async function resolveCodexGoalPlacement(params: {
   agentId?: string;
@@ -178,6 +247,10 @@ export async function enqueueGoalContinuation(params: {
   if (!isGoalContinuationOutcome(params.result) || !eligible()) {
     return false;
   }
+  // Unsettled requester children are a *transient* gate: the requester's own
+  // child-settle wake re-attempts this session once they finish, so refusing the
+  // nudge here is recoverable rather than a silent stop. Admission additionally
+  // defers a nudge that meets children appearing after it was queued.
   const { listUnsettledRequesterChildren } =
     await import("../../agents/subagents/registry/subagent-registry.js");
   const children = await listUnsettledRequesterChildren({

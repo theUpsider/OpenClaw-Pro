@@ -31,7 +31,12 @@ export const SessionGoalVerificationSchema = closedObject({
 
 /** One-time "needs attention" marker recorded when automation stops on its own. */
 export const SessionGoalAttentionSchema = closedObject({
-  reason: Type.Union([Type.Literal("continuation-budget"), Type.Literal("verification-attempts")]),
+  reason: Type.Union([
+    Type.Literal("continuation-budget"),
+    Type.Literal("verification-attempts"),
+    /** The automatic wake could not run while the goal stayed active. */
+    Type.Literal("wake-suppressed"),
+  ]),
   at: Type.Number(),
   detail: Type.Optional(Type.String()),
 });

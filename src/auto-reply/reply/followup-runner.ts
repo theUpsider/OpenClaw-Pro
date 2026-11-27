@@ -126,6 +126,19 @@ export function createFollowupRunner(
       kind,
     });
   };
+  /**
+   * Delivers the one-time stop notice for a refused automatic Goal wake. No turn
+   * was admitted, so this uses the session-notice route the stalled-turn notice
+   * already relies on; a missing dispatcher is reported rather than swallowed.
+   */
+  const deliverGoalWakeNotice = async (text: string): Promise<void> => {
+    const dispatcher = defaults.opts?.onBlockReply;
+    if (!dispatcher) {
+      defaultRuntime.error?.("followup queue: goal wake-suppressed notice had no delivery route");
+      return;
+    }
+    await dispatcher({ text });
+  };
   const executeFollowup = async (queued: FollowupRun): Promise<void> => {
     let disposition: FollowupDrainDisposition = { kind: "retry", error: undefined };
     let operation: ReplyOperation | undefined;
@@ -148,6 +161,7 @@ export function createFollowupRunner(
       const admission = await admitFollowupTurn({
         queued,
         defaults,
+        onGoalNotice: deliverGoalWakeNotice,
         onCompactionNoticePayload: async (payload, turn) => {
           const source = turn.queued.queuedFollowupReplyDisposition;
           if (

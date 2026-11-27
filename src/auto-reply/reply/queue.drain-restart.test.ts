@@ -404,6 +404,31 @@ describe("followup queue drain restart after idle window", () => {
     expect(freshCalls[0]?.prompt).toBe("wait-for-lane");
   });
 
+  it("retries a transiently deferred goal wake until its gate clears", async () => {
+    const retried = createDeferred();
+    const attempts: number[] = [];
+    let deferBudget = 2;
+    const runFollowup = async () => {
+      attempts.push(1);
+      if (deferBudget > 0) {
+        deferBudget -= 1;
+        // Transient refusal: the drain keeps the queued item and reschedules it.
+        throw new FollowupRunDeferredError(
+          "Follow-up reply lane is still active (goal-wake-transient)",
+        );
+      }
+      retried.resolve();
+    };
+
+    enqueueFollowupRun(key, createRun({ prompt: "automatic goal wake" }), defaults);
+    scheduleFollowupDrain(key, runFollowup);
+    await retried.promise;
+
+    // The wake survived both transient refusals instead of being consumed.
+    expect(attempts).toHaveLength(3);
+    await vi.waitFor(() => expect(getExistingFollowupQueue(key)?.items ?? []).toHaveLength(0));
+  });
+
   it("bounds overflow identities across repeated deferred retries", async () => {
     const settings: QueueSettings = {
       mode: "followup",
