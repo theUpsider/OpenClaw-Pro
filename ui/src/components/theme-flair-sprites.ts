@@ -1,5 +1,5 @@
 import type { ThemeAvatarHatId } from "../../../packages/gateway-protocol/src/theme.ts";
-import { renderSolidSnapshot } from "../lit/solid-snapshot.ts";
+import { renderSolidSnapshot } from "../lib/reactive/detached-root.js";
 import { AVATAR_HAT_ARTWORK } from "./theme-flair-artwork.tsx";
 
 // Existing Lit avatars consume inert snapshots; Solid artwork owns every shape.

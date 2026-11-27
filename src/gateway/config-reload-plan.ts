@@ -33,6 +33,8 @@ export type GatewayReloadPlan = {
     waitForDrain?: boolean;
     drainSignal?: AbortSignal;
     expectedSourceDigests?: Readonly<Record<string, string>>;
+    /** Fork seam: install-record hashes an unchanged replacement must still match. */
+    expectedInstallHashes?: Readonly<Record<string, string>>;
   };
   restartChannels: Set<ChannelKind>;
   restartServices?: Set<string>;

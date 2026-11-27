@@ -504,7 +504,7 @@ export async function buildEmbeddedRunExecutionParams(params: {
     silentReplyPromptMode: params.run.silentReplyPromptMode,
     sourceReplyDeliveryMode: params.run.sourceReplyDeliveryMode,
     toolBindings: params.run.toolBindings,
-    workContext: snapshot.run.workContext,
+    workContext: params.run.workContext,
     skillLibraryAuthoring: params.run.skillLibraryAuthoring,
     provider: params.provider,
     model: params.model,

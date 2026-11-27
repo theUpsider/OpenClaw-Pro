@@ -17,6 +17,7 @@ import {
   normalizeAgentToolResultMiddlewareRuntimeIds,
   normalizeAgentToolResultMiddlewareRuntimes,
 } from "./agent-tool-result-middleware.js";
+import { resolveConfiguredHookFailurePolicy } from "./hook-failure-policy.js";
 import {
   resolveConversationAccessAllowed,
   resolvePromptInjectionAllowed,
@@ -666,6 +667,11 @@ export function createPluginRegistrars(state: PluginRegistryState) {
       return;
     }
     const timeoutMs = resolveTypedHookTimeoutMs({ hookName, opts, policy });
+    const failurePolicy = resolveConfiguredHookFailurePolicy({
+      hookName,
+      policy,
+      registrationPolicy: opts?.failurePolicy,
+    });
     const eligibleTriggers =
       hookName === "before_agent_reply"
         ? normalizeHookEligibility(opts?.eligibleTriggers, isPluginHookAgentTrigger)
@@ -689,6 +695,7 @@ export function createPluginRegistrars(state: PluginRegistryState) {
       handler,
       ...(matcher ? { matcher } : {}),
       priority: opts?.priority,
+      ...(failurePolicy ? { failurePolicy } : {}),
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       ...(eligibleTriggers ? { eligibleTriggers } : {}),
       ...(eligibleDispatchKinds ? { eligibleDispatchKinds } : {}),

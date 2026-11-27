@@ -1,6 +1,17 @@
 import type { ChatRef } from "../../sessions/chat-ref.js";
 import type { SessionSharingEntry } from "./session-accessor.sqlite-entry-cache.types.js";
 
+/** A delivery generation pinned to an exact transcript; fork seams that need the ids carry this. */
+export type SessionDeliveryGeneration = Readonly<{
+  agentId: string;
+  storePath: string;
+  sessionKey: string;
+  sessionId: string;
+  lifecycleRevision: string | null;
+  /** Stored automation links follow the conversation; active writers remain exact by default. */
+  followConversation?: true;
+}>;
+
 export type SessionGenerationEntry = Pick<
   SessionSharingEntry,
   "sessionId" | "lifecycleRevision" | "permissionMode" | "toolOverrides"

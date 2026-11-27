@@ -16,6 +16,8 @@ export const SUBAGENT_COMPLETION_RESULT_KIND = "subagent-completion" as const;
 export const CRON_DIRECT_DELIVERY_CONTEXT_KIND = "cron-direct-delivery-context" as const;
 /** Marker kind of a plugin-posted notice; `plugin-notice.ts` owns its shape. */
 export const PLUGIN_NOTICE_KIND = "plugin-notice" as const;
+/** Marker kind of a skill-review notice; `skill-workshop-change-notice.ts` owns its shape. */
+export const SKILL_WORKSHOP_CHANGE_NOTICE_KIND = "skill-workshop-change" as const;
 const OPENCLAW_GATEWAY_INJECTED_MODEL = "gateway-injected" as const;
 
 const TRANSCRIPT_ONLY_OPENCLAW_ASSISTANT_MODELS = new Set<string>([
@@ -29,6 +31,7 @@ const OPENCLAW_DELIVERY_MIRROR_KINDS = new Set([
   CRON_DIRECT_DELIVERY_CONTEXT_KIND,
   SUBAGENT_COMPLETION_DIRECT_DELIVERY_KIND,
   PLUGIN_NOTICE_KIND,
+  SKILL_WORKSHOP_CHANGE_NOTICE_KIND,
   MODEL_FALLBACK_NOTICE_KIND,
 ]);
 

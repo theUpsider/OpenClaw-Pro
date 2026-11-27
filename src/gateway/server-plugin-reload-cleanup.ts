@@ -62,7 +62,22 @@ export class PluginAdmittedWorkDeferredError extends Error {
   }
 }
 
-class PluginAdmittedWorkTimeoutError extends PluginAdmittedWorkDeferredError {
+/** Fork seam: retained so a deferred codex/plugin drain can be observed after the write receipt. */
+export class PluginReloadDeferredError extends Error {
+  readonly appliesWhen =
+    "After retained plugin work and previous cleanup finish, or after a Gateway restart. The previous plugin configuration remains active until then.";
+
+  constructor(
+    message: string,
+    readonly instances: readonly PluginInstanceHandle[],
+    readonly priorCleanup?: Promise<unknown>,
+  ) {
+    super(message);
+  }
+}
+
+/** Fork seam: the pre-stop drain of a bundled Codex app-server factory expired. */
+export class PluginAdmittedWorkTimeoutError extends PluginAdmittedWorkDeferredError {
   constructor(
     pluginIds: ReadonlySet<string>,
     instances: readonly PluginInstanceHandle[],

@@ -175,7 +175,8 @@ export async function postWorkshopChangeNotice(params: {
     ([read]) => {
       const current = read?.result.entries.find((row) => row.sessionKey === sessionKey)?.entry;
       if (
-        current?.sessionId !== generation.sessionId ||
+        !current ||
+        current.sessionId !== generation.sessionId ||
         (current.lifecycleRevision ?? null) !== generation.lifecycleRevision
       ) {
         log.debug(`skill workshop notice skipped: session ${sessionKey} was reset`);

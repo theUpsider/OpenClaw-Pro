@@ -416,7 +416,7 @@ export function* loadOpenClawPluginsSteps(
       memorySlot,
     });
     // Inventory preparation is its own step so a slow scan is not attributed to a candidate.
-    yield "plugin inventory";
+    yield;
     assertPluginInventoryCurrent(options.signal);
     const inputs = new Map<string, PluginLoadInput>();
     const retained = new Map<string, PluginRegistry["plugins"][number]>();
@@ -549,7 +549,7 @@ export function* loadOpenClawPluginsSteps(
       }
       // Signatures, validation, and projection are independent per candidate. Retained
       // projections already outlive main-loop yields, so this boundary adds no new staleness.
-      yield manifest.id;
+      yield;
       assertPluginInventoryCurrent(options.signal);
     }
     for (const source of [options.previousRegistry, options.borrowRegistry]) {
@@ -629,6 +629,7 @@ export function* loadOpenClawPluginsSteps(
         }
         continue;
       }
+      const attemptedBefore = state.pluginLoadAttemptCount;
       const input = inputs.get(manifestRecord.id);
       const candidateSteps = loadRuntimePluginCandidate({
         candidate,

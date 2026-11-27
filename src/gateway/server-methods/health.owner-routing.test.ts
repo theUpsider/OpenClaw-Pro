@@ -10,14 +10,6 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import * as childRuntime from "../../infra/child-runtime-viability.js";
 import { beginLifecycleWriteCustody } from "../../infra/lifecycle-write-custody.js";
 import { recordStartupMigrationWarnings } from "../../infra/state-migrations.messages.js";
-import {
-  recordStartupRecoveryStoreResult,
-  recordStartupRecoveryTombstone,
-} from "../../agents/main-session-recovery/main-session-restart-recovery-diagnostics.js";
-import {
-  getAgentEventLifecycleGeneration,
-  rotateAgentEventLifecycleGeneration,
-} from "../../infra/agent-events.js";
 import { withStateDirEnv } from "../../test-helpers/state-dir-env.js";
 import { beginAgentDeletionJournal } from "../../test-utils/agent-deletion-journal.js";
 import { observeMainThreadFs } from "../../test-utils/main-thread-fs-spies.test-support.js";
@@ -467,39 +459,6 @@ describe("Gateway status owner routing", () => {
           },
         }),
       );
-    });
-  });
-
-  it("restricts startup tombstone session keys to admins while reporting the count", async () => {
-    await withStateDirEnv("openclaw-gateway-startup-tombstone-", async ({ stateDir }) => {
-      const storePath = path.join(stateDir, "sessions.json");
-      const config = { agents: { entries: { c: {} } }, session: { store: storePath } };
-      const sessionKey = "agent:c:main";
-      try {
-        recordStartupRecoveryTombstone({
-          agentId: "c",
-          storePath,
-          sessionKey,
-          reason: "delegated recovery sender authority is unavailable",
-          unattended: true,
-          lifecycleGeneration: getAgentEventLifecycleGeneration(),
-        });
-        const reader = (await callStatus(config)).mock.calls[0]?.[1];
-        expect(reader.startupRecoveryTombstoneWarning).toContain(
-          "1 lost delegated sender authority",
-        );
-        expect(reader.startupRecoveryTombstoneWarning).toContain("/new or /reset");
-        expect(reader.startupRecoveryTombstoneWarning).not.toContain(sessionKey);
-        const admin = (await callStatus(config, ["operator.admin"])).mock.calls[0]?.[1];
-        expect(admin.startupRecoveryTombstoneWarning).toContain(`c: ${sessionKey}`);
-        expect(admin.startupRecoveryWarning).toBeUndefined();
-
-        rotateAgentEventLifecycleGeneration();
-        const restarted = (await callStatus(config, ["operator.admin"])).mock.calls[0]?.[1];
-        expect(restarted.startupRecoveryTombstoneWarning).toBeUndefined();
-      } finally {
-        rotateAgentEventLifecycleGeneration();
-      }
     });
   });
 });

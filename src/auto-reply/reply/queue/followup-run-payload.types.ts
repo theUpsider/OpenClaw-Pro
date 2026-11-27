@@ -1,4 +1,5 @@
 import type { AdmittedRunOperatorAuthority } from "../../../agents/admitted-run-context.js";
+import type { ChatWorkContext } from "../../../../packages/gateway-protocol/src/chat-work-context.js";
 import type { AutoFallbackPrimaryProbe } from "../../../agents/agent-scope.js";
 import type { ExecToolRoutingDefaults } from "../../../agents/bash-tools.exec-routing.types.js";
 import type { CliSessionBindingFacts } from "../../../agents/cli-runner/session-binding.types.js";
@@ -157,6 +158,8 @@ export type FollowupRunPayload = ReplyCallbackCustodyBinding & {
   /** Chat type for context-aware threading (e.g., DM vs channel). */
   originatingChatType?: string;
   run: QueuedAgentRunParams & {
+    /** Captured chat work context for plugin tools; quoted reference data, never authority. */
+    workContext?: ChatWorkContext;
     scheduledAutomation?: ScheduledSessionAutomation;
     bootstrapContextMode?: GetReplyOptions["bootstrapContextMode"];
     internalEventExecution?: SessionEventExecution;

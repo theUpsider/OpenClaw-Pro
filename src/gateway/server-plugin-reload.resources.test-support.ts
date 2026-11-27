@@ -439,6 +439,7 @@ async function verifyExplicitDrainWait(
   vi.useFakeTimers();
   const operation = observeSettlement(fixture.reload());
   const reloading = operation.result;
+  const settled = () => operation.state.settled;
   try {
     await Promise.race([observation.entered, reloading]);
     // The explicit wait records a finite ten-minute budget instead of waiting open-ended.
@@ -459,11 +460,11 @@ async function verifyExplicitDrainWait(
       } else {
         // One millisecond short of the ten-minute budget the wait is still open.
         await vi.advanceTimersByTimeAsync(529_999);
-        expect(settled).toBe(false);
+        expect(settled()).toBe(false);
         await vi.advanceTimersByTimeAsync(1);
       }
       // The explicit drain settles at its budget instead of staying pending past it.
-      expect(settled).toBe(true);
+      expect(settled()).toBe(true);
       expect(await reloading).toMatchObject({ details: { phase: "drain", committed: false } });
       if (outcome === "time out") {
         expect(drainStatus).toMatchObject({

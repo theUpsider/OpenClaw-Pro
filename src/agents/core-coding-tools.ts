@@ -412,12 +412,7 @@ export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgent
                 ...(options.pathScopePolicy ? { pathScopePolicy: options.pathScopePolicy } : {}),
               },
         )
-      : wrapToolWithPathScopeGuard(read, {
-          pathScopePolicy: options.pathScopePolicy,
-          resolutionCwd: options.codingRoot,
-          // A sandboxed read addresses container paths while the rules name host paths.
-          ...(sandboxFsBridge ? { bridge: sandboxFsBridge } : {}),
-        });
+      : read;
     // Relative read semantics (including optional daily journals) run before
     // the guard forwards its checked absolute path to the filesystem reader.
     const wrapped = sandboxRoot

@@ -88,7 +88,6 @@ import {
   markToolExecutionNotStarted as registerTrustedToolNoStartError,
   markToolExecutionRefused,
 } from "./tool-effect-receipt.js";
-import { markToolExecutionRefused } from "./tool-effect-receipt.js";
 import {
   formatToolExecutionErrorMessage,
   isTrustedToolExecutionPreflightError,

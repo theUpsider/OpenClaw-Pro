@@ -18,6 +18,7 @@ import {
 } from "../../state/openclaw-state-worker-store.js";
 import { CRON_AGENT_SELECTION_REQUIRED_MESSAGE } from "../agent-id.js";
 import { getCronJobsStoreRevision } from "../store.js";
+import { cronStoreKey } from "../store/key.js";
 import type {
   CronSchedulerOperations,
   CronSchedulerResult,
@@ -448,7 +449,10 @@ function recoverClosedCronSchedulerLease(
   error: unknown,
 ): void {
   if (error instanceof SqliteWorkerError && error.code === "closed") {
-    recoverLostCronSchedulerLease(state, connection.lease);
+    const lostLease = connection.lease;
+    if (lostLease) {
+      recoverLostCronSchedulerLease(state, lostLease);
+    }
   }
 }
 

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { isCoreCanvasHostEnabled } from "../canvas/config.js";
 import { withCoreCanvasNodeCapability } from "../canvas/constants.js";
 import { validateConfiguredBindings } from "../channels/plugins/configured-binding-registry.js";
@@ -15,11 +16,14 @@ import {
   PluginRuntimeApplicationError,
 } from "../plugins/lifecycle.js";
 import { PluginLoadFailureError } from "../plugins/loader-shared.js";
+import { resolveInstalledManifestRegistryIndexFingerprint } from "../plugins/manifest-registry-installed.js";
 import type { prepareMemoryRuntimeReload } from "../plugins/memory-runtime.js";
 import { createPluginCache, retirePluginCache, withPluginCache } from "../plugins/plugin-cache.js";
 import { runAfterPluginLifecycleCommit } from "../plugins/plugin-lifecycle-lease.js";
 import { loadPluginLookUpTable } from "../plugins/plugin-lookup-table.js";
+import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.types.js";
 import { withPluginRegistryPreparationScope } from "../plugins/registry-lifecycle.js";
+import type { PluginRegistry } from "../plugins/registry-types.js";
 import { getPluginRegistryVersion } from "../plugins/runtime-state.js";
 import { waitForPluginRegistryRetirement } from "../plugins/runtime.js";
 import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-request-scope.js";
@@ -50,6 +54,30 @@ import {
 import { isChannelStartupSuppressedByEnvironment } from "./server-sidecar-startup-mode.js";
 import type { GatewayPostReadySidecarHandle } from "./server-startup-sidecar-scheduler.js";
 import { listPluginNodeCapabilities } from "./server/plugins-http/route-capability.js";
+
+/**
+ * The metadata-only preflight retained every live record (the loader's input signatures match)
+ * and the caller asked for the reload without naming a plugin, so nothing can have changed.
+ */
+function isUnchangedPluginGeneration(
+  previousRegistry: PluginRegistry,
+  candidateRegistry: PluginRegistry,
+  previousMetadata: PluginMetadataSnapshot | undefined,
+  nextMetadata: PluginMetadataSnapshot,
+): boolean {
+  return (
+    previousMetadata !== undefined &&
+    previousRegistry.plugins.every((record) => record.status !== "error") &&
+    candidateRegistry.plugins.length === previousRegistry.plugins.length &&
+    candidateRegistry.plugins.every(
+      (record, index) => record === previousRegistry.plugins[index],
+    ) &&
+    previousMetadata.policyHash === nextMetadata.policyHash &&
+    resolveInstalledManifestRegistryIndexFingerprint(previousMetadata.index) ===
+      resolveInstalledManifestRegistryIndexFingerprint(nextMetadata.index) &&
+    isDeepStrictEqual(previousMetadata.manifestRegistry, nextMetadata.manifestRegistry)
+  );
+}
 
 export async function reloadGatewayPlugins(
   context: PluginBootstrap.GatewayPluginReloadRuntime,
@@ -253,6 +281,32 @@ export async function reloadGatewayPlugins(
           recordWarning(warning);
         }
         await checkpoint();
+        if (
+          changedPluginIds.size === 0 &&
+          (params.changedPaths?.length ?? 0) === 0 &&
+          kernel.pluginRuntimeGeneration.getReloadStatus()?.phase !== "failed" &&
+          isUnchangedPluginGeneration(
+            previousRegistry,
+            nextRegistry,
+            previousMetadata,
+            nextMetadata,
+          )
+        ) {
+          // An id-less request over identical config (plugins.refresh) whose fresh metadata and
+          // loader retention both match the live generation has nothing to drain, load, or publish.
+          recordCleanup(await retirePluginCache(cache));
+          log.info("plugin metadata unchanged; kept the current plugin generation");
+          return {
+            activeChannels: new Set(previousRegistry.channels.map((entry) => entry.plugin.id)),
+            runtime: createPluginRuntimeApplication({
+              operationId: lifecycle.operationId,
+              generation: getPluginRuntimeGeneration(),
+              registry: previousRegistry,
+              pluginIds: changedPluginIds,
+              warnings: [...warnings],
+            }),
+          };
+        }
         // Refuse self-reload before stopping the plugin whose callback must finish this request.
         if (!overlap) {
           facts.releaseResourceHandoff = assertResourceHandoff(

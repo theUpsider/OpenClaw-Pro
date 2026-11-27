@@ -9,9 +9,11 @@ const SKILL_WORKSHOP_CHANGE_NOTICE_TYPE = "skills-changed";
 
 const NOTICE_ACTIONS = ["created", "updated", "archived", "restored"] as const;
 
-type SkillWorkshopNoticeAction = (typeof NOTICE_ACTIONS)[number];
+/** Fork seam: notice writers name the action verb they emit. */
+export type SkillWorkshopNoticeAction = (typeof NOTICE_ACTIONS)[number];
 
-type SkillWorkshopChangeNoticeSkill = {
+/** Fork seam: one changed skill row inside the notice. */
+export type SkillWorkshopChangeNoticeSkill = {
   name: string;
   action: SkillWorkshopNoticeAction;
   summary?: string;

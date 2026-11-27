@@ -286,7 +286,8 @@ async function notifyOnExit(
   // A yielded hidden subagent resumes through an ordinary wake turn; otherwise it gets a passive notice.
   if (session.resumesYieldedRun || (!subagentSession && !isSubagentSessionKey(sessionKey))) {
     const agentId = session.agentId ?? parseAgentSessionKey(eventSessionKey)?.agentId;
-    if (!agentId || !session.notifySessionTarget) {
+    const notifyTarget = session.notifySessionTarget;
+    if (!agentId || !notifyTarget) {
       logWarn(
         `exec: completion ${session.id} has no admitted session destination; inspect its process result.`,
       );
@@ -299,7 +300,7 @@ async function notifyOnExit(
       const receipt = pluginInvocationContext.exit(() =>
         enqueueExecExitNotification(
           eventText,
-          session.notifySessionTarget,
+          notifyTarget,
           processSessionInstanceId(session),
           { ...eventOptions, sourceRunId: session.startedByRunId },
         ),

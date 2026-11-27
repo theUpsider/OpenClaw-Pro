@@ -41,6 +41,7 @@ import {
 } from "../plugins/plugin-lifecycle-lease.js";
 import { OpenClawStateLeaseAcquisitionError } from "../state/openclaw-state-lease-error.js";
 import { createConfigAppliedRevisionTracker } from "./config-applied-revision.js";
+import { createConfigPluginDrainTracker } from "./config-reload-plugin-drain.js";
 import { diffConfigPaths, diffGatewayReloadPaths } from "./config-diff.js";
 import {
   candidateApplications,
@@ -224,8 +225,12 @@ export function startGatewayConfigReloader(
   let currentPluginInstallRecords: PluginInstallRecords = {};
   let pluginDrainRetry: AbortController | undefined;
   let deferredPluginApplication:
-    | { snapshot: ConfigFileSnapshot; error: PluginRuntimeApplicationError }
+    | { snapshot: ConfigFileSnapshot; error: PluginRuntimeApplicationError; pluginInputs?: unknown }
     | undefined;
+  const pluginDrain = createConfigPluginDrainTracker({
+    signal: lifecycle.signal,
+    onWorkSettled: () => schedule(),
+  });
   const readPluginInstallRecords = opts.readPluginInstallRecords ?? readCurrentInstallRecords;
   const appliedRevision = createConfigAppliedRevisionTracker({
     onConfigApplied: (plan, nextConfig) =>
@@ -663,13 +668,6 @@ export function startGatewayConfigReloader(
         ? applicationStatus.runtime
         : undefined;
     pluginDrain.applied(plan, runtime, pluginInputs);
-    if (runtime) {
-      completedPluginApplication = {
-        runtime,
-        snapshot: sourceSnapshot,
-        installRecords: nextPluginInstallRecords,
-      };
-    }
     return completeApplication(runtime);
   };
 

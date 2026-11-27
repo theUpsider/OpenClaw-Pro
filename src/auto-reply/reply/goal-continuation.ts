@@ -23,6 +23,7 @@ import {
 } from "../../sessions/session-controller.mailbox.js";
 import { captureSessionTarget } from "../../sessions/session-controller.target.js";
 import { transferCommandOwnerAuthorityToSuccessor } from "../command-owner-authority.js";
+import { formatSystemTurnPrompt } from "../../sessions/system-turn-prompt.js";
 import { createGoalContinuationReturnScope } from "./goal-continuation-return.js";
 import type { GoalContinuation } from "./goal-continuation.types.js";
 import { refreshActiveGoalContext } from "./inbound-meta.js";
