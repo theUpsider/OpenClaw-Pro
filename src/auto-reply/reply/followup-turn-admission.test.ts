@@ -23,6 +23,18 @@ const state = vi.hoisted(() => ({
   resolveSendPolicy: vi.fn(),
   sendPolicy: "allow" as "allow" | "deny",
   shouldNotifyCompaction: false,
+  unsettledChildren: vi.fn(async () => [] as unknown[]),
+  attention: vi.fn(async () => ({ recorded: true })),
+}));
+
+// mock-isolation: The wake's transient child gate is supplied without the process registry.
+vi.mock("../../agents/subagents/registry/subagent-registry.js", () => ({
+  listUnsettledRequesterChildren: (...args: unknown[]) => state.unsettledChildren(...args),
+}));
+
+// mock-isolation: The durable attention write is observed without opening a session store.
+vi.mock("../../config/sessions/goals.js", () => ({
+  markSessionGoalAttention: (...args: unknown[]) => state.attention(...args),
 }));
 
 vi.mock("./agent-runner-auto-fallback.js", () => ({
@@ -125,6 +137,8 @@ beforeEach(() => {
   state.queueDepth.mockReturnValue(0);
   state.sendPolicy = "allow";
   state.shouldNotifyCompaction = false;
+  state.unsettledChildren.mockResolvedValue([]);
+  state.attention.mockResolvedValue({ recorded: true });
   state.resolveSendPolicy.mockImplementation(() => state.sendPolicy);
   state.resolveConfig.mockImplementation(async (config) => config);
   state.buildPreflightFailureText.mockReturnValue("preflight failed");
@@ -183,7 +197,6 @@ describe("admitFollowupTurn", () => {
     "usage_limited",
     "replaced",
     "cleared",
-    "new input",
   ] as const)("drops an automatic Goal nudge when admission observes %s", async (change) => {
     const operation = createOperation();
     const original = createActiveGoalEntry();
@@ -194,8 +207,6 @@ describe("admitFollowupTurn", () => {
       current.goal!.id = "replacement";
     } else if (change === "cleared") {
       current.goal = undefined;
-    } else if (change === "new input") {
-      state.queueDepth.mockReturnValue(1);
     } else {
       current.goal!.status = change;
     }
@@ -216,6 +227,91 @@ describe("admitFollowupTurn", () => {
     expect(onQueuedFollowupSettled).toHaveBeenCalledOnce();
     expect(operation.complete).not.toHaveBeenCalled();
     expect(state.preflight).not.toHaveBeenCalled();
+    // A terminal refusal is correct discarding; it must never stamp an attention stop.
+    expect(state.attention).not.toHaveBeenCalled();
+  });
+
+  it("defers a queued automatic Goal wake while the queue still holds work", async () => {
+    const operation = createOperation();
+    const original = createActiveGoalEntry();
+    state.queueDepth.mockReturnValue(1);
+    state.admitReply.mockResolvedValue({ status: "owned", operation, sessionEntry: original });
+    state.loadEntry.mockReturnValue(original);
+    const queued = createRun({
+      goalContinuation: { sessionId: "queued-session", goalId: "goal" },
+    });
+    const onQueuedFollowupAdmitted = vi.fn(async () => {});
+    const onQueuedFollowupSettled = vi.fn(async () => {});
+
+    const result = await admitFollowupTurn({
+      queued,
+      defaults: createDefaults({
+        sessionEntry: original,
+        storePath: "/fixture/sessions.json",
+        opts: { onQueuedFollowupAdmitted, onQueuedFollowupSettled },
+      }),
+    });
+
+    expect(result).toEqual({ kind: "deferred", reason: "goal-wake-transient" });
+    // The reply lane is released for the retry and the transient item is not consumed.
+    expect(operation.complete).toHaveBeenCalledOnce();
+    expect(onQueuedFollowupSettled).not.toHaveBeenCalled();
+    expect(state.attention).not.toHaveBeenCalled();
+    // Deferral is bounded bookkeeping on the same queued wake.
+    expect(queued.goalContinuation?.wakeDeferrals).toBe(1);
+  });
+
+  it("defers a queued automatic Goal wake while the requester still awaits children", async () => {
+    const operation = createOperation();
+    const original = createActiveGoalEntry();
+    state.unsettledChildren.mockResolvedValue([{ runId: "child-1" }]);
+    state.admitReply.mockResolvedValue({ status: "owned", operation, sessionEntry: original });
+    state.loadEntry.mockReturnValue(original);
+    const queued = createRun({
+      goalContinuation: { sessionId: "queued-session", goalId: "goal" },
+    });
+
+    const result = await admitFollowupTurn({
+      queued,
+      defaults: createDefaults({
+        sessionEntry: original,
+        storePath: "/fixture/sessions.json",
+      }),
+    });
+
+    expect(result).toEqual({ kind: "deferred", reason: "goal-wake-transient" });
+    expect(state.attention).not.toHaveBeenCalled();
+  });
+
+  it("stops an automatic Goal wake visibly after the bounded defer budget", async () => {
+    const original = createActiveGoalEntry();
+    state.queueDepth.mockReturnValue(1);
+    state.loadEntry.mockReturnValue(original);
+    const queued = createRun({
+      goalContinuation: { sessionId: "queued-session", goalId: "goal" },
+    });
+    const onGoalNotice = vi.fn(async () => {});
+    let last: Awaited<ReturnType<typeof admitFollowupTurn>> | undefined;
+    // GOAL_WAKE_DEFER_LIMIT (5) transient refusals, then the stop on the next attempt.
+    for (let attempt = 0; attempt <= 5; attempt++) {
+      const operation = createOperation();
+      state.admitReply.mockResolvedValue({ status: "owned", operation, sessionEntry: original });
+      last = await admitFollowupTurn({
+        queued,
+        defaults: createDefaults({
+          sessionEntry: original,
+          storePath: "/fixture/sessions.json",
+        }),
+        onGoalNotice,
+      });
+    }
+    expect(last).toMatchObject({ kind: "skipped", reason: "goal-inactive" });
+    expect(state.attention).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ reason: "wake-suppressed", goalId: "goal" }),
+    );
+    expect(onGoalNotice).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("Goal automation stopped"),
+    );
   });
 
   it("rechecks the Goal after awaited compaction preparation", async () => {

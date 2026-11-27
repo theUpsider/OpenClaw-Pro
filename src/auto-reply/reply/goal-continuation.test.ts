@@ -10,6 +10,7 @@ import {
   enqueueGoalContinuation,
   isGoalContinuationCurrent,
   isGoalContinuationPlacementCurrent,
+  markGoalWakeSuppressed,
 } from "./goal-continuation.js";
 import { enqueueFollowupRun, getFollowupQueueDepth } from "./queue/enqueue.js";
 import type { FollowupRun } from "./queue/types.js";
@@ -19,7 +20,8 @@ import { testing } from "./reply-run-registry.test-support.js";
 const coordinator = vi.hoisted(() => ({ decide: vi.fn() }));
 // mock-isolation: This owner test forces the coordinator's bookkeeping to fail
 // without standing up a session store, decision model, or verifier.
-vi.mock("./goal-verification-coordinator.js", () => ({
+vi.mock("./goal-verification-coordinator.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./goal-verification-coordinator.js")>()),
   decideGoalTurnEndContinuation: coordinator.decide,
 }));
 
@@ -27,6 +29,13 @@ const children = vi.hoisted(() => vi.fn(async () => [] as unknown[]));
 // mock-isolation: Child custody is supplied without restoring the process registry.
 vi.mock("../../agents/subagents/registry/subagent-registry.js", () => ({
   listUnsettledRequesterChildren: children,
+}));
+
+// mock-isolation: The wake's durable attention write is observed without a session store.
+const goals = vi.hoisted(() => ({ attention: vi.fn() }));
+vi.mock("../../config/sessions/goals.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../config/sessions/goals.js")>()),
+  markSessionGoalAttention: goals.attention,
 }));
 
 // mock-isolation: This owner test controls worker publications without opening a database.
@@ -418,5 +427,60 @@ describe("Goal queue custody", () => {
     coordinator.decide.mockRejectedValue(new Error("session store closed"));
     expect(await enqueueGoalContinuation(f.params)).toBe(true);
     expect(vi.mocked(enqueueFollowupRun)).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Goal wake suppression", () => {
+  beforeEach(() => {
+    goals.attention.mockReset().mockResolvedValue({ recorded: true });
+  });
+
+  it("records the wake-suppressed attention marker and delivers one notice", async () => {
+    const onNotice = vi.fn(async () => {});
+    const notice = await markGoalWakeSuppressed({
+      sessionKey: "agent:main:goal",
+      storePath: "/fixture/sessions.json",
+      goalId: "goal-1",
+      objective: "Finish the checklist",
+      detail: "pending-queue-work",
+      onNotice,
+    });
+    expect(goals.attention).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        reason: "wake-suppressed",
+        detail: "pending-queue-work",
+        goalId: "goal-1",
+      }),
+    );
+    expect(notice).toContain("Goal automation stopped");
+    expect(onNotice).toHaveBeenCalledExactlyOnceWith(notice);
+  });
+
+  it("stays silent when the marker already existed and survives a failed notice", async () => {
+    goals.attention.mockResolvedValue({ recorded: false });
+    const onNotice = vi.fn(async () => {});
+    await expect(
+      markGoalWakeSuppressed({
+        sessionKey: "agent:main:goal",
+        storePath: "/fixture/sessions.json",
+        goalId: "goal-1",
+        objective: "Finish the checklist",
+        onNotice,
+      }),
+    ).resolves.toBeUndefined();
+    expect(onNotice).not.toHaveBeenCalled();
+
+    goals.attention.mockResolvedValue({ recorded: true });
+    await expect(
+      markGoalWakeSuppressed({
+        sessionKey: "agent:main:goal",
+        storePath: "/fixture/sessions.json",
+        goalId: "goal-1",
+        objective: "Finish the checklist",
+        onNotice: async () => {
+          throw new Error("delivery failed");
+        },
+      }),
+    ).resolves.toContain("Goal automation stopped");
   });
 });

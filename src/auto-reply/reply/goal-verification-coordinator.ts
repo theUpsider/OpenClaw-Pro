@@ -170,12 +170,18 @@ function buildPassHandoffNudge(params: { objective: string; missingPoints: strin
   ].join("\n");
 }
 
-function buildAttentionNotice(params: {
+/**
+ * One-time visible notice for a stopped automation loop. Exported so the wake
+ * path can reuse the exact same wording the budget/attempts caps already emit.
+ */
+export function buildAttentionNotice(params: {
   objective: string;
-  reason: "continuation-budget" | "verification-attempts";
+  reason: "continuation-budget" | "verification-attempts" | "wake-suppressed";
   missingPoints: string[];
   verification: SessionGoalVerification | undefined;
   maxContinuationTurns: number;
+  /** Extra context for the wake-suppressed stop (e.g. the transient gate). */
+  detail?: string;
 }): string {
   const objective = params.objective.slice(0, MAX_OBJECTIVE_IN_PROMPT_CHARS);
   const gaps = params.missingPoints.slice(0, MAX_GAPS_IN_PROMPT);
@@ -187,7 +193,11 @@ function buildAttentionNotice(params: {
   const stopped =
     params.reason === "continuation-budget"
       ? `the automatic continuation budget (${params.maxContinuationTurns} turns) is used up`
-      : "the verifier attempt budget is used up";
+      : params.reason === "verification-attempts"
+        ? "the verifier attempt budget is used up"
+        : `the automatic wake could not run while the goal stayed active${
+            params.detail ? ` (${params.detail})` : ""
+          }`;
   return [
     `⚠️ Goal automation stopped: ${stopped}.`,
     `Objective: ${objective}`,

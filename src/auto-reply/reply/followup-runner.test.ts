@@ -501,6 +501,47 @@ describe("createFollowupRunner", () => {
     expect(typing.markDispatchIdle).toHaveBeenCalledOnce();
   });
 
+  it("turns a transient goal-wake deferral into a restorable queue error", async () => {
+    const typing = createTypingController();
+    const queued = createQueuedRun();
+    state.admit.mockResolvedValue({ kind: "deferred", reason: "goal-wake-transient" });
+
+    await expect(
+      createFollowupRunner({ typing, typingMode: "instant", defaultModel: "claude" })(queued),
+    ).rejects.toBeInstanceOf(FollowupRunDeferredError);
+
+    expect(state.completeLifecycle).not.toHaveBeenCalled();
+    expect(typing.markRunComplete).toHaveBeenCalledOnce();
+    expect(typing.markDispatchIdle).toHaveBeenCalledOnce();
+  });
+
+  it("delivers the one-time goal wake stop notice through the session dispatch route", async () => {
+    const typing = createTypingController();
+    const turn = createTurn();
+    const onBlockReply = vi.fn(async () => {});
+    state.admit.mockImplementation(
+      async (
+        params: Parameters<typeof import("./followup-turn-admission.js").admitFollowupTurn>[0],
+      ) => {
+        await params.onGoalNotice?.(
+          "⚠️ Goal automation stopped: the automatic wake could not run.",
+        );
+        return { kind: "skipped", reason: "goal-inactive", operation: turn.operation };
+      },
+    );
+
+    await createFollowupRunner({
+      typing,
+      typingMode: "instant",
+      defaultModel: "claude",
+      opts: { onBlockReply },
+    })(turn.queued);
+
+    expect(onBlockReply).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ text: expect.stringContaining("Goal automation stopped") }),
+    );
+  });
+
   it("releases an operation acquired before asynchronous admission cancellation", async () => {
     const order: string[] = [];
     const typing = createTypingController();
