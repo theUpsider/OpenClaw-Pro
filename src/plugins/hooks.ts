@@ -679,32 +679,8 @@ export function createHookRunner(
           }
           handleHookError({ hookName, pluginId: current.pluginId, error: err });
         }
-<<<<<<< OURS/upstream-11.10
         policy.assertHandlerBoundaryActive?.();
         readClaimingHookAdmission(ctx)?.assertCurrent?.();
-||||||| BASE/v11.4
-      } catch (err) {
-        const failOpen = !(err instanceof HookIsolationError) && shouldCatchHookErrors(hookName);
-        policy.onHandlerError?.(hook, failOpen);
-        if (err instanceof HookIsolationError) {
-          throw err;
-        }
-        handleHookError({ hookName, pluginId: hook.pluginId, error: err });
-=======
-      } catch (err) {
-        const failOpen =
-          !(err instanceof HookIsolationError) && shouldCatchHookErrors(hookName, hook);
-        policy.onHandlerError?.(hook, failOpen);
-        if (err instanceof HookIsolationError) {
-          throw err;
-        }
-        handleHookError({
-          hookName,
-          pluginId: hook.pluginId,
-          error: err,
-          failurePolicy: hook.failurePolicy,
-        });
->>>>>>> THEIRS/pro-main
       }
       if (shouldStop) {
         break;

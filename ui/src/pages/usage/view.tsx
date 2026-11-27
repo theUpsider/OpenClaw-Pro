@@ -237,7 +237,6 @@ function UsageView(props: UsageControlsProps & { loading: boolean; read: UsageRe
             </div>
           ) : undefined
         ) : isEmpty() ? (
-<<<<<<< OURS/upstream-11.10
           <UsageEmptyState
             loading={loading()}
             onRefresh={() => void props.callbacks.filters.onRefresh()}
@@ -250,35 +249,7 @@ function UsageView(props: UsageControlsProps & { loading: boolean; read: UsageRe
               hidden={!showAnalytics()}
               inert={!showAnalytics()}
               style={{ display: showAnalytics() ? undefined : "none" }}
-||||||| BASE/v11.4
-          renderUsageEmptyState(props.callbacks.filters.onRefresh)
-        ) : (
-          <>
-            <Show
-              when={
-                !(
-                  displayTotals()?.usageReport?.state === "unavailable" ||
-                  props.data.overview?.usageReport?.state === "unavailable"
-                )
-              }
-              fallback={<div class="callout warning usage-callout">{t("usage.unavailable")}</div>}
-=======
-          renderUsageEmptyState(props.callbacks.filters.onRefresh)
-        ) : (
-          <>
-            {/* Interrupted responses leave known subtotals: keep the analytics and mark them as lower bounds. */}
-            <Show
-              when={
-                displayTotals()?.usageReport?.state === "unavailable" ||
-                props.data.overview?.usageReport?.state === "unavailable"
-              }
->>>>>>> THEIRS/pro-main
             >
-              <div class="callout usage-callout" role="note">
-                {t("usage.lowerBound")}
-              </div>
-            </Show>
-            <>
               <DailyChartCompact
                 dailyEntries={chartDaily()}
                 selectedDays={props.filters.selectedDays}
@@ -292,99 +263,9 @@ function UsageView(props: UsageControlsProps & { loading: boolean; read: UsageRe
                   complete: chartComplete(),
                 }}
               />
-<<<<<<< OURS/upstream-11.10
               <Show when={keepAnalytics() && analyticsTotals()}>
                 {(totals) => (
                   <CostBreakdownCompact totals={totals()} mode={props.display.chartMode} />
-||||||| BASE/v11.4
-              {renderCostWindowComparison(
-                props.data.costDaily,
-                props.filters.startDate,
-                props.filters.endDate,
-                props.filters.timeZone,
-              )}
-              {renderUsageHeatmap(
-                props.data.costDaily,
-                props.filters.startDate,
-                props.filters.endDate,
-              )}
-              {
-                <UsageMosaic
-                  overview={props.data.overview}
-                  timeZone={props.filters.timeZone}
-                  selectedHours={props.filters.selectedHours}
-                  onSelectHour={props.callbacks.filters.onSelectHour}
-                />
-              }
-            </Show>
-
-            <div class="usage-grid">
-              <div class="usage-grid-column">
-                <SessionsCard
-                  sessions={props.data.sessions}
-                  usage={props}
-                  totalSessions={props.data.overview?.total ?? totalSessions()}
-                  overview={props.data.sessionPage ?? props.data.overview}
-                  loading={props.data.loading}
-                />
-              </div>
-              <Show when={primarySelectedEntry()}>
-                {(selectedSession) => (
-                  <div class="usage-grid-column">
-                    <SessionDetailPanel
-                      session={selectedSession()}
-                      detail={props.detail}
-                      callbacks={props.callbacks.details}
-                      range={props.filters}
-                      contextExpanded={props.display.contextExpanded}
-                      onClose={() => props.callbacks.filters.onClearSessions()}
-                    />
-                  </div>
-=======
-              {renderCostWindowComparison(
-                props.data.costDaily,
-                props.filters.startDate,
-                props.filters.endDate,
-                props.filters.timeZone,
-              )}
-              {renderUsageHeatmap(
-                props.data.costDaily,
-                props.filters.startDate,
-                props.filters.endDate,
-              )}
-              {
-                <UsageMosaic
-                  overview={props.data.overview}
-                  timeZone={props.filters.timeZone}
-                  selectedHours={props.filters.selectedHours}
-                  onSelectHour={props.callbacks.filters.onSelectHour}
-                />
-              }
-            </>
-
-            <div class="usage-grid">
-              <div class="usage-grid-column">
-                <SessionsCard
-                  sessions={props.data.sessions}
-                  usage={props}
-                  totalSessions={props.data.overview?.total ?? totalSessions()}
-                  overview={props.data.sessionPage ?? props.data.overview}
-                  loading={props.data.loading}
-                />
-              </div>
-              <Show when={primarySelectedEntry()}>
-                {(selectedSession) => (
-                  <div class="usage-grid-column">
-                    <SessionDetailPanel
-                      session={selectedSession()}
-                      detail={props.detail}
-                      callbacks={props.callbacks.details}
-                      range={props.filters}
-                      contextExpanded={props.display.contextExpanded}
-                      onClose={() => props.callbacks.filters.onClearSessions()}
-                    />
-                  </div>
->>>>>>> THEIRS/pro-main
                 )}
               </Show>
             </div>
@@ -396,6 +277,17 @@ function UsageView(props: UsageControlsProps & { loading: boolean; read: UsageRe
             inert={!showAnalytics()}
             style={{ display: showAnalytics() ? "contents" : "none" }}
           >
+            {/* Interrupted responses leave known subtotals: keep the analytics and mark them as lower bounds. */}
+            <Show
+              when={
+                displayTotals()?.usageReport?.state === "unavailable" ||
+                props.data.overview?.usageReport?.state === "unavailable"
+              }
+            >
+              <div class="callout usage-callout" role="note">
+                {t("usage.lowerBound")}
+              </div>
+            </Show>
             <UsageCreators
               groups={activeAggregates().byCreator ?? []}
               selectedKey={props.filters.creatorKey}

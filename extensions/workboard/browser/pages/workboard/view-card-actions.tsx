@@ -16,37 +16,14 @@ import { findWorkboardSession } from "../../lib/workboard/lifecycle.ts";
 import {
   archiveWorkboardCard,
   deleteWorkboardCard,
-<<<<<<< OURS/upstream-11.10
   moveWorkboardCard,
 } from "../../lib/workboard/mutations.ts";
 import { getWorkboardState } from "../../lib/workboard/runtime.ts";
-||||||| BASE/v11.4
-  findWorkboardSession,
-  getWorkboardState,
-  moveWorkboardCard,
-  startWorkboardCard,
-  stopWorkboardCard,
-  type WorkboardCard,
-  type WorkboardExecutionEngine,
-  type WorkboardExecutionMode,
-  type WorkboardStatus,
-} from "../../lib/workboard/index.ts";
-=======
-  findWorkboardSession,
-  getWorkboardLaneQueue,
-  getWorkboardState,
-  startWorkboardCard,
-  stopWorkboardCard,
-  type WorkboardCard,
-  type WorkboardExecutionEngine,
-  type WorkboardExecutionMode,
-  type WorkboardStatus,
-} from "../../lib/workboard/index.ts";
+import { getWorkboardLaneQueue } from "../../lib/workboard/lane-queue.ts";
 import {
   resolveWorkboardInteraction,
   workboardInteractionTarget,
 } from "../../lib/workboard/interaction.ts";
->>>>>>> THEIRS/pro-main
 import { workboardCardSessionTarget } from "../../lib/workboard/session-resolution.ts";
 import type {
   WorkboardCard,

@@ -162,6 +162,7 @@ const toolSchemas = {
     status: Type.Optional(Type.String({ description: "Initial status." })),
     priority: Type.Optional(Type.String({ description: "low, normal, high, or urgent." })),
     labels: Type.Optional(Type.Array(Type.String(), { description: "Card labels." })),
+    replaces: ReplacesField,
     agentId: Type.Optional(Type.String({ description: "Assigned agent id." })),
     parents: Type.Optional(Type.Array(Type.String(), { description: "Parent card ids." })),
     token: Type.Optional(Type.String({ description: "Claim token for claimed parent cards." })),
@@ -179,7 +180,13 @@ const toolSchemas = {
     workspace: workspaceField(),
     maxRuntimeSeconds: Type.Optional(Type.Number({ description: "Run timeout seconds." })),
     maxRetries: Type.Optional(Type.Number({ description: "Retry budget." })),
+    parallelizable: parallelizableField(),
+    maxConcurrentPerOwner: maxConcurrentPerOwnerField(),
+    dispatchMode: dispatchModeField(),
     scheduledAt: Type.Optional(Type.Number({ description: "Unix epoch milliseconds." })),
+    decisionOptions: decisionOptionsField(),
+    ask: askField(),
+    askKind: askKindField(),
   }),
   link: strictObject({
     parentId: Type.String({ description: "Parent card id." }),
@@ -203,12 +210,12 @@ const toolSchemas = {
     status: Type.Optional(Type.String({ description: "Omit: clear claim only, preserve status." })),
   }),
   comment: strictObject({
-    id: cardIdField(),
+    id: boundCardIdField(),
     body: Type.String({ description: "Comment body." }),
     token: ScopedClaimTokenField,
   }),
   proof: strictObject({
-    id: cardIdField(),
+    id: boundCardIdField(),
     status: Type.Optional(Type.String({ description: "passed, failed, skipped, or unknown." })),
     label: Type.Optional(Type.String({ description: "Proof label." })),
     command: Type.Optional(Type.String({ description: "Command or exact step run." })),
@@ -218,7 +225,7 @@ const toolSchemas = {
     token: ScopedClaimTokenField,
   }),
   complete: strictObject({
-    id: cardIdField(),
+    id: boundCardIdField(),
     token: claimTokenField(),
     summary: Type.Optional(Type.String({ description: "Completion summary." })),
     proofId: Type.Optional(
@@ -295,12 +302,15 @@ const toolSchemas = {
     token: ScopedClaimTokenField,
   }),
   block: strictObject({
-    id: cardIdField(),
+    id: boundCardIdField(),
     token: claimTokenField(),
     reason: Type.Optional(Type.String({ description: "Blocker summary." })),
+    decisionOptions: decisionOptionsField(),
+    ask: askField(),
+    askKind: askKindField(),
   }),
   move: strictObject({
-    id: cardIdField(),
+    id: boundCardIdField(),
     status: Type.Union(
       WORKBOARD_STATUSES.map((status) => Type.Literal(status)),
       { description: "Target Workboard status." },
@@ -352,75 +362,8 @@ export function createWorkboardTools(params: {
       name: "workboard_create",
       label: "Workboard Create",
       description:
-<<<<<<< OURS/upstream-11.10
-        "Create a Workboard card, optionally with parent dependencies, tenant, skills, workspace, and key to prevent duplicate requests. Sessions boards do not hold cards; use workboard_sessions_board_read/update/move for them.",
-      parameters: toolSchemas.create,
-||||||| BASE/v11.4
-        "Create a Workboard card, optionally with parent dependencies, tenant, skills, workspace, and key to prevent duplicate requests. Sessions boards do not hold cards; use workboard_sessions_board_read/update/move for them.",
-      parameters: strictObject({
-        title: Type.String({ description: "Card title." }),
-        notes: Type.Optional(Type.String({ description: "Card notes or acceptance criteria." })),
-        status: Type.Optional(Type.String({ description: "Initial status." })),
-        priority: Type.Optional(Type.String({ description: "low, normal, high, or urgent." })),
-        labels: Type.Optional(Type.Array(Type.String(), { description: "Card labels." })),
-        agentId: Type.Optional(Type.String({ description: "Assigned agent id." })),
-        parents: Type.Optional(Type.Array(Type.String(), { description: "Parent card ids." })),
-        token: Type.Optional(Type.String({ description: "Claim token for claimed parent cards." })),
-        tenant: Type.Optional(Type.String({ description: "Soft tenant namespace." })),
-        boardId: Type.Optional(Type.String({ description: "Soft board namespace." })),
-        createdByCardId: Type.Optional(
-          Type.String({ description: "Parent card that created this card." }),
-        ),
-        idempotencyKey: Type.Optional(
-          Type.String({
-            description: "Reuse this key when retrying to avoid creating a duplicate card.",
-          }),
-        ),
-        skills: Type.Optional(Type.Array(Type.String(), { description: "Suggested skills." })),
-        workspace: workspaceField(),
-        maxRuntimeSeconds: Type.Optional(Type.Number({ description: "Run timeout seconds." })),
-        maxRetries: Type.Optional(Type.Number({ description: "Retry budget." })),
-        scheduledAt: Type.Optional(Type.Number({ description: "Unix epoch milliseconds." })),
-      }),
-=======
         "Create a Workboard card, optionally with parent dependencies, tenant, skills, workspace, and key to prevent duplicate requests. Labels come from the board's palette of at most 10 classifications (workboard_boards lists it; the result returns it): reuse a listed name, a new name takes a free slot, and on a full board pass replaces to overwrite one. The parallelizable label is exempt. Set dispatchMode external when a controller outside this Gateway owns the card's placement; the local dispatcher then never claims or starts it. Sessions boards do not hold cards; use workboard_sessions_board_read/update/move for them.",
-      parameters: strictObject({
-        title: Type.String({ description: "Card title." }),
-        notes: Type.Optional(Type.String({ description: "Card notes or acceptance criteria." })),
-        status: Type.Optional(Type.String({ description: "Initial status." })),
-        priority: Type.Optional(Type.String({ description: "low, normal, high, or urgent." })),
-        labels: Type.Optional(
-          Type.Array(Type.String(), {
-            description: "Card labels; reuse the board's classifications.",
-          }),
-        ),
-        replaces: ReplacesField,
-        agentId: Type.Optional(Type.String({ description: "Assigned agent id." })),
-        parents: Type.Optional(Type.Array(Type.String(), { description: "Parent card ids." })),
-        token: Type.Optional(Type.String({ description: "Claim token for claimed parent cards." })),
-        tenant: Type.Optional(Type.String({ description: "Soft tenant namespace." })),
-        boardId: Type.Optional(Type.String({ description: "Soft board namespace." })),
-        createdByCardId: Type.Optional(
-          Type.String({ description: "Parent card that created this card." }),
-        ),
-        idempotencyKey: Type.Optional(
-          Type.String({
-            description: "Reuse this key when retrying to avoid creating a duplicate card.",
-          }),
-        ),
-        skills: Type.Optional(Type.Array(Type.String(), { description: "Suggested skills." })),
-        workspace: workspaceField(),
-        maxRuntimeSeconds: Type.Optional(Type.Number({ description: "Run timeout seconds." })),
-        maxRetries: Type.Optional(Type.Number({ description: "Retry budget." })),
-        parallelizable: parallelizableField(),
-        maxConcurrentPerOwner: maxConcurrentPerOwnerField(),
-        dispatchMode: dispatchModeField(),
-        scheduledAt: Type.Optional(Type.Number({ description: "Unix epoch milliseconds." })),
-        decisionOptions: decisionOptionsField(),
-        ask: askField(),
-        askKind: askKindField(),
-      }),
->>>>>>> THEIRS/pro-main
+      parameters: toolSchemas.create,
       execute: async (_toolCallId, rawParams) => {
         const record = withWorkboardOperatorAsk(
           withDecisionOptions(rawParams as Record<string, unknown>),
@@ -516,21 +459,7 @@ export function createWorkboardTools(params: {
       name: "workboard_comment",
       label: "Workboard Comment",
       description: "Append a compact comment to a Workboard card.",
-<<<<<<< OURS/upstream-11.10
       parameters: toolSchemas.comment,
-||||||| BASE/v11.4
-      parameters: strictObject({
-        id: cardIdField(),
-        body: Type.String({ description: "Comment body." }),
-        token: ScopedClaimTokenField,
-      }),
-=======
-      parameters: strictObject({
-        id: boundCardIdField(),
-        body: Type.String({ description: "Comment body." }),
-        token: ScopedClaimTokenField,
-      }),
->>>>>>> THEIRS/pro-main
       execute: scopedCardMutation((id, record, scope) =>
         store.addComment(id, { body: record.body }, scope),
       ),
@@ -540,31 +469,7 @@ export function createWorkboardTools(params: {
       label: "Workboard Proof",
       description:
         "Attach proof or artifact metadata to a Workboard card after running tests, checks, or producing screenshots/logs. Returns proofId; pass it to workboard_complete when that call reports the terminal status for this proof.",
-<<<<<<< OURS/upstream-11.10
       parameters: toolSchemas.proof,
-||||||| BASE/v11.4
-      parameters: strictObject({
-        id: cardIdField(),
-        status: Type.Optional(Type.String({ description: "passed, failed, skipped, or unknown." })),
-        label: Type.Optional(Type.String({ description: "Proof label." })),
-        command: Type.Optional(Type.String({ description: "Command or exact step run." })),
-        url: Type.Optional(Type.String({ description: "Proof or artifact URL." })),
-        note: Type.Optional(Type.String({ description: "Short proof note." })),
-        artifactPath: Type.Optional(Type.String({ description: "Optional local artifact path." })),
-        token: ScopedClaimTokenField,
-      }),
-=======
-      parameters: strictObject({
-        id: boundCardIdField(),
-        status: Type.Optional(Type.String({ description: "passed, failed, skipped, or unknown." })),
-        label: Type.Optional(Type.String({ description: "Proof label." })),
-        command: Type.Optional(Type.String({ description: "Command or exact step run." })),
-        url: Type.Optional(Type.String({ description: "Proof or artifact URL." })),
-        note: Type.Optional(Type.String({ description: "Short proof note." })),
-        artifactPath: Type.Optional(Type.String({ description: "Optional local artifact path." })),
-        token: ScopedClaimTokenField,
-      }),
->>>>>>> THEIRS/pro-main
       execute: async (_toolCallId, rawParams) => {
         const { record, id, scope } = await readScopedCardToolParams(rawParams);
         const hasArtifact =
@@ -589,82 +494,8 @@ export function createWorkboardTools(params: {
       name: "workboard_complete",
       label: "Workboard Complete",
       description:
-<<<<<<< OURS/upstream-11.10
-        "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest.",
-      parameters: toolSchemas.complete,
-||||||| BASE/v11.4
-        "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest.",
-      parameters: strictObject({
-        id: cardIdField(),
-        token: claimTokenField(),
-        summary: Type.Optional(Type.String({ description: "Completion summary." })),
-        proofId: Type.Optional(
-          Type.String({
-            description: "Proof id returned by workboard_proof when resolving that pending proof.",
-          }),
-        ),
-        proof: Type.Optional(
-          strictObject({
-            status: Type.Optional(
-              Type.String({ description: "passed, failed, skipped, or unknown." }),
-            ),
-            label: Type.Optional(Type.String({ description: "Proof label." })),
-            command: Type.Optional(Type.String({ description: "Command or step run." })),
-            url: Type.Optional(Type.String({ description: "Proof URL." })),
-            note: Type.Optional(Type.String({ description: "Proof note." })),
-          }),
-        ),
-        artifacts: Type.Optional(
-          Type.Array(
-            strictObject({
-              label: Type.Optional(Type.String()),
-              url: Type.Optional(Type.String()),
-              path: Type.Optional(Type.String()),
-              mimeType: Type.Optional(Type.String()),
-            }),
-          ),
-        ),
-        createdCardIds: Type.Optional(
-          Type.Array(Type.String(), { description: "Cards created during this run." }),
-        ),
-      }),
-=======
         "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest. Finished work moves to review until someone accepts it.",
-      parameters: strictObject({
-        id: boundCardIdField(),
-        token: claimTokenField(),
-        summary: Type.Optional(Type.String({ description: "Completion summary." })),
-        proofId: Type.Optional(
-          Type.String({
-            description: "Proof id returned by workboard_proof when resolving that pending proof.",
-          }),
-        ),
-        proof: Type.Optional(
-          strictObject({
-            status: Type.Optional(
-              Type.String({ description: "passed, failed, skipped, or unknown." }),
-            ),
-            label: Type.Optional(Type.String({ description: "Proof label." })),
-            command: Type.Optional(Type.String({ description: "Command or step run." })),
-            url: Type.Optional(Type.String({ description: "Proof URL." })),
-            note: Type.Optional(Type.String({ description: "Proof note." })),
-          }),
-        ),
-        artifacts: Type.Optional(
-          Type.Array(
-            strictObject({
-              label: Type.Optional(Type.String()),
-              url: Type.Optional(Type.String()),
-              path: Type.Optional(Type.String()),
-              mimeType: Type.Optional(Type.String()),
-            }),
-          ),
-        ),
-        createdCardIds: Type.Optional(
-          Type.Array(Type.String(), { description: "Cards created during this run." }),
-        ),
-      }),
->>>>>>> THEIRS/pro-main
+      parameters: toolSchemas.complete,
       execute: claimedCardMutation((id, record, scope) => store.complete(id, record, scope)),
     },
     {
@@ -714,33 +545,12 @@ export function createWorkboardTools(params: {
     {
       name: "workboard_block",
       label: "Workboard Block",
-<<<<<<< OURS/upstream-11.10
-      description: "Block a claimed Workboard card with a durable reason and release the claim.",
-      parameters: toolSchemas.block,
-      execute: claimedCardMutation((id, record, scope) => store.block(id, record, scope)),
-||||||| BASE/v11.4
-      description: "Block a claimed Workboard card with a durable reason and release the claim.",
-      parameters: strictObject({
-        id: cardIdField(),
-        token: claimTokenField(),
-        reason: Type.Optional(Type.String({ description: "Blocker summary." })),
-      }),
-      execute: claimedCardMutation((id, record, scope) => store.block(id, record, scope)),
-=======
       description:
         "Block a claimed Workboard card with a durable reason and release the claim. When the operator must decide, pass decisionOptions so the card offers them as a numbered picker; when you only need an answer or wait on something external, pass ask and askKind instead.",
-      parameters: strictObject({
-        id: boundCardIdField(),
-        token: claimTokenField(),
-        reason: Type.Optional(Type.String({ description: "Blocker summary." })),
-        decisionOptions: decisionOptionsField(),
-        ask: askField(),
-        askKind: askKindField(),
-      }),
+      parameters: toolSchemas.block,
       execute: claimedCardMutation((id, record, scope) =>
         store.block(id, withWorkboardOperatorAsk(withDecisionOptions(record)), scope),
       ),
->>>>>>> THEIRS/pro-main
     },
     {
       name: "workboard_unblock",
@@ -754,36 +564,11 @@ export function createWorkboardTools(params: {
       label: "Workboard Move",
       description:
         "Move a Workboard card to another status. Claimed cards require matching claim scope.",
-<<<<<<< OURS/upstream-11.10
       parameters: toolSchemas.move,
-||||||| BASE/v11.4
-      parameters: strictObject({
-        id: cardIdField(),
-        status: Type.Union(
-          WORKBOARD_STATUSES.map((status) => Type.Literal(status)),
-          { description: "Target Workboard status." },
-        ),
-        token: claimTokenField("Claim token for claimed cards."),
-      }),
-=======
-      parameters: strictObject({
-        id: boundCardIdField(),
-        status: Type.Union(
-          WORKBOARD_STATUSES.map((status) => Type.Literal(status)),
-          { description: "Target Workboard status." },
-        ),
-        token: claimTokenField("Claim token for claimed cards."),
-      }),
->>>>>>> THEIRS/pro-main
       execute: scopedCardMutation((id, record, scope) =>
         store.move(id, record.status, undefined, scope),
       ),
     },
-<<<<<<< OURS/upstream-11.10
-    ...createWorkboardOrchestrationTools({ store, ownerId, runId }),
-||||||| BASE/v11.4
-    ...createWorkboardOrchestrationTools({ store, ownerId }),
-=======
     {
       name: "workboard_set_parallelism",
       label: "Workboard Set Parallelism",
@@ -887,11 +672,11 @@ export function createWorkboardTools(params: {
     ...createWorkboardOrchestrationTools({
       store,
       ownerId,
+      runId,
       voiceBoard,
       agentId: callerAgentId,
       interaction,
     }),
->>>>>>> THEIRS/pro-main
   ];
   for (const tool of tools) {
     const execute = tool.execute;

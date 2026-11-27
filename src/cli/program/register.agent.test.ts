@@ -105,34 +105,6 @@ describe("agent command registration", () => {
     );
   });
 
-<<<<<<< OURS/upstream-11.10
-  it("resolves parent and leaf exec options", async () => {
-    const overrides = ['{"tools":{"deny":["exec"]}}', '{"tools":{"deny":[]}}'];
-    await runCli([
-      ..."agent --timeout 30 exec fix --timeout 120".split(" "),
-      ...overrides.flatMap((value) => ["--config-override", value]),
-    ]);
-    expect(exec).toHaveBeenCalledWith(
-      "fix",
-      expect.objectContaining({ timeout: "120", configOverride: overrides }),
-      runtime,
-    );
-    expect(agent).not.toHaveBeenCalled();
-  });
-||||||| BASE/v11.4
-  it.each([{ args: "agent --timeout 30 exec fix --timeout 120".split(" "), timeout: "120" }])(
-    "resolves parent and leaf exec options for $args",
-    async ({ args, timeout }) => {
-      await runCli(args);
-      expect(agentExecCommandMock).toHaveBeenCalledWith(
-        "fix",
-        expect.objectContaining({ timeout }),
-        runtime,
-      );
-      expect(agentCliCommandMock).not.toHaveBeenCalled();
-    },
-  );
-=======
   it.each([
     {
       args: "agent --timeout 30 exec fix --timeout 120".split(" "),
@@ -153,7 +125,6 @@ describe("agent command registration", () => {
     );
     expect(agentCliCommandMock).not.toHaveBeenCalled();
   });
->>>>>>> THEIRS/pro-main
 
   it("selects agent creation posture", async () => {
     const options = { name: "beta", bind: ["telegram", "discord:acct"], nonInteractive: true };

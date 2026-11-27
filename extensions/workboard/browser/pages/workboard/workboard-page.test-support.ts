@@ -1,24 +1,12 @@
 import "../../test/dom.setup.ts";
 import { expectDefined } from "@openclaw/normalization-core";
-<<<<<<< /tmp/s2v2/d3/o
-import type { ControlUiSessionListResult } from "openclaw/plugin-sdk/control-ui";
-import { expect, onTestFinished, vi } from "vitest";
-||||||| /tmp/s2v2/d3/b
 import type {
-  ControlUiComponents,
-  ControlUiSessionListResult,
-} from "openclaw/plugin-sdk/control-ui";
-import { afterEach, expect, vi } from "vitest";
-=======
-import type {
-  ControlUiComponents,
   ControlUiSessionListQuery,
   ControlUiSessionListResult,
   ControlUiSessionListSnapshot,
   ControlUiSessionListSubscription,
 } from "openclaw/plugin-sdk/control-ui";
-import { afterEach, expect, vi } from "vitest";
->>>>>>> /tmp/s2v2/d3/t
+import { expect, onTestFinished, vi } from "vitest";
 import type { AgentsListResult } from "../../api/types.ts";
 import { createWorkboardCapability } from "../../lib/workboard/capability.ts";
 import type { WorkboardBoardSummary } from "../../lib/workboard/index.ts";
@@ -116,18 +104,7 @@ export function mountPage(
     container,
     request,
     registerBoardNavigation,
-<<<<<<< /tmp/s2v2/d3/o
     focus: () => mounted?.focus?.(),
-    cards: (next: typeof cards) => void (cards = next),
-    agents: (next: typeof agents) => void (agents = next),
-||||||| /tmp/s2v2/d3/b
-    cards(next: typeof cards) {
-      cards = next;
-    },
-    agents(next: typeof agents) {
-      agents = next;
-    },
-=======
     cards(next: typeof cards) {
       cards = next;
     },
@@ -142,7 +119,6 @@ export function mountPage(
       sessionSnapshot = next;
       publishWindows();
     },
->>>>>>> /tmp/s2v2/d3/t
     navigate(boardId: string) {
       context = { ...context, props: { boardId } };
       mounted?.update?.(context);
@@ -185,13 +161,6 @@ export function observeSessions(page: Page, result: ControlUiSessionListResult) 
   });
 }
 
-<<<<<<< /tmp/s2v2/d3/o
-export const openSessionButton = (container: Element) =>
-  [...container.querySelectorAll<HTMLButtonElement>("button")].find(
-||||||| /tmp/s2v2/d3/b
-export function openSessionButton(container: Element) {
-  return [...container.querySelectorAll<HTMLButtonElement>("button")].find(
-=======
 /**
  * The board reads two independent session queries: the execution resolver (one open card,
  * `search` set) and the dock-inclusive window behind the interaction fallback (board-wide,
@@ -205,10 +174,10 @@ export function cardSessionCalls(page: ReturnType<typeof mountPage>) {
 
 export function openSessionButton(container: Element) {
   return [...container.querySelectorAll<HTMLButtonElement>("button")].find(
->>>>>>> /tmp/s2v2/d3/t
     (button) =>
       (button.getAttribute("aria-label") ?? button.textContent?.trim()) === "Open session",
   );
+}
 
 export const visibleToast = (container: Element) =>
   container.querySelector<HTMLElement>("openclaw-workboard-toast:not([hidden])");

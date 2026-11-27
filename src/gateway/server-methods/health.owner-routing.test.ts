@@ -1,10 +1,7 @@
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  awaitGateBeforeSettlement, createDeferred,
-  recordStartupRecoveryTombstone,
-} from "../../../test/helpers/promise.js";
+import { awaitGateBeforeSettlement, createDeferred } from "../../../test/helpers/promise.js";
 import { setPreparedModelRuntimeStartupStatus } from "../../agents/prepared-model-runtime.startup-status.js";
 import { createGatewayHostLifecycle } from "../../cli/gateway-cli/host-lifecycle.js";
 import { resetConfigRuntimeState, setRuntimeConfigSnapshot } from "../../config/config.js";
@@ -13,6 +10,14 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import * as childRuntime from "../../infra/child-runtime-viability.js";
 import { beginLifecycleWriteCustody } from "../../infra/lifecycle-write-custody.js";
 import { recordStartupMigrationWarnings } from "../../infra/state-migrations.messages.js";
+import {
+  recordStartupRecoveryStoreResult,
+  recordStartupRecoveryTombstone,
+} from "../../agents/main-session-recovery/main-session-restart-recovery-diagnostics.js";
+import {
+  getAgentEventLifecycleGeneration,
+  rotateAgentEventLifecycleGeneration,
+} from "../../infra/agent-events.js";
 import { withStateDirEnv } from "../../test-helpers/state-dir-env.js";
 import { beginAgentDeletionJournal } from "../../test-utils/agent-deletion-journal.js";
 import { observeMainThreadFs } from "../../test-utils/main-thread-fs-spies.test-support.js";
@@ -440,7 +445,6 @@ describe("Gateway status owner routing", () => {
         external: 2048,
         arrayBuffers: 1024,
       });
-<<<<<<< OURS/upstream-11.10
       const idlePool = {
         maxWorkers: 1,
         workers: 0,
@@ -456,22 +460,15 @@ describe("Gateway status owner routing", () => {
             heapTotalBytes: 4096,
             externalBytes: 2048,
             arrayBuffersBytes: 1024,
-||||||| BASE/v11.4
-    },
-  );
-
-  it.each(["main", "molty", undefined])(
-    "uses recorded owner %s for status and public main aliases",
-    async (agentId) => {
-      await withStateDirEnv("openclaw-gateway-status-owner-", async ({ stateDir }) => {
-        const config = {
-          agents: {
-            ownership: "explicit",
-            ...(agentId ? { defaults: { systemAgent: { agentId } } } : {}),
-            entries: { main: {}, molty: {} },
-=======
-    },
-  );
+          },
+          workerPools: {
+            transcriptReconciliation: idlePool,
+            modelCatalog: { ...idlePool, workerFailures: 0 },
+          },
+        }),
+      );
+    });
+  });
 
   it("restricts startup tombstone session keys to admins while reporting the count", async () => {
     await withStateDirEnv("openclaw-gateway-startup-tombstone-", async ({ stateDir }) => {
@@ -503,26 +500,6 @@ describe("Gateway status owner routing", () => {
       } finally {
         rotateAgentEventLifecycleGeneration();
       }
-    });
-  });
-
-  it.each(["main", "molty", undefined])(
-    "uses recorded owner %s for status and public main aliases",
-    async (agentId) => {
-      await withStateDirEnv("openclaw-gateway-status-owner-", async ({ stateDir }) => {
-        const config = {
-          agents: {
-            ownership: "explicit",
-            ...(agentId ? { defaults: { systemAgent: { agentId } } } : {}),
-            entries: { main: {}, molty: {} },
->>>>>>> THEIRS/pro-main
-          },
-          workerPools: {
-            transcriptReconciliation: idlePool,
-            modelCatalog: { ...idlePool, workerFailures: 0 },
-          },
-        }),
-      );
     });
   });
 });

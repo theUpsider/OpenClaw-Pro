@@ -342,13 +342,6 @@ export function CardMeta(input: {
       ? input.classification.orderedLabels
       : input.classification.orderedLabels.slice(0, input.maxLabels);
   const hiddenLabels = () => input.classification.orderedLabels.slice(labels().length);
-  // A cap is deterministic, so the measured overflow ref must stay out of it: that ref hides
-  // chips by available width and would hide the fixed `+N` chip too.
-  const overflowRef = () => (input.maxLabels === undefined ? labelOverflowRef(labels) : undefined);
-  const labels = createMemo(() => input.card.labels, {
-    equals: (previous, next) =>
-      previous.length === next.length && previous.every((label, index) => label === next[index]),
-  });
   const chips = createElementRefs<HTMLElement>();
   let overflow: HTMLElement | undefined;
   const orderedChips = () =>
@@ -356,6 +349,12 @@ export function CardMeta(input: {
       const chip = chips.get(label);
       return chip ? [chip] : [];
     });
+  // A cap is deterministic, so the measured overflow ref must stay out of it: that ref hides
+  // chips by available width and would hide the fixed `+N` chip too.
+  const overflowRef = () =>
+    input.maxLabels === undefined
+      ? labelOverflowRef(labels, orderedChips, () => overflow)
+      : undefined;
   return (
     <>
       {!labels().length &&
@@ -363,25 +362,12 @@ export function CardMeta(input: {
       !getWorkboardAcceptanceMarker(input.card) &&
       !needsOperatorAttention(input.card) ? null : (
         <div class="workboard-card__meta">
-<<<<<<< OURS/upstream-11.10
-          {labels().length ? (
-            <div
-              class="workboard-card__labels"
-              ref={labelOverflowRef(labels, orderedChips, () => overflow)}
-            >
-              <For each={labels()} keyed={(label) => label}>
-||||||| BASE/v11.4
-          {input.card.labels.length ? (
-            <div class="workboard-card__labels" ref={labelOverflowRef(() => input.card.labels)}>
-              <For each={input.card.labels} keyed={(label) => label}>
-=======
           <CardClassificationAnnouncement classification={input.classification} />
           <CardNeedsYouMarker card={input.card} />
           <CardAcceptanceMarker card={input.card} />
-          {input.card.labels.length ? (
+          {labels().length ? (
             <div class="workboard-card__labels" ref={overflowRef()}>
               <For each={labels()} keyed={(label) => label}>
->>>>>>> THEIRS/pro-main
                 {(label) => (
                   <CardLabelChip
                     label={label()}

@@ -138,28 +138,13 @@ type SetupRegistryCache = {
   snapshot: PluginMetadataSnapshot | undefined;
   results: LruCache<PluginSetupRegistry>;
   recordPositions?: Map<PluginManifestRecord, number>;
+  // Setup registration sees only its record and the owner's module loader, so
+  // every registry view over the same snapshot record shares one registration.
+  records: WeakMap<PluginManifestRecord, SetupRecordRegistration>;
 };
 
 // Setup results cannot outlive their module owner or keep a retired graph alive.
-<<<<<<< OURS/upstream-11.10
-const setupRegistries = new WeakMap<
-  PluginCache,
-  {
-    snapshot: unknown;
-    results: LruCache<PluginSetupRegistry>;
-    // Setup registration sees only its record and the owner's module loader, so
-    // every registry view over the same snapshot record shares one registration.
-    records: WeakMap<PluginManifestRecord, SetupRecordRegistration>;
-  }
->();
-||||||| BASE/v11.4
-const setupRegistries = new WeakMap<
-  PluginCache,
-  { snapshot: unknown; results: LruCache<PluginSetupRegistry> }
->();
-=======
 const setupRegistries = new WeakMap<PluginCache, SetupRegistryCache>();
->>>>>>> THEIRS/pro-main
 
 function getSetupRegistryCache(): SetupRegistryCache {
   const owner = getPluginCache();
@@ -588,17 +573,8 @@ export const resolvePluginSetupRegistry = withPluginSetupCache(function (
     };
   }
 
-<<<<<<< OURS/upstream-11.10
   // Implicit inventory requests reuse whole registries; caller-supplied manifest views reuse
-  // per-record registrations below.
-  const resultCacheKey = params?.manifestRegistry ? null : resolveSetupRegistryCacheKey(params);
-  const setupCache = getSetupRegistryCache();
-  const resultCache = setupCache.results;
-||||||| BASE/v11.4
-  // Caller-supplied manifests own their registration; only implicit inventory requests reuse it.
-  const resultCacheKey = params?.manifestRegistry ? null : resolveSetupRegistryCacheKey(params);
-  const resultCache = getSetupRegistryCache();
-=======
+  // per-record registrations below, following the snapshot record order when records match.
   const setupCache = getSetupRegistryCache();
   const resultCache = setupCache.results;
   const recordPositions = params?.manifestRegistry
@@ -608,7 +584,6 @@ export const resolvePluginSetupRegistry = withPluginSetupCache(function (
     params?.manifestRegistry && !recordPositions
       ? null
       : resolveSetupRegistryCacheKey(params, recordPositions);
->>>>>>> THEIRS/pro-main
   if (resultCacheKey !== null) {
     const cached = resultCache.get(resultCacheKey);
     if (cached) {

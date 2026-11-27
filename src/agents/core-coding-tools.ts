@@ -288,22 +288,13 @@ export function createCoreCodingTools(options: CoreCodingToolsOptions): AnyAgent
                 normalizeGuardedPathParams: true,
                 ...(options.pathScopePolicy ? { pathScopePolicy: options.pathScopePolicy } : {}),
               }
-<<<<<<< OURS/upstream-11.10
             : {
                 resolutionCwd: options.codingRoot,
                 containmentSource: options.applyPatchContainmentSource,
                 normalizeGuardedPathParams: true,
                 allowLinkedWorktrees: tool.name !== "ls",
-              },
-||||||| BASE/v11.4
-            : { resolutionCwd: options.codingRoot, normalizeGuardedPathParams: true },
-=======
-            : {
-                resolutionCwd: options.codingRoot,
-                normalizeGuardedPathParams: true,
                 ...(options.pathScopePolicy ? { pathScopePolicy: options.pathScopePolicy } : {}),
               },
->>>>>>> THEIRS/pro-main
         )
       : wrapToolWithPathScopeGuard(tool, {
           pathScopePolicy: options.pathScopePolicy,

@@ -362,18 +362,10 @@ export default {
     unknownStatus: "Unknown",
     showArchived: "Show archived",
     dispatch: "Start agents",
-<<<<<<< OURS/upstream-11.10
-    dispatchHelp: "Run Ready cards, up to 3 at once.",
-    dispatchHelpAll: "Run Ready cards across all boards, up to 3 at once.",
-||||||| BASE/v11.4
-    dispatchHelp: "Ask agents to execute this board's Ready cards, up to 3 at a time.",
-    dispatchHelpAll: "Ask agents to execute Ready cards across all boards, up to 3 at a time.",
-=======
     dispatchHelp:
-      "Ask agents to run this board's Ready cards: up to 3 per pass, one per lane unless a card opts into parallel slots.",
+      "Run Ready cards, up to 3 at once, one per lane unless a card opts into parallel slots.",
     dispatchHelpAll:
-      "Ask agents to run Ready cards across all boards: up to 3 per pass, one per lane unless a card opts into parallel slots.",
->>>>>>> THEIRS/pro-main
+      "Run Ready cards across all boards, up to 3 at once, one per lane unless a card opts into parallel slots.",
     moveTo: "Move to",
     dispatchSummary:
       "Started {started}. Readiness updated: {promoted}; blocked: {blocked}; claims released: {reclaimed}; marked for planning: {orchestrated}. Failed to start: {failures}.",

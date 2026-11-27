@@ -17,7 +17,7 @@ function createParser(onProgress?: (id: string) => void) {
   });
 }
 
-function runTurn(parentToolUseId: string | null, records: number, chars: number) {
+function runTurn(parentToolUseId: string | null, records: number, chars: number, unit = "r") {
   const progress: string[] = [];
   const parser = createParser((id) => progress.push(id));
   const push = (record: unknown) => parser.push(`${JSON.stringify(record)}\n`);
@@ -29,13 +29,11 @@ function runTurn(parentToolUseId: string | null, records: number, chars: number)
   };
   push({ type: "assistant", message: { id: "parent-call", content: [agentCall] } });
   for (let index = 0; index < records; index += 1) {
-    // Mixed parent records retain raw accounting; only child attribution earns a discount.
     push({
       type: "user",
       message: {
         content: [
-          { type: "tool_result", tool_use_id: `sub-${index}`, content: "r".repeat(chars) },
-          { type: "text", text: "note" },
+          { type: "tool_result", tool_use_id: `sub-${index}`, content: unit.repeat(chars) },
         ],
       },
       parent_tool_use_id: parentToolUseId,
@@ -91,95 +89,11 @@ describe("Claude subagent output budget", () => {
     expect(parser.getErrorText()).toContain(`exceeded ${maxTurnRawChars} characters`);
   });
 
-<<<<<<< OURS/upstream-11.10
-  it("still bounds a subagent flood by its fixed per-record charge", () => {
-    const { parser } = runTurn(AGENT_CALL, Math.floor((8 * 1024 * 1024) / 65) + 1, 1);
-    expect(parser.getErrorText()).toMatch(/exceeded 8388608 characters/);
-||||||| BASE/v11.4
-  it("still bounds a subagent flood by frames", () => {
-    const { parser } = runTurn(AGENT_CALL, 20_001, 1);
-    expect(parser.getErrorText()).toMatch(/exceeded 20000 lines/);
-=======
   it("still bounds a subagent flood by frames", () => {
     const { parser } = runTurn(AGENT_CALL, maxTurnLines + 1, 1);
     expect(parser.getErrorText()).toContain(`exceeded ${maxTurnLines} lines`);
->>>>>>> THEIRS/pro-main
   });
 });
-<<<<<<< OURS/upstream-11.10
-||||||| BASE/v11.4
-
-it.each([
-  {
-    name: "mixed item",
-    extra: {
-      item: {
-        type: "message",
-        role: "assistant",
-        content: [{ type: "output_text", text: "retained" }],
-      },
-    },
-  },
-  { name: "non-string attribution", extra: { parent_tool_use_id: 1 } },
-  { name: "empty attribution", extra: { parent_tool_use_id: " " } },
-  { name: "oversized attribution", extra: { parent_tool_use_id: "x".repeat(129) } },
-  { name: "padded attribution", extra: { parent_tool_use_id: " ".repeat(129) + AGENT_CALL } },
-  { name: "unknown format", extra: { type: "unknown" } },
-])("keeps the full charge for $name", ({ extra }) => {
-  const parser = createParser();
-  for (let index = 0; index < 2; index++) {
-    parser.push(
-      JSON.stringify({
-        type: "assistant",
-        parent_tool_use_id: AGENT_CALL,
-        message: { content: [{ type: "text", text: "x".repeat(4_300_000) }] },
-        ...extra,
-      }) + "\n",
-    );
-  }
-  parser.finish();
-  expect(parser.getErrorText()).toMatch(/exceeded 8388608 characters/);
-  expect(parser.getOutput()?.text).toBe("");
-});
-
-it("rejects an individually oversized discarded child line", () => {
-  const parser = createParser();
-  parser.push(
-    JSON.stringify({
-      type: "assistant",
-      parent_tool_use_id: AGENT_CALL,
-      message: { content: [{ type: "text", text: "x".repeat(8 * 1024 * 1024) }] },
-    }) + "\n",
-  );
-  parser.finish();
-  expect(parser.getErrorText()).toMatch(/line exceeded 8388608 characters/);
-});
-
-it("preserves unicode parent text after discarded child messages", () => {
-  const parser = createParser();
-  const answer = "你好 🦞 café";
-  parser.push(
-    JSON.stringify({
-      type: "assistant",
-      parent_tool_use_id: AGENT_CALL,
-      message: { content: [{ type: "text", text: "🦞".repeat(1000) }] },
-    }) + "\n",
-  );
-  parser.push(JSON.stringify({ type: "result", result: answer }) + "\n");
-  parser.finish();
-  expect(parser.getErrorText()).toBeNull();
-  expect(parser.getOutput()?.text).toBe(answer);
-});
-
-it("discounts discarded multibyte child payloads without losing their progress", () => {
-  // 300 * 20 Ki emoji = 12 Mi UTF-16 units and 24 Mi UTF-8 bytes before JSON envelopes.
-  const { parser, progress } = runTurn(AGENT_CALL, 300, 20 * 1024, "🦞");
-  expect(parser.getErrorText()).toBeNull();
-  expect(parser.getOutput()?.text).toBe("completed");
-  expect(progress).toHaveLength(300);
-  expect(new Set(progress)).toEqual(new Set([AGENT_CALL]));
-});
-=======
 
 it.each([
   {
@@ -251,4 +165,3 @@ it("discounts discarded multibyte child payloads without losing their progress",
   expect(progress).toHaveLength(300);
   expect(new Set(progress)).toEqual(new Set([AGENT_CALL]));
 });
->>>>>>> THEIRS/pro-main

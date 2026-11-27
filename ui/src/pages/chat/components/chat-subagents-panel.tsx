@@ -401,103 +401,6 @@ export const ChatSubagentsPanel = defineSolidBridge<Props>(
                         >
                           {t("common.retry")}
                         </button>
-<<<<<<< OURS/upstream-11.10
-||||||| BASE/v11.4
-                        {active() && row().session.activeRunIds?.length === 1 && (
-                          <button
-                            class="chat-subagents__stop"
-                            type="button"
-                            aria-label={stopLabel()}
-                            title={stopTitle()}
-                            disabled={row().stopping || !row().canStop}
-                            onClick={() => void data().stop(row())}
-                          >
-                            <Icon name="square" />
-                          </button>
-                        )}
-                      </div>
-                      <div class="chat-subagents__metadata">
-                        <span class="chat-subagents__work">
-                          {row().callCount !== undefined && (
-                            <span class="chat-subagents__calls">
-                              {t(
-                                !row().callCount?.exact
-                                  ? "chat.subagentsPanel.callsAtLeast"
-                                  : row().callCount?.count === 1
-                                    ? "chat.subagentsPanel.callsOne"
-                                    : "chat.subagentsPanel.callsMany",
-                                { count: String(row().callCount?.count) },
-                              )}
-                            </span>
-                          )}
-                          {row().callCount !== undefined && activity() && (
-                            <span aria-hidden="true">·</span>
-                          )}
-                          {activity() && (
-                            <span class="chat-subagents__activity" title={activity()}>
-                              {activity()}
-                            </span>
-                          )}
-                        </span>
-                        <span
-                          class="chat-subagents__elapsed"
-                          title={t(
-                            active()
-                              ? "chat.subagentsPanel.elapsed"
-                              : "chat.subagentsPanel.duration",
-                          )}
-                        >
-                          {renderElapsed(row())}
-                        </span>
-=======
-                        {active() && row().session.activeRunIds?.length === 1 && (
-                          <button
-                            class="chat-subagents__stop"
-                            type="button"
-                            aria-label={stopLabel()}
-                            title={stopTitle()}
-                            disabled={row().stopping || !row().canStop}
-                            onClick={() => void data().stop(row())}
-                          >
-                            <Icon name="square" />
-                          </button>
-                        )}
-                      </div>
-                      <SubagentFactChips facts={row().facts} />
-                      <div class="chat-subagents__metadata">
-                        <span class="chat-subagents__work">
-                          {row().callCount !== undefined && (
-                            <span class="chat-subagents__calls">
-                              {t(
-                                !row().callCount?.exact
-                                  ? "chat.subagentsPanel.callsAtLeast"
-                                  : row().callCount?.count === 1
-                                    ? "chat.subagentsPanel.callsOne"
-                                    : "chat.subagentsPanel.callsMany",
-                                { count: String(row().callCount?.count) },
-                              )}
-                            </span>
-                          )}
-                          {row().callCount !== undefined && activity() && (
-                            <span aria-hidden="true">·</span>
-                          )}
-                          {activity() && (
-                            <span class="chat-subagents__activity" title={activity()}>
-                              {activity()}
-                            </span>
-                          )}
-                        </span>
-                        <span
-                          class="chat-subagents__elapsed"
-                          title={t(
-                            active()
-                              ? "chat.subagentsPanel.elapsed"
-                              : "chat.subagentsPanel.duration",
-                          )}
-                        >
-                          {renderElapsed(row())}
-                        </span>
->>>>>>> THEIRS/pro-main
                       </div>
                     )}
                     <ChatSubagentsNative
@@ -623,6 +526,7 @@ export const ChatSubagentsPanel = defineSolidBridge<Props>(
                                 </button>
                               )}
                             </div>
+                            <SubagentFactChips facts={row().facts} />
                             <div class="chat-subagents__metadata">
                               <span class="chat-subagents__work">
                                 {row().callCount !== undefined && (

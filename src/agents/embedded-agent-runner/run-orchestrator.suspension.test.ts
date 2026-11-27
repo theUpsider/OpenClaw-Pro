@@ -565,33 +565,7 @@ describe("embedded run detached session metadata", () => {
     async (harness, suppliedManager) => {
       const { params, run, expectNoAgent } = await createRun("detached");
       runAttempt.mockImplementationOnce(async (attempt) => {
-<<<<<<< OURS/upstream-11.10
         expect(attempt.sessionPersistence).toBe("detached");
-||||||| BASE/v11.4
-        const recorder = await prepareEmbeddedAttemptTrajectory({
-          activeSession: { sessionId: attempt.sessionId },
-          attempt,
-          clientToolCount: 0,
-          effectiveToolCount: 0,
-          effectiveWorkspace: params.workspaceDir,
-          localModelLeanEnabled: false,
-          sessionAgentId: "research",
-        });
-        await recorder?.flush();
-=======
-        const recorder = await prepareEmbeddedAttemptTrajectory({
-          activeSession: { sessionId: attempt.sessionId },
-          attempt,
-          capabilityToolNames: [],
-          clientToolCount: 0,
-          effectiveToolCount: 0,
-          effectiveWorkspace: params.workspaceDir,
-          localModelLeanEnabled: false,
-          sessionAgentId: "research",
-          wireToolNames: [],
-        });
-        await recorder?.flush();
->>>>>>> THEIRS/pro-main
         return successfulAttempt(params.sessionId);
       });
       await expect(

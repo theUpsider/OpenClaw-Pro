@@ -364,16 +364,8 @@ export function InlineText(props: InlineTextProps) {
       stopFocus();
       stopPointer();
     };
-<<<<<<< OURS/upstream-11.10
     busy = true;
-||||||| BASE/v11.4
-    saving = true;
-    publish();
-=======
-    saving = true;
     classifications.setError(undefined);
-    publish();
->>>>>>> THEIRS/pro-main
     const owner = props.owner;
     const field = props.field;
     const observed = base;

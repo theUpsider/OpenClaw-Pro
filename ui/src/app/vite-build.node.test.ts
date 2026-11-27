@@ -18,7 +18,6 @@ import { controlUiCodeSplitting } from "../../config/control-ui-chunking.ts";
 import { controlUiPluginDistributionsPlugin } from "../../config/control-ui-plugin-distributions.ts";
 import controlUiViteConfig from "../../vite.config.ts";
 import { normalizeControlUiBuildInfo } from "../build-info-normalizers.ts";
-import { DEFAULT_THEME_TYPEFACE } from "./default-typeface.ts";
 
 function readBuiltIdentity(html: string): { buildId: string } {
   const encoded = /globalThis\.OPENCLAW_CONTROL_UI_BUILD_INFO=(.*?);<\/script>/u.exec(html)?.[1];
@@ -663,7 +662,6 @@ it.each([
         outDir: output === "relative override" ? path.relative(root, outDir) : outDir,
       };
     }
-<<<<<<< OURS/upstream-11.10
   }
   config.publicDir = fileURLToPath(new URL("../../public", import.meta.url));
   await writeRoot(
@@ -689,76 +687,6 @@ it.each([
   for (const name of scripts) {
     expect((await readAsset(name)).includes("sourceMappingURL="), name).toBe(
       !release && emitted.includes(`${name}.map`),
-||||||| BASE/v11.4
-    const cacheId = /data-openclaw-control-ui-build-id="([^"]+)"/u.exec(html)?.[1];
-    expect(cacheId?.startsWith(`${buildInfo.buildId}-`)).toBe(true);
-    expect(cacheId?.slice(buildInfo.buildId.length + 1)).toMatch(/^[a-f0-9]{64}$/u);
-    const fonts = await fs.readdir(path.join(outDir, "fonts"));
-    for (const fontCss of fonts.filter((name) => name.endsWith(".css"))) {
-      const source = await fs.readFile(path.join(outDir, "fonts", fontCss), "utf8");
-      const references = [...source.matchAll(/url\("([^"]+)"\)/gu)];
-      expect(references.length).toBeGreaterThan(0);
-      for (const [, reference] of references) {
-        const fontUrl = new URL(
-          reference!,
-          `https://control.example/ui/fonts/${fontCss}?v=${cacheId}`,
-        );
-        expect(fontUrl.searchParams.get("v")).toBe(cacheId);
-        expect(fontUrl.pathname).toMatch(/^\/ui\/fonts\/[^/]+\.woff2$/u);
-        await expect(
-          fs.stat(path.join(outDir, fontUrl.pathname.slice("/ui/".length))),
-        ).resolves.toBeDefined();
-      }
-    }
-    const webManifest: { start_url: string; icons: Array<{ src: string }> } = JSON.parse(
-      await fs.readFile(path.join(outDir, "manifest.webmanifest"), "utf8"),
-=======
-    const cacheId = /data-openclaw-control-ui-build-id="([^"]+)"/u.exec(html)?.[1];
-    expect(cacheId?.startsWith(`${buildInfo.buildId}-`)).toBe(true);
-    expect(cacheId?.slice(buildInfo.buildId.length + 1)).toMatch(/^[a-f0-9]{64}$/u);
-    const fonts = await fs.readdir(path.join(outDir, "fonts"));
-    for (const fontCss of fonts.filter((name) => name.endsWith(".css"))) {
-      const source = await fs.readFile(path.join(outDir, "fonts", fontCss), "utf8");
-      const references = [...source.matchAll(/url\("([^"]+)"\)/gu)];
-      expect(references.length).toBeGreaterThan(0);
-      for (const [, reference] of references) {
-        const fontUrl = new URL(
-          reference!,
-          `https://control.example/ui/fonts/${fontCss}?v=${cacheId}`,
-        );
-        expect(fontUrl.searchParams.get("v")).toBe(cacheId);
-        expect(fontUrl.pathname).toMatch(/^\/ui\/fonts\/[^/]+\.woff2$/u);
-        await expect(
-          fs.stat(path.join(outDir, fontUrl.pathname.slice("/ui/".length))),
-        ).resolves.toBeDefined();
-      }
-    }
-    const offlineBoot = JSON.parse(/^const OFFLINE_BOOT = (.+);$/mu.exec(serviceWorker)![1]!) as {
-      assets: Array<{ path: string }>;
-      publicAssets: string[];
-    };
-    // Install precaches the default claw face only; claw's palette is in base CSS.
-    expect(
-      offlineBoot.assets.map((asset) => asset.path).filter((asset) => !asset.startsWith("assets/")),
-    ).toEqual(
-      [
-        `fonts/${DEFAULT_THEME_TYPEFACE}-italic-latin-ext.woff2`,
-        `fonts/${DEFAULT_THEME_TYPEFACE}-italic-latin.woff2`,
-        `fonts/${DEFAULT_THEME_TYPEFACE}-latin-ext.woff2`,
-        `fonts/${DEFAULT_THEME_TYPEFACE}-latin.woff2`,
-        `fonts/${DEFAULT_THEME_TYPEFACE}.css`,
-      ].map((asset) => `${asset}?v=${encodeURIComponent(cacheId!)}`),
-    );
-    // Every other face and theme stays eligible for the worker's runtime cache.
-    expect(offlineBoot.publicAssets).toEqual(
-      expect.arrayContaining([
-        ...fonts.filter((name) => /\.(?:css|woff2)$/u.test(name)).map((name) => `fonts/${name}`),
-        "themes/dash.css",
-      ]),
-    );
-    const webManifest: { start_url: string; icons: Array<{ src: string }> } = JSON.parse(
-      await fs.readFile(path.join(outDir, "manifest.webmanifest"), "utf8"),
->>>>>>> THEIRS/pro-main
     );
   }
   const embeddedBuildId = /const EMBEDDED_CACHE_VERSION = "([^"]+)"/u.exec(worker)?.[1];

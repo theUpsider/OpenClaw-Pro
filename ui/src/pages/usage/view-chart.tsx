@@ -81,7 +81,6 @@ export function DailyChartCompact(props: {
      */
     const daily = props.dailyEntries;
     const range = props.range;
-<<<<<<< OURS/upstream-11.10
     const start = Date.parse(range.startDate);
     const end = Date.parse(range.endDate);
     const count = (end - start) / 86_400_000 + 1;
@@ -98,137 +97,6 @@ export function DailyChartCompact(props: {
         pending.add(date);
       }
       return day ?? { ...createEmptyCostUsageTotals(), date };
-||||||| BASE/v11.4
-    const daily = calendarDaily(dailyEntries, range);
-    const orderedDays = daily.map((entry) => entry.date);
-    const isTokenMode = chartMode === "tokens";
-    const stacked = dailyChartMode === "by-type";
-    const values = daily.map((d) => (isTokenMode ? d.totalTokens : d.totalCost));
-    const scaleMaximum = Math.max(...values, 0);
-    const maxValue = scaleMaximum > 0 ? scaleMaximum : isTokenMode ? 1 : 0.0001;
-
-    // Adaptive scaling: when the spread between largest and smallest non-zero
-    // values is extreme (>50×), use square-root compression so small bars stay
-    // visible instead of collapsing to a single pixel.
-    const nonZero = values.filter((v) => v > 0);
-    const minNonZero = nonZero.length > 0 ? Math.min(...nonZero) : maxValue;
-    const spread = maxValue / minNonZero;
-    const usesCompressedScale = spread > 50;
-    const chartAreaPx = 200;
-    const minBarPx = 6;
-    const barMaxWidth =
-      daily.length > 30 ? 12 : daily.length > 20 ? 18 : daily.length > 14 ? 24 : 32;
-    const showTotals = daily.length <= 14;
-    const selectedDaySet = new Set(selectedDays);
-
-    const bars = daily.map((d, idx) => {
-      const total = isTokenMode ? d.totalTokens : d.totalCost;
-      const ratio = usesCompressedScale ? Math.sqrt(total / maxValue) : total / maxValue;
-      const heightPx = total <= 0 ? 0 : Math.max(minBarPx, ratio * chartAreaPx);
-      const isSelected = selectedDaySet.has(d.date);
-      const showDateLabel =
-        daily.length <= 14 || idx % Math.ceil(daily.length / 6) === 0 || idx === daily.length - 1;
-      const labelClass = showDateLabel
-        ? "daily-bar-label"
-        : "daily-bar-label daily-bar-label--hidden";
-      const segments = stacked
-        ? USAGE_TOKEN_CATEGORIES.map(({ key, className, labelKey }) => ({
-            value: isTokenMode ? d[key] : (d[`${key}Cost`] ?? 0),
-            className,
-            labelKey,
-          }))
-        : [];
-      const breakdownLines = segments.map(
-        ({ value, labelKey }) =>
-          `${t(labelKey)} ${isTokenMode ? formatUsageTokens(value) : formatAnalysisCost(value)}`,
-      );
-      const totalLabel = isTokenMode
-        ? formatUsageTokens(d.totalTokens)
-        : formatAnalysisCost(d.totalCost);
-      const dateLabel = formatFullDate(d.date);
-      const tokensLabel = `${formatUsageTokens(d.totalTokens)} ${normalizeLowercaseStringOrEmpty(
-        t("usage.metrics.tokens"),
-      )}`.trim();
-      const costLabel = formatAnalysisCost(d.totalCost);
-      const segmentTotal = segments.reduce((sum, segment) => sum + segment.value, 0) || 1;
-      return {
-        date: d.date,
-        tooltip: [dateLabel, tokensLabel, costLabel, ...breakdownLines].join("\n"),
-        isSelected,
-        ariaLabel: `${dateLabel}: ${tokensLabel}, ${costLabel}`,
-        heightPx,
-        segments,
-        segmentTotal,
-        totalLabel,
-        labelClass,
-      };
-=======
-    const daily = calendarDaily(dailyEntries, range);
-    const orderedDays = daily.map((entry) => entry.date);
-    const isTokenMode = chartMode === "tokens";
-    const stacked = dailyChartMode === "by-type";
-    const values = daily.map((d) => (isTokenMode ? d.totalTokens : d.totalCost));
-    const scaleMaximum = Math.max(...values, 0);
-    const maxValue = scaleMaximum > 0 ? scaleMaximum : isTokenMode ? 1 : 0.0001;
-
-    // Adaptive scaling: when the spread between largest and smallest non-zero
-    // values is extreme (>50×), use square-root compression so small bars stay
-    // visible instead of collapsing to a single pixel.
-    const nonZero = values.filter((v) => v > 0);
-    const minNonZero = nonZero.length > 0 ? Math.min(...nonZero) : maxValue;
-    const spread = maxValue / minNonZero;
-    const usesCompressedScale = spread > 50;
-    const chartAreaPx = 200;
-    const minBarPx = 6;
-    const barMaxWidth =
-      daily.length > 30 ? 12 : daily.length > 20 ? 18 : daily.length > 14 ? 24 : 32;
-    const showTotals = daily.length <= 14;
-    const selectedDaySet = new Set(selectedDays);
-
-    const bars = daily.map((d, idx) => {
-      const total = isTokenMode ? d.totalTokens : d.totalCost;
-      const ratio = usesCompressedScale ? Math.sqrt(total / maxValue) : total / maxValue;
-      const heightPx = total <= 0 ? 0 : Math.max(minBarPx, ratio * chartAreaPx);
-      const isSelected = selectedDaySet.has(d.date);
-      const showDateLabel =
-        daily.length <= 14 || idx % Math.ceil(daily.length / 6) === 0 || idx === daily.length - 1;
-      const labelClass = showDateLabel
-        ? "daily-bar-label"
-        : "daily-bar-label daily-bar-label--hidden";
-      const segments = stacked
-        ? USAGE_TOKEN_CATEGORIES.map(({ key, className, labelKey }) => ({
-            value: isTokenMode ? d[key] : (d[`${key}Cost`] ?? 0),
-            className,
-            labelKey,
-          }))
-        : [];
-      const breakdownLines = segments.map(
-        ({ value, labelKey }) =>
-          `${t(labelKey)} ${isTokenMode ? formatUsageTokens(value, d.usageReport) : formatAnalysisCost(value, d.usageReport)}`,
-      );
-      // A day with an interrupted response shows its recorded subtotals as lower bounds.
-      const totalLabel = isTokenMode
-        ? formatUsageTokens(d.totalTokens, d.usageReport)
-        : formatAnalysisCost(d.totalCost, d.usageReport);
-      const dateLabel = formatFullDate(d.date);
-      const tokensLabel =
-        `${formatUsageTokens(d.totalTokens, d.usageReport)} ${normalizeLowercaseStringOrEmpty(
-          t("usage.metrics.tokens"),
-        )}`.trim();
-      const costLabel = formatAnalysisCost(d.totalCost, d.usageReport);
-      const segmentTotal = segments.reduce((sum, segment) => sum + segment.value, 0) || 1;
-      return {
-        date: d.date,
-        tooltip: [dateLabel, tokensLabel, costLabel, ...breakdownLines].join("\n"),
-        isSelected,
-        ariaLabel: `${dateLabel}: ${tokensLabel}, ${costLabel}`,
-        heightPx,
-        segments,
-        segmentTotal,
-        totalLabel,
-        labelClass,
-      };
->>>>>>> THEIRS/pro-main
     });
     return { days, pending };
   });
@@ -318,8 +186,9 @@ export function DailyChartCompact(props: {
     if (day && calendar().pending.has(day.date)) {
       return `${dateLabel}: ${t("usage.daily.pending")}`;
     }
-    const tokens = `${formatUsageTokens(day?.totalTokens ?? 0)} ${t("usage.metrics.tokens").toLowerCase()}`;
-    return `${dateLabel}: ${tokens}, ${formatAnalysisCost(day?.totalCost ?? 0)}`;
+    // A day with an interrupted response keeps its recorded subtotals as lower bounds.
+    const tokens = `${formatUsageTokens(day?.totalTokens ?? 0, day?.usageReport)} ${t("usage.metrics.tokens").toLowerCase()}`;
+    return `${dateLabel}: ${tokens}, ${formatAnalysisCost(day?.totalCost ?? 0, day?.usageReport)}`;
   };
   const tipPosition = (index: number) => {
     const share = (index + 0.5) / Math.max(1, dates().length);

@@ -248,7 +248,7 @@ it("resolves an open subagent:workboard-default-writer card independently of the
   const page = mountPage();
   const session = createGatewaySession({ key, agentId: "writer" });
   const primaryRows = [createGatewaySession({ key: "global", agentId: "main", kind: "global" })];
-  observeSessions(page, { sessions: [session], hasMore: false });
+  const observe = observeSessions(page, { sessions: [session], hasMore: false });
   Object.assign(page.fixture.host.sessions, { rows: primaryRows });
   const card = createWorkboardCard({ agentId: "main", sessionKey: link });
   page.cards([card]);
@@ -256,7 +256,6 @@ it("resolves an open subagent:workboard-default-writer card independently of the
   page.fixture.connection.connected = true;
   page.fixture.notify();
 
-<<<<<<< OURS/upstream-11.10
   await openSessionTab(page);
   await afterWorkboardUpdate(() =>
     expect(page.fixture.host.components.mountSessionSummary).toHaveBeenCalledWith(
@@ -282,63 +281,6 @@ it("resolves an open subagent:workboard-default-writer card independently of the
     agentId: "writer",
   });
 });
-||||||| BASE/v11.4
-    await openSessionTab(page);
-    await afterWorkboardUpdate(() =>
-      expect(page.fixture.host.components.mountSessionSummary).toHaveBeenCalledWith(
-        expect.any(HTMLElement),
-        expect.objectContaining({ session: { sessionKey: key, agentId: "writer" } }),
-      ),
-    );
-    expect(observe).toHaveBeenCalledWith(
-      expect.objectContaining({
-        search: link,
-        archived: "all",
-        limit: 2,
-        includeGlobal: false,
-        includeUnknown: false,
-      }),
-      expect.any(Function),
-    );
-    expect(page.fixture.host.sessions.rows).toEqual(primaryRows);
-    expect(page.fixture.host.sessions.refresh).not.toHaveBeenCalled();
-    expectDefined(openSessionButton(page.container), "open resolved session").click();
-    expect(page.fixture.host.sessions.open).toHaveBeenCalledWith({
-      sessionKey: key,
-      agentId: "writer",
-    });
-  },
-);
-=======
-    await openSessionTab(page);
-    await afterWorkboardUpdate(() =>
-      expect(page.fixture.host.components.mountSessionSummary).toHaveBeenCalledWith(
-        expect.any(HTMLElement),
-        expect.objectContaining({ session: { sessionKey: key, agentId: "writer" } }),
-      ),
-    );
-    expect(cardSessionCalls(page)).toEqual([
-      [
-        expect.objectContaining({
-          search: link,
-          archived: "all",
-          limit: 2,
-          includeGlobal: false,
-          includeUnknown: false,
-        }),
-        expect.any(Function),
-      ],
-    ]);
-    expect(page.fixture.host.sessions.rows).toEqual(primaryRows);
-    expect(page.fixture.host.sessions.refresh).not.toHaveBeenCalled();
-    expectDefined(openSessionButton(page.container), "open resolved session").click();
-    expect(page.fixture.host.sessions.open).toHaveBeenCalledWith({
-      sessionKey: key,
-      agentId: "writer",
-    });
-  },
-);
->>>>>>> THEIRS/pro-main
 
 it("keeps a bare unknown link unresolved despite an ambient roster owner", async () => {
   const key = "unknown";

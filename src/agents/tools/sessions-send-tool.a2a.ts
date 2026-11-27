@@ -88,8 +88,7 @@ export async function runSessionsSendA2AFlow(params: {
           ((wait.status === "error" && !wait.retryableTransportError) ||
             isTerminalAgentWaitTimeout(wait))
         ) {
-          const error =
-            typeof wait.error === "string" && wait.error.trim() ? `: ${wait.error.trim()}` : "";
+          const error = wait.error?.trim() ? `: ${wait.error.trim()}` : "";
           await deliverRequesterReply({
             ...requesterStepContext,
             sessionKey: params.requesterSessionKey,
@@ -103,111 +102,16 @@ export async function runSessionsSendA2AFlow(params: {
         }
         return;
       }
+      if (wait.terminalReply?.disposition !== "visible") {
+        return;
+      }
       const { replyText: reply, replyTruncated } = await resolveSessionsSendReply(wait, {
         runId: params.runId,
         sessionKey: params.targetSessionKey,
         agentId: params.targetAgentId,
         callGateway: gatewayCall,
-<<<<<<< OURS/upstream-11.10
-        untilTerminal: true,
-      }));
-    if (wait.status !== "ok") {
-      if (
-        params.notifyRequesterOnWaitFailure === true &&
-        params.requesterSessionKey &&
-        ((wait.status === "error" && !wait.retryableTransportError) ||
-          isTerminalAgentWaitTimeout(wait))
-      ) {
-        const error = wait.error?.trim() ? `: ${wait.error.trim()}` : "";
-        await deliverRequesterReply({
-          ...requesterStepContext,
-          sessionKey: params.requesterSessionKey,
-          message: wait.sourceReplyDelivered
-            ? `sessions_send target run for ${params.displayKey} failed${error}. The target's final reply was already delivered to its source conversation. Do not resend; report the run failure.`
-            : `sessions_send delivery to ${params.displayKey} failed${error}. The target may not have received the message; retry or report the failure instead of assuming delivery succeeded.`,
-          extraSystemPrompt: wait.sourceReplyDelivered
-            ? "The target run failed after its final source reply was delivered. Preserve the run error diagnosis. Do not resend the message or the reply."
-            : "A previous sessions_send delivery failed after it was accepted. Inspect the accepted operation before retrying, or report the failure. Preserve attributed session-tool delivery; do not replace it with an operator CLI request. Do not assume the target received the message.",
-        });
-      }
-      return;
-    }
-    if (wait.terminalReply?.disposition !== "visible") {
-      return;
-    }
-    const { replyText: reply, replyTruncated } = await resolveSessionsSendReply(wait, {
-      runId: params.runId,
-      sessionKey: params.targetSessionKey,
-      agentId: params.targetAgentId,
-      callGateway: gatewayCall,
-    });
-    if (!reply?.trim() || reply.trim() === HEARTBEAT_TOKEN) {
-      return;
-    }
-
-    // Self-sends deliver the original output under its captured session generation.
-    const requesterAgentId =
-      params.requesterAgentId ?? parseAgentSessionKey(params.requesterSessionKey)?.agentId;
-    const sameSessionSourceReply = Boolean(
-      params.requesterSessionKey &&
-      params.requesterSessionKey === params.targetSessionKey &&
-      requesterAgentId &&
-      params.targetAgentId &&
-      normalizeAgentId(requesterAgentId) === normalizeAgentId(params.targetAgentId),
-    );
-    if (sameSessionSourceReply) {
-      if (wait.sourceReplyDelivered) {
-||||||| BASE/v11.4
-        untilTerminal: true,
-      }));
-    if (wait.status !== "ok") {
-      if (
-        params.notifyRequesterOnWaitFailure === true &&
-        params.requesterSessionKey &&
-        ((wait.status === "error" && !wait.retryableTransportError) ||
-          isTerminalAgentWaitTimeout(wait))
-      ) {
-        const error =
-          typeof wait.error === "string" && wait.error.trim() ? `: ${wait.error.trim()}` : "";
-        await deliverRequesterReply({
-          ...requesterStepContext,
-          sessionKey: params.requesterSessionKey,
-          message: wait.sourceReplyDelivered
-            ? `sessions_send target run for ${params.displayKey} failed${error}. The target's final reply was already delivered to its source conversation. Do not resend; report the run failure.`
-            : `sessions_send delivery to ${params.displayKey} failed${error}. The target may not have received the message; retry or report the failure instead of assuming delivery succeeded.`,
-          extraSystemPrompt: wait.sourceReplyDelivered
-            ? "The target run failed after its final source reply was delivered. Preserve the run error diagnosis. Do not resend the message or the reply."
-            : "A previous sessions_send delivery failed after it was accepted. Inspect the accepted operation before retrying, or report the failure. Preserve attributed session-tool delivery; do not replace it with an operator CLI request. Do not assume the target received the message.",
-        });
-      }
-      return;
-    }
-    const { replyText: reply, replyTruncated } = await resolveSessionsSendReply(wait, {
-      runId: params.runId,
-      sessionKey: params.targetSessionKey,
-      agentId: params.targetAgentId,
-      callGateway: gatewayCall,
-    });
-    if (!reply?.trim() || isNonDeliverableSessionsReply(reply)) {
-      return;
-    }
-
-    // Self-sends deliver the original output under its captured session generation.
-    const requesterAgentId =
-      params.requesterAgentId ?? parseAgentSessionKey(params.requesterSessionKey)?.agentId;
-    const sameSessionSourceReply = Boolean(
-      params.requesterSessionKey &&
-      params.requesterSessionKey === params.targetSessionKey &&
-      requesterAgentId &&
-      params.targetAgentId &&
-      normalizeAgentId(requesterAgentId) === normalizeAgentId(params.targetAgentId),
-    );
-    if (sameSessionSourceReply) {
-      if (wait.sourceReplyDelivered) {
-=======
       });
-      if (!reply?.trim() || isNonDeliverableSessionsReply(reply)) {
->>>>>>> THEIRS/pro-main
+      if (!reply?.trim() || reply.trim() === HEARTBEAT_TOKEN) {
         return;
       }
 
@@ -227,9 +131,7 @@ export async function runSessionsSendA2AFlow(params: {
         }
         const sourceOrigin = params.requesterOrigin;
         const sourceTarget =
-          sourceOrigin?.channel &&
-          sourceOrigin.to &&
-          !isInternalMessageChannel(sourceOrigin.channel)
+          sourceOrigin?.channel && sourceOrigin.to && !isInternalMessageChannel(sourceOrigin.channel)
             ? {
                 channel: sourceOrigin.channel,
                 to: sourceOrigin.to,
@@ -263,59 +165,40 @@ export async function runSessionsSendA2AFlow(params: {
             );
             return;
           }
-          await deliverSourceReply({
-            deliveryTarget,
-            callGateway: gatewayCall,
-            message: reply,
-            runId: params.runId,
-            targetAgentId: params.targetAgentId,
-            sessionGeneration: params.requesterDeliveryGeneration,
-          });
+          // Gateway sends need the selected owner for text routing and media roots;
+          // carry the admitted target instead of relying on an implicit default.
+          const { text: message, mediaUrls, audioAsVoice } = splitMediaFromOutput(reply.trim());
+          if (!message && !mediaUrls?.length) {
+            return;
+          }
+          try {
+            await gatewayCall({
+              method: "send",
+              params: bindInProcessSessionDeliveryGeneration(
+                {
+                  to: deliveryTarget.to,
+                  message,
+                  ...(mediaUrls?.length ? { mediaUrls } : {}),
+                  agentId: params.targetAgentId,
+                  ...(audioAsVoice ? { asVoice: true } : {}),
+                  channel: deliveryTarget.channel,
+                  accountId: deliveryTarget.accountId,
+                  threadId: deliveryTarget.threadId,
+                  idempotencyKey: `sessions-send:${params.runId}`,
+                },
+                params.requesterDeliveryGeneration,
+              ),
+              timeoutMs: 10_000,
+            });
+          } catch (err) {
+            log.warn("sessions_send source reply delivery failed", {
+              runId: params.runId,
+              channel: deliveryTarget.channel,
+              to: deliveryTarget.to,
+              error: formatErrorMessage(err),
+            });
+          }
         }
-<<<<<<< OURS/upstream-11.10
-        // Gateway sends need the selected owner for text routing and media roots;
-        // carry the admitted target instead of relying on an implicit default.
-        const { text: message, mediaUrls, audioAsVoice } = splitMediaFromOutput(reply.trim());
-        if (!message && !mediaUrls?.length) {
-          return;
-        }
-        try {
-          await gatewayCall({
-            method: "send",
-            params: bindInProcessSessionDeliveryGeneration(
-              {
-                to: deliveryTarget.to,
-                message,
-                ...(mediaUrls?.length ? { mediaUrls } : {}),
-                agentId: params.targetAgentId,
-                ...(audioAsVoice ? { asVoice: true } : {}),
-                channel: deliveryTarget.channel,
-                accountId: deliveryTarget.accountId,
-                threadId: deliveryTarget.threadId,
-                idempotencyKey: `sessions-send:${params.runId}`,
-              },
-              params.requesterDeliveryGeneration,
-            ),
-            timeoutMs: 10_000,
-          });
-        } catch (err) {
-          log.warn("sessions_send source reply delivery failed", {
-            runId: params.runId,
-            channel: deliveryTarget.channel,
-            to: deliveryTarget.to,
-            error: formatErrorMessage(err),
-          });
-        }
-||||||| BASE/v11.4
-        await deliverSourceReply({
-          deliveryTarget,
-          callGateway: gatewayCall,
-          message: reply,
-          runId: params.runId,
-          targetAgentId: params.targetAgentId,
-          sessionGeneration: params.requesterDeliveryGeneration,
-        });
-=======
         return;
       }
 
@@ -327,7 +210,6 @@ export async function runSessionsSendA2AFlow(params: {
           extraSystemPrompt: `${child ? "A child session" : "Another session"} returned the result of your earlier sessions_send request. ${SUBAGENT_COMPLETION_OUTCOME_INSTRUCTION} This result is delivered once; your response will not be sent back to the ${child ? "child" : "target session"}.${replyTruncated ? ` ${SESSIONS_SEND_TRUNCATION_NOTE}` : ""}`,
           sourceAgentId: params.targetAgentId,
         });
->>>>>>> THEIRS/pro-main
       }
     });
   } catch (err) {

@@ -455,13 +455,7 @@ export function createStatusReactionController(params: {
     const alreadyInitial = currentEmoji === baseEmoji;
     const pendingBeforeClear = pendingEmoji;
     const hadDebouncedPending = debounceTimer !== null;
-<<<<<<< OURS/upstream-11.10
-    const hasExtraActiveEmoji = activeEmojis.size > (activeEmojis.has(initialEmoji) ? 1 : 0);
-||||||| BASE/v11.4
-    const hasExtraActiveEmoji = Array.from(activeEmojis).some((emoji) => emoji !== initialEmoji);
-=======
     const hasExtraActiveEmoji = Array.from(activeEmojis).some((emoji) => emoji !== baseEmoji);
->>>>>>> THEIRS/pro-main
     clearActivityTimers();
     if (
       !finished &&

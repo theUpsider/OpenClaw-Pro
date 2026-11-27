@@ -662,17 +662,6 @@ export function startGatewayConfigReloader(
       typeof applicationStatus === "object" && applicationStatus.status === "applied"
         ? applicationStatus.runtime
         : undefined;
-<<<<<<< OURS/upstream-11.10
-||||||| BASE/v11.4
-    pluginDrain.applied(plan, runtime);
-    if (runtime) {
-      completedPluginApplication = {
-        runtime,
-        snapshot: sourceSnapshot,
-        installRecords: nextPluginInstallRecords,
-      };
-    }
-=======
     pluginDrain.applied(plan, runtime, pluginInputs);
     if (runtime) {
       completedPluginApplication = {
@@ -681,7 +670,6 @@ export function startGatewayConfigReloader(
         installRecords: nextPluginInstallRecords,
       };
     }
->>>>>>> THEIRS/pro-main
     return completeApplication(runtime);
   };
 

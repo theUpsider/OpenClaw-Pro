@@ -123,80 +123,6 @@ describe("lobster plugin tool", () => {
     expect(factory({ sandboxed: true })).toBeNull();
   });
 
-<<<<<<< OURS/upstream-11.10
-  it.each<[string, Record<string, unknown>, RegExp]>([
-    ["missing action", {}, /action required/],
-    ["unknown action", { action: "explode" }, /Unknown action/],
-    ["absolute cwd", { action: "run", cwd: "/tmp" }, /cwd must be a relative path/],
-    ["escaping cwd", { action: "run", pipeline: "noop", cwd: "../../etc" }, /must stay within/],
-  ])("rejects %s", async (_name, params, error) => {
-    await expect(tool.execute("invalid", params)).rejects.toThrow(error);
-||||||| BASE/v11.4
-  it("normalizes numeric string run limits before invoking the runner", async () => {
-    const runner = {
-      run: vi.fn().mockResolvedValue({
-        ok: true,
-        status: "ok",
-        output: [],
-        requiresApproval: null,
-      }),
-    };
-
-    vi.mocked(createEmbeddedLobsterRunner).mockReturnValueOnce(runner);
-    const tool = createLobsterTool(fakeApi());
-    await tool.execute("call-string-limits", {
-      action: "run",
-      pipeline: "noop",
-      argsJson: '{"since_hours":1}',
-      timeoutMs: "1500",
-      maxStdoutBytes: "4096",
-    });
-
-    expect(runner.run).toHaveBeenCalledWith({
-      action: "run",
-      pipeline: "noop",
-      argsJson: '{"since_hours":1}',
-      cwd: process.cwd(),
-      timeoutMs: 1500,
-      maxStdoutBytes: 4096,
-    });
-  });
-
-  it("requires action", async () => {
-    const tool = createLobsterTool(fakeApi());
-    await expect(tool.execute("call-action-missing", {})).rejects.toThrow(/action required/);
-  });
-
-  it("rejects unknown action", async () => {
-    const tool = createLobsterTool(fakeApi());
-    await expect(
-      tool.execute("call-action-unknown", {
-        action: "explode",
-      }),
-    ).rejects.toThrow(/Unknown action/);
-  });
-
-  it("rejects absolute cwd", async () => {
-    const tool = createLobsterTool(fakeApi());
-    await expect(
-      tool.execute("call-absolute-cwd", {
-        action: "run",
-        pipeline: "noop",
-        cwd: "/tmp",
-      }),
-    ).rejects.toThrow(/cwd must be a relative path/);
-  });
-
-  it("rejects cwd that escapes the gateway working directory", async () => {
-    const tool = createLobsterTool(fakeApi());
-    await expect(
-      tool.execute("call-escape-cwd", {
-        action: "run",
-        pipeline: "noop",
-        cwd: "../../etc",
-      }),
-    ).rejects.toThrow(/must stay within/);
-=======
   it("normalizes numeric string run limits before invoking the runner", async () => {
     const runner = {
       run: vi.fn().mockResolvedValue({
@@ -320,6 +246,5 @@ describe("lobster plugin tool", () => {
         cwd: "../../etc",
       }),
     ).rejects.toThrow(/must stay within/);
->>>>>>> THEIRS/pro-main
   });
 });

@@ -10,7 +10,7 @@ it("projects originating capabilities without copying execution or session owner
     gatewayUiCommandTarget: { connId: "requester-tab", profileId: "requester" },
     pinnedWidgetAuthoring: true,
     toolBindings: { browser: { kind: "tab", tabId: 7 } },
-      workContext: { page: "workboard", detail: { boardId: "ops", boardKind: "sessions" } },
+    workContext: { page: "workboard", detail: { boardId: "ops", boardKind: "sessions" } },
     memberRoleIds: ["maintainer-role"],
     approvalReviewerDeviceId: "reviewer-device",
     taskSuggestionDeliveryMode: "gateway" as const,
@@ -29,42 +29,9 @@ it("projects originating capabilities without copying execution or session owner
   const context = buildEmbeddedAttemptToolRunContext(input);
   input.model.id = "next-model";
 
-<<<<<<< OURS/upstream-11.10
   expect(context).toMatchObject({
     ...capabilities,
     nativeChannelId: "native-conversation",
-||||||| BASE/v11.4
-    expect(context).toMatchObject({
-      clientCaps: ["inline-widgets"],
-      gatewayUiCommandTarget: input.gatewayUiCommandTarget,
-      pinnedWidgetAuthoring: true,
-      toolBindings: input.toolBindings,
-      memberRoleIds: ["maintainer-role"],
-      approvalReviewerDeviceId: "reviewer-device",
-      taskSuggestionDeliveryMode: "gateway",
-      nativeChannelId: "native-conversation",
-    });
-    for (const ownedField of ["sessionKey", "sessionId", "runId", "onYield", "model"]) {
-      expect(context).not.toHaveProperty(ownedField);
-    }
-    expect(context.requesterModel).toEqual({ provider: "custom", model: "resolved-model" });
-=======
-    expect(context).toMatchObject({
-      clientCaps: ["inline-widgets"],
-      gatewayUiCommandTarget: input.gatewayUiCommandTarget,
-      pinnedWidgetAuthoring: true,
-      toolBindings: input.toolBindings,
-      workContext: input.workContext,
-      memberRoleIds: ["maintainer-role"],
-      approvalReviewerDeviceId: "reviewer-device",
-      taskSuggestionDeliveryMode: "gateway",
-      nativeChannelId: "native-conversation",
-    });
-    for (const ownedField of ["sessionKey", "sessionId", "runId", "onYield", "model"]) {
-      expect(context).not.toHaveProperty(ownedField);
-    }
-    expect(context.requesterModel).toEqual({ provider: "custom", model: "resolved-model" });
->>>>>>> THEIRS/pro-main
   });
   for (const ownedField of ["sessionKey", "sessionId", "runId", "onYield", "model"]) {
     expect(context).not.toHaveProperty(ownedField);

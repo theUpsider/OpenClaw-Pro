@@ -210,20 +210,10 @@ export function* loadOpenClawPluginsSteps(
   overrides?: InternalPluginLoadOverrides,
   inspectionResources?: PluginRegistryInspectionResources,
   trackActivationCleanup?: (completion: Promise<void>) => void,
-<<<<<<< OURS/upstream-11.10
 ): Generator<(() => Promise<void>) | undefined, PluginRegistry> {
   if (getPluginCache().retirement) {
     throw new PluginInventoryRetiredError();
   }
-||||||| BASE/v11.4
-): Generator<void, PluginRegistry> {
-  if (getPluginCache().retirement) {
-    throw new Error("Plugin inventory has retired; begin a new plugin operation.");
-  }
-=======
-): Generator<string | void, PluginRegistry> {
-  assertPluginInventoryCurrent(options.signal);
->>>>>>> THEIRS/pro-main
   const requestedOnlyPluginIds = normalizePluginIdScope(options.onlyPluginIds);
   const requestedOnlyPluginIdSet = createPluginIdScopeSet(requestedOnlyPluginIds);
   if (requestedOnlyPluginIdSet && requestedOnlyPluginIdSet.size === 0) {
@@ -669,7 +659,6 @@ export function* loadOpenClawPluginsSteps(
         }
         continue;
       }
-<<<<<<< OURS/upstream-11.10
       // A candidate with visible preflight effects is an ordering barrier.
       yield* finishPluginPreparations(preparing, runCandidate);
       yield* finishPluginCandidate(candidateSteps, candidateStep, runCandidate);
@@ -679,19 +668,6 @@ export function* loadOpenClawPluginsSteps(
           throw new PluginInventoryRetiredError();
         }
       }
-||||||| BASE/v11.4
-      if (state.pluginLoadAttemptCount !== attemptedBefore) {
-        yield;
-        if (getPluginCache().retirement) {
-          throw new Error("Plugin inventory has retired; begin a new plugin operation.");
-        }
-      }
-=======
-      // Every candidate is a boundary, including metadata-only and skipped ones: a preflight
-      // without module loads must not hold the event loop for the whole inventory.
-      yield manifestRecord.id;
-      assertPluginInventoryCurrent(options.signal);
->>>>>>> THEIRS/pro-main
     }
     yield* finishPluginPreparations(preparing, runCandidate);
     const pluginLoadElapsedMs = performance.now() - pluginLoadStartMs;

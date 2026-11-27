@@ -401,25 +401,13 @@ export function createFollowupRunner(
             sourceRunId: turn.runId,
             operation: turn.operation,
             runFollowup,
+            // A stopped automation loop reports itself once through the same
+            // visible delivery path this queued turn already owns.
+            onNotice: async (text) => {
+              await deliverProgress(turn, [{ text }], "block");
+            },
           }),
-<<<<<<< OURS/upstream-11.10
         );
-||||||| BASE/v11.4
-          sourceRunId: turn.runId,
-          operation: turn.operation,
-          runFollowup,
-        });
-=======
-          sourceRunId: turn.runId,
-          operation: turn.operation,
-          runFollowup,
-          // A stopped automation loop reports itself once through the same
-          // visible delivery path this queued turn already owns.
-          onNotice: async (text) => {
-            await deliverProgress(turn, [{ text }], "block");
-          },
-        });
->>>>>>> THEIRS/pro-main
       }
     } catch (error) {
       const authorityLost = queued.operatorAuthority?.signal?.aborted === true;

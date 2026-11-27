@@ -78,23 +78,9 @@ export type RunEmbeddedAgentParams = Pick<
   sandboxSessionKey?: string;
   /** Explicit sandbox and tool-policy owner when the policy session key is unscoped. */
   sandboxAgentId?: string;
-<<<<<<< OURS/upstream-11.10
-  /** The user, event, automation, or maintenance owner that initiated this run. */
-||||||| BASE/v11.4
-  /** Out-of-band plugin bindings attached by the run initiator. */
-  toolBindings?: Readonly<Record<string, unknown>>;
-  /** Raw peer observed by the inbound routing owner, before identity linking. */
-  conversationRoutePeerId?: string;
-  /** What initiated this agent run: "user", "heartbeat", "cron", "memory", "overflow", or "manual". */
-=======
-  /** Out-of-band plugin bindings attached by the run initiator. */
-  toolBindings?: Readonly<Record<string, unknown>>;
   /** Captured chat.send work context for plugin tools; quoted reference data, never authority. */
   workContext?: ChatWorkContext;
-  /** Raw peer observed by the inbound routing owner, before identity linking. */
-  conversationRoutePeerId?: string;
-  /** What initiated this agent run: "user", "heartbeat", "cron", "memory", "overflow", or "manual". */
->>>>>>> THEIRS/pro-main
+  /** The user, event, automation, or maintenance owner that initiated this run. */
   trigger?: EmbeddedRunTrigger;
   /** Store-private runtime authority forwarded only by the cron execution owner. */
   scheduledRuntimeAuthority?: CronRuntimeAuthority;

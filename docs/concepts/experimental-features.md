@@ -385,7 +385,6 @@ remote access**, or in config:
 }
 ```
 
-<<<<<<< OURS/upstream-11.10
 No service URL has a production default yet; the Gateway reports
 `unconfigured` until `relayUrl` is set. Changes apply without a restart. See the
 [`openclawId` configuration keys](/gateway/config-gateway) for the full list.
@@ -679,121 +678,6 @@ When a member or device is removed, the tunnel child closes its connections,
 the Gateway closes its sessions and invalidates device tokens bound to its key,
 cancels its active runs (transcripts are kept up to the cut), and publishes a
 new snapshot.
-||||||| BASE/v11.4
-- `everyToolCalls` (default `10`, range `0`–`1000`): mark a review due after this
-  many tool calls start in a conversation, including commands still running in
-  the background.
-- `everyMinutes` (default `20`, range `0`–`1440`): mark a review due after this
-  many minutes of accumulated agent run time from the lifecycle start event,
-  checked as tools start or finish and when a run ends. Time before that start
-  does not count.
-
-Reviews always use the session's own model; there is no separate model setting.
-
-A due review waits until all started tool calls have authoritative completion
-events, or the run ends or errors. Built-in runs settle on tool results; Codex
-runs settle on native item completion and recorded raw tool outputs, including
-outer function/custom-code calls. Completed child commands do not settle an
-enclosing call. Early dynamic tool results are not a safe boundary. Verification
-checks the same condition again before its fork.
-A stalled call never forces a review: Advisor waits for completion or run end,
-without a timer bypass. A call without a result may still be running; the fixed
-review contract forbids treating it as failed or aborted. Run end/error clears
-pending tool IDs and allows one due review even when no next model call occurs.
-
-Both counters restart after each review completes, including a failed review.
-Set a trigger to `0` to turn it off. With both at `0`, no reviews run. Changes apply
-without restarting the Gateway.
-
-Behavior and limits:
-
-- Reviews run in the background without delaying the triggering hook. They
-  never ask for approval or grant the agent new permissions.
-- Only user-triggered runs count. Manual compaction, heartbeat, cron, memory-flush,
-  overflow, side-question, and missing or unrecognized triggers are ignored.
-  Admission uses the history-free `before_agent_reply` hook without claiming the
-  reply; tool and time accounting begins at the lifecycle start.
-- Each conversation has at most one review in flight. A failed review is logged
-  and the next review waits a full interval. Session reset, plugin disable, and
-  service stop cancel pending reviews.
-- Review replies use a first-line `NO_CHANGE` or `CORRECTION` decision.
-  `NO_CHANGE` never starts verification or steering, even with commentary.
-  Draft corrections receive a second same-session review: only an `APPROVE`
-  response with a valid final body reaches the agent. `REJECT`, malformed
-  replies, verification errors, and timeouts never steer. Failures log one
-  bounded warning. Each reply is limited to 2,000 characters and each correction
-  to 120 words. The two stages share a 120-second deadline.
-- A correction first attempts active-run steering. If steering is unavailable,
-  it is queued for the next turn and expires after 24 hours. It is labeled as
-  advice that the agent must check before acting.
-- Each review uses the session's context, model, and credentials for one draft
-  call and, only when it proposes a correction, one verification call. Neither
-  fork can execute tools, persist conversation messages, or send replies.
-  On Codex, the forks preserve the session's prompt and tool definitions for
-  prompt-cache reuse.
-- Advisor needs conversation access and prompt injection permission through
-  `plugins.entries.advisor.hooks`, which trusted plugins have by default.
-- Gateway info logs record each stage's input, cache-read, cache-write, and output
-  tokens and elapsed time, plus whether its correction was steered or queued.
-- Counters live in memory, so they restart when the Gateway restarts.
-=======
-- `everyToolCalls` (default `10`, range `0`–`1000`): mark a review due after this
-  many tool calls start in a conversation, including commands still running in
-  the background.
-- `everyMinutes` (default `20`, range `0`–`1440`): mark a review due after this
-  many minutes of accumulated agent run time from the lifecycle start event,
-  checked as tools start or finish and when a run ends. Time before that start
-  does not count.
-
-Reviews always use the session's own model; there is no separate model setting.
-
-A due review waits until all started tool calls have authoritative completion
-events, or the run ends or errors. Built-in runs settle on tool results; Codex
-runs settle on native item completion and recorded raw tool outputs, including
-outer function/custom-code calls. Completed child commands do not settle an
-enclosing call. Early dynamic tool results are not a safe boundary. Verification
-checks the same condition again before its fork.
-A stalled call never forces a review: Advisor waits for completion or run end,
-without a timer bypass. A call without a result may still be running; the fixed
-review contract forbids treating it as failed or aborted. Run end/error clears
-pending tool IDs and allows one due review even when no next model call occurs.
-
-Both counters restart after each review completes, including a failed review.
-Set a trigger to `0` to turn it off. With both at `0`, no reviews run. Changes apply
-without restarting the Gateway.
-
-Behavior and limits:
-
-- Reviews run in the background without delaying the triggering hook. They
-  never ask for approval or grant the agent new permissions.
-- Only user-triggered runs count. Manual compaction, heartbeat, cron, memory-flush,
-  overflow, side-question, and missing or unrecognized triggers are ignored.
-  Admission uses the history-free `before_agent_reply` hook without claiming the
-  reply; tool and time accounting begins at the lifecycle start.
-- Each conversation has at most one review in flight. A failed review is logged
-  and the next review waits a full interval. Session reset, plugin disable, and
-  service stop cancel pending reviews.
-- Review replies use a first-line `NO_CHANGE` or `CORRECTION` decision.
-  `NO_CHANGE` never starts verification or steering, even with commentary.
-  Draft corrections receive a second same-session review: only an `APPROVE`
-  response with a valid final body reaches the agent. `REJECT`, malformed
-  replies, verification errors, and timeouts never steer. Failures log one
-  bounded warning. Each reply is limited to 2,000 characters and each correction
-  to 120 words. The two stages share a 240-second deadline.
-- A correction first attempts active-run steering. If steering is unavailable,
-  it is queued for the next turn and expires after 24 hours. It is labeled as
-  advice that the agent must check before acting.
-- Each review uses the session's context, model, and credentials for one draft
-  call and, only when it proposes a correction, one verification call. Neither
-  fork can execute tools, persist conversation messages, or send replies.
-  On Codex, the forks preserve the session's prompt and tool definitions for
-  prompt-cache reuse.
-- Advisor needs conversation access and prompt injection permission through
-  `plugins.entries.advisor.hooks`, which trusted plugins have by default.
-- Gateway info logs record each stage's input, cache-read, cache-write, and output
-  tokens and elapsed time, plus whether its correction was steered or queued.
-- Counters live in memory, so they restart when the Gateway restarts.
->>>>>>> THEIRS/pro-main
 
 ## Local model lean mode
 

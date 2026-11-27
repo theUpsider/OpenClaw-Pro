@@ -3,7 +3,6 @@ import {
   RTL_LOCALES,
   SUPPORTED_LOCALES,
   isSupportedLocale,
-  loadLazyLocaleConfigHints,
   resolveNavigatorLocale,
   type Locale,
 } from "../../../../src/shared/control-ui-locale.ts";
@@ -11,7 +10,7 @@ import { getOrCreatePromise } from "../../../../src/shared/lazy-promise.ts";
 import { getSafeLocalStorage } from "../../local-storage.ts";
 import { en } from "../locales/en.ts";
 import { getLazyLocaleCatalog } from "./locale-catalog.ts";
-import { loadLazyLocaleTranslation } from "./registry.ts";
+import { loadLazyLocaleConfigHints, loadLazyLocaleTranslation } from "./registry.ts";
 import type { TranslationMap } from "./types.ts";
 
 function lookupTranslation(map: TranslationMap | undefined, keys: readonly string[]): unknown {
@@ -30,6 +29,7 @@ type LocaleLoadRecovery = {
   isUnrecoverableError: (error: unknown) => boolean;
   onUnrecoverableLocaleLoad?: (locale: Locale) => void;
 };
+type LocaleTranslationLoader = (locale: Locale) => Promise<TranslationMap | null>;
 
 export { SUPPORTED_LOCALES, isSupportedLocale };
 
@@ -63,18 +63,10 @@ class I18nManager {
   private configHintLocales = new Set<Locale>([DEFAULT_LOCALE]);
   private inFlightConfigHintLoads = new Set<Locale>();
 
-<<<<<<< OURS/upstream-11.10
-  constructor() {
-||||||| BASE/v11.4
-  constructor(
-    private readonly loadLocaleTranslation: LocaleTranslationLoader = loadLazyLocaleTranslation,
-  ) {
-=======
   constructor(
     private readonly loadLocaleTranslation: LocaleTranslationLoader = loadLazyLocaleTranslation,
     private readonly loadLocaleConfigHints: LocaleTranslationLoader = loadLazyLocaleConfigHints,
   ) {
->>>>>>> THEIRS/pro-main
     this.loadLocale();
   }
 
@@ -327,10 +319,10 @@ export const translateConfigHint = (key: string) => i18n.translateConfigHint(key
 if (import.meta.env?.MODE === "test") {
   (globalThis as Record<PropertyKey, unknown>)[Symbol.for("openclaw.i18nManagerTestApi")] = {
     createI18nManager(
-      ,
+      loadLocaleTranslation: LocaleTranslationLoader,
       loadLocaleConfigHints?: LocaleTranslationLoader,
     ) {
-      return new I18nManager(, loadLocaleConfigHints);
+      return new I18nManager(loadLocaleTranslation, loadLocaleConfigHints);
     },
   };
 }

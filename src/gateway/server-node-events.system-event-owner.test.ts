@@ -99,7 +99,6 @@ it.each([
   { name: "system-agent notification", event: "notifications.changed", explicit: false },
   { name: "authorized exec completion", event: "exec.finished", explicit: true },
   { name: "unmatched exec completion", event: "exec.finished", explicit: true, denied: true },
-<<<<<<< OURS/upstream-11.10
   { name: "rejected notification", event: "notifications.changed", explicit: true, rejected: true },
   { name: "rejected exec completion", event: "exec.finished", explicit: true, rejected: true },
 ])(
@@ -108,100 +107,8 @@ it.each([
     enqueueSessionEvent.mockClear();
     resetSystemEventsForTest();
     await withOpenClawTestState({ label: "node-owner", layout: "state-only" }, async (state) => {
-      const config = {
-        agents: {
-          ownership: "explicit" as const,
-          defaults: { systemAgent: { agentId: "research" } },
-          entries: { main: {}, research: {} },
-        },
-        session: {
-          scope: "global" as const,
-          store: path.join(state.stateDir, "agents", "{agentId}", "sessions", "sessions.json"),
-        },
-      };
-      setRuntimeConfigSnapshot(config, config);
-      for (const agentId of ["main", "research"]) {
-        await replaceSessionEntry(
-          { agentId, sessionKey: "global" },
-          { sessionId: `${agentId}-session`, updatedAt: 1 },
-        );
-      }
-      const ctx: NodeEventContext = {
-        deps: {},
-        broadcast: () => {},
-        nodeSendToSession: () => {},
-        nodeSubscribe: () => {},
-        nodeUnsubscribe: () => {},
-        broadcastVoiceWakeChanged: () => {},
-        addChatRun: () => {},
-        removeChatRun: () => undefined,
-        dedupe: new Map(),
-        agentRunSeq: new Map(),
-        getHealthCache: () => null,
-        refreshHealthSnapshot: async () => {
-          throw new Error("Unexpected health refresh");
-        },
-        loadGatewayModelCatalog: async () => [],
-        authorizeNodeSystemRunEvent: () => !denied,
-        logGateway: { warn: vi.fn() },
-      };
-||||||| BASE/v11.4
-])("preserves the loaded global owner for $name", async ({ name, event, explicit, denied }) => {
-  requestHeartbeat.mockClear();
-  resetSystemEventsForTest();
-  await withOpenClawTestState(
-    { label: "node-event-owner", layout: "state-only" },
-    async (state) => {
-      const config = {
-        agents: {
-          ownership: "explicit" as const,
-          defaults: { systemAgent: { agentId: "research" } },
-          entries: { main: {}, research: {} },
-        },
-        session: {
-          scope: "global" as const,
-          store: path.join(state.stateDir, "agents", "{agentId}", "sessions", "sessions.json"),
-        },
-      };
-      setRuntimeConfigSnapshot(config, config);
-      for (const agentId of ["main", "research"]) {
-        await replaceSessionEntry(
-          { agentId, sessionKey: "global" },
-          { sessionId: `${agentId}-session`, updatedAt: 1 },
-        );
-      }
-      const authorizeNodeSystemRunEvent = vi.fn(() => !denied);
-      const ctx: NodeEventContext = {
-        deps: {},
-        broadcast: () => {},
-        nodeSendToSession: () => {},
-        nodeSubscribe: () => {},
-        nodeUnsubscribe: () => {},
-        broadcastVoiceWakeChanged: () => {},
-        addChatRun: () => {},
-        removeChatRun: () => undefined,
-        chatAbortControllers: new Map(),
-        dedupe: new Map(),
-        agentRunSeq: new Map(),
-        getHealthCache: () => null,
-        refreshHealthSnapshot: async () => {
-          throw new Error("Unexpected health refresh");
-        },
-        loadGatewayModelCatalog: async () => [],
-        authorizeNodeSystemRunEvent,
-        logGateway: { warn: vi.fn() },
-      };
-=======
-])("preserves the loaded global owner for $name", async ({ name, event, explicit, denied }) => {
-  requestHeartbeat.mockClear();
-  resetSystemEventsForTest();
-  await withOpenClawTestState(
-    { label: "node-event-owner", layout: "state-only" },
-    async (state) => {
       await setupGlobalSessions(state.stateDir);
-      const authorizeNodeSystemRunEvent = vi.fn(() => !denied);
-      const ctx = createNodeEventContext(authorizeNodeSystemRunEvent);
->>>>>>> THEIRS/pro-main
+      const ctx = createNodeEventContext(() => !denied);
       const runId = `node-owner-${name}`;
       if (rejected) {
         enqueueSystemEventEntry("Unrelated pending occurrence", {

@@ -97,35 +97,6 @@ describe("createEmbeddedLobsterRunner", () => {
   });
 
   it("forwards approvalId through resume when token is absent", async () => {
-<<<<<<< OURS/upstream-11.10
-    resumeRequest.mockResolvedValue(success);
-    await run({ action: "resume", pipeline: undefined, approvalId: "dbc98d05", approve: true });
-    expect(resumeRequest).toHaveBeenCalledWith(
-      expect.objectContaining({ approvalId: "dbc98d05", approved: true }),
-||||||| BASE/v11.4
-    const { runtime, runner } = createRunner();
-    runtime.resumeToolRequest.mockResolvedValue(success);
-
-    await runner.run(
-      runParams({ action: "resume", pipeline: undefined, approvalId: "dbc98d05", approve: true }),
-    );
-
-    expect(runtime.resumeToolRequest).toHaveBeenCalledExactlyOnceWith({
-      approvalId: "dbc98d05",
-      approved: true,
-      ctx: toolContext(),
-    });
-  });
-
-  it("loads the embedded runtime once per runner", async () => {
-    const { runtime, loadRuntime, runner } = createRunner();
-    runtime.runToolRequest.mockResolvedValue(success);
-    runtime.resumeToolRequest.mockResolvedValue({ ...success, status: "cancelled" });
-
-    await runner.run(runParams());
-    await runner.run(
-      runParams({ action: "resume", pipeline: undefined, token: "resume-token", approve: false }),
-=======
     const { runtime, runner } = createRunner();
     runtime.resumeToolRequest.mockResolvedValue(success);
 
@@ -219,7 +190,6 @@ describe("createEmbeddedLobsterRunner", () => {
     await runner.run(runParams());
     await runner.run(
       runParams({ action: "resume", pipeline: undefined, token: "resume-token", approve: false }),
->>>>>>> THEIRS/pro-main
     );
   });
 

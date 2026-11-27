@@ -414,7 +414,6 @@ describe("command queue", () => {
     },
   );
 
-<<<<<<< OURS/upstream-11.10
   it.each(["reset", "release"] as const)(
     "handles a captured queued root after %s",
     async (mode) => {
@@ -443,107 +442,6 @@ describe("command queue", () => {
       }
     },
   );
-||||||| BASE/v11.4
-    try {
-      markGatewayDraining();
-      continueRoot.resolve();
-      await expect(result).rejects.toBeInstanceOf(GatewayDrainingError);
-    } finally {
-      root?.release();
-    }
-  });
-
-  it("re-admits preserved queued work after reset retires its captured root", async () => {
-    const outerLane = `restart-outer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const innerLane = `restart-inner-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    setCommandLaneConcurrency(outerLane, 0);
-    const root = tryBeginGatewayRootWorkAdmission();
-    expect(root).not.toBeNull();
-    let task: Promise<string> | undefined;
-    await root?.run(async () => {
-      task = enqueueCommandInLane(outerLane, async () =>
-        enqueueCommandInLane(innerLane, async () => "continued"),
-      );
-    });
-
-    markGatewayDraining();
-    resetAllLanes();
-    setCommandLaneConcurrency(outerLane, 1);
-
-    await expect(task).resolves.toBe("continued");
-    root?.release();
-  });
-
-  it("does not re-admit queued work after its root is released normally", async () => {
-    const outerLane = `released-outer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const innerLane = `released-inner-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    setCommandLaneConcurrency(outerLane, 0);
-    const root = tryBeginGatewayRootWorkAdmission();
-    expect(root).not.toBeNull();
-    let task: Promise<string> | undefined;
-    await root?.run(async () => {
-      task = enqueueCommandInLane(outerLane, async () =>
-        enqueueCommandInLane(innerLane, async () => "unexpected"),
-      );
-    });
-
-    root?.release();
-    setCommandLaneConcurrency(outerLane, 1);
-
-    await expect(task).rejects.toBeInstanceOf(GatewayDrainingError);
-  });
-=======
-    try {
-      markGatewayDraining();
-      continueRoot.resolve();
-      await expect(result).rejects.toBeInstanceOf(GatewayDrainingError);
-    } finally {
-      root?.release();
-    }
-  });
-
-  it("re-admits preserved queued work after reset retires its captured root", async () => {
-    const outerLane = `restart-outer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const innerLane = `restart-inner-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    setCommandLaneConcurrency(outerLane, 0);
-    const root = tryBeginGatewayRootWorkAdmission();
-    expect(root).not.toBeNull();
-    let task: Promise<string> | undefined;
-    await root?.run(async () => {
-      task = enqueueCommandInLane(outerLane, async () =>
-        enqueueCommandInLane(innerLane, async () => "continued"),
-      );
-    });
-
-    markGatewayDraining();
-    resetAllLanes();
-    setCommandLaneConcurrency(outerLane, 1);
-
-    await expect(task).resolves.toBe("continued");
-    root?.release();
-  });
-
-  it("re-admits queued work after its root is released normally", async () => {
-    const outerLane = `released-outer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const innerLane = `released-inner-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    setCommandLaneConcurrency(outerLane, 0);
-    const root = tryBeginGatewayRootWorkAdmission();
-    expect(root).not.toBeNull();
-    let task: Promise<string> | undefined;
-    await root?.run(async () => {
-      task = enqueueCommandInLane(outerLane, async () =>
-        enqueueCommandInLane(innerLane, async () => "continued"),
-      );
-    });
-
-    // A settled lease is not a fence: the queued task re-enters admission on a
-    // fresh tracked root instead of being refused forever.
-    root?.release();
-    setCommandLaneConcurrency(outerLane, 1);
-
-    await expect(task).resolves.toBe("continued");
-  });
->>>>>>> THEIRS/pro-main
 
   it("shares lane state across distinct module instances", async () => {
     const commandQueueA = await importFreshModule<typeof import("./command-queue.js")>(

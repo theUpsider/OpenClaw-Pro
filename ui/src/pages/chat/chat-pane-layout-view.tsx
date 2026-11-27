@@ -9,6 +9,7 @@ import { useScrollState } from "../../components/solid/scroll-state.ts";
 import { registerChatSessionEnglish } from "../../i18n/locales/en-chat-session.ts";
 import type { PresentationValue } from "../../lib/presentation.ts";
 import { registerEnglishCatalog, t } from "../../lib/reactive/i18n.ts";
+import { AgentRowChip } from "../../components/agent-row-chip.tsx";
 import type { ChatBoardResetConfirmationProps } from "./chat-board-reset-confirmation.tsx";
 import { PaneSubagentStop } from "./chat-pane-header-view.tsx";
 import { usePanePresentation } from "./chat-pane-presentation.ts";
@@ -26,6 +27,7 @@ import {
   ChatSubagentMobileHeader,
   type ChatSubagentMobileStop,
 } from "./components/chat-subagent-mobile-header.tsx";
+import { formatSubagentModel, type SubagentFacts } from "./subagent-facts.ts";
 import { isSidebarSlotVisible } from "./sidebar-layout.ts";
 
 registerEnglishCatalog(registerChatSessionEnglish);
@@ -34,12 +36,68 @@ const ChatBoardResetConfirmation = lazy(() => import("./chat-board-reset-confirm
   export: "ChatBoardResetConfirmation",
 });
 
+/**
+ * The detail header has room for the provider, so it shows `provider · model` as text.
+ * Ported from the fork's lit `renderSubagentFacts` into the Solid/JSX layout view because
+ * the header facts now travel through `renderHeaderDetails` (`subagentHeader.facts`).
+ */
+function PaneSubagentFacts(props: { facts: SubagentFacts }) {
+  const fact = (label: string, value: string | undefined) =>
+    t("chat.subagentsPanel.fact", { label, value: value ?? t("chat.subagentsPanel.unknown") });
+  const modelFact = () => fact(t("sessionsView.model"), formatSubagentModel(props.facts));
+  const thinkingFact = () => fact(t("sessionsView.thinking"), props.facts.thinking);
+  return (
+    <div
+      class="chat-subagents__facts chat-subagent-detail__facts"
+      role="group"
+      aria-label={t("chat.subagentsPanel.facts")}
+    >
+      {props.facts.agentId ? (
+        <span class="chip chat-subagents__fact">
+          <AgentRowChip agentId={props.facts.agentId} />
+        </span>
+      ) : (
+        <span class="chip chat-subagents__fact chat-subagents__fact--unknown">
+          {fact(t("chat.subagentsPanel.agent"), undefined)}
+        </span>
+      )}
+      <span
+        class={[
+          "chip chat-subagents__fact",
+          !props.facts.model && "chat-subagents__fact--unknown",
+        ]}
+        data-fact="model"
+        title={modelFact()}
+      >
+        {props.facts.model ?? modelFact()}
+      </span>
+      <span
+        class={[
+          "chip chat-subagents__fact",
+          !props.facts.thinking && "chat-subagents__fact--unknown",
+        ]}
+        data-fact="thinking"
+        title={thinkingFact()}
+      >
+        {thinkingFact()}
+      </span>
+      {props.facts.badge && (
+        <span class="chip chat-subagents__fact" data-fact={props.facts.badge.kind}>
+          {t(props.facts.badge.labelKey)}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function PaneSubagentHeader(props: {
   sessionKey: string;
   title: string;
   onBack: () => void;
   stop: (Parameters<typeof PaneSubagentStop>[0] & { target: string }) | undefined;
   details: ChatDetailsViewProps | undefined;
+  /** Run facts (agent, model, thinking) shown under the detail header. */
+  facts?: SubagentFacts;
   /** Supplied by the chrome owner for desktop, including embedded child panes. */
   desktop?: { sessionKey: string };
   /** Explicit native presentation, including child panes without a mobile host. */
@@ -88,6 +146,7 @@ function PaneSubagentHeader(props: {
                   <ChatDetails {...props.details!} />
                 </Show>
               </div>
+              <Show when={props.facts}>{(facts) => <PaneSubagentFacts facts={facts()} />}</Show>
             </header>
           }
         >

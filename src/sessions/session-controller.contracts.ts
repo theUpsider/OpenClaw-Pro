@@ -726,6 +726,15 @@ export type ReplyOperationRunState = {
   admission?: ReplyOperationAdmissionSnapshot;
   /** Latest queue-owned disposition; original acceptance still records custody. */
   followupQueueDisposition?: FollowupQueueDisposition;
+  /**
+   * Per-turn fact: the reply gate judged that no visible reply is needed. The turn still runs;
+   * only automatic source delivery is suppressed. It lives apart from `suppressDelivery` so the
+   * gate verdict stays attributable; `resolveSourceReplyVisibilityPolicy` folds it into
+   * `suppressDelivery` additively, never clearing sendPolicy or message_tool_only suppression.
+   */
+  visibleReplySuppression?: "reply-gate";
+  /** Dispatch owner hook that re-derives its delivery policy when the fact is set mid-turn. */
+  onVisibleReplySuppression?: () => void;
   /** The Gateway accepted this question answer or rejected its values before commitment. */
   questionInputHandled?: true;
   messageInjectionAborted?: true;

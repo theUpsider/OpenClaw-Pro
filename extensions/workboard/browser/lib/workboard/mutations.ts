@@ -192,26 +192,14 @@ export async function moveWorkboardCard(
   const card = cards.find((candidate) => candidate.id === params.cardId);
   const moves =
     params.beforeCardId === undefined
-<<<<<<< OURS/upstream-11.10
       ? [
           {
             id: params.cardId,
             status: params.status,
             ...(current.nextCursor ? {} : { position: params.position }),
-          },
-        ]
-||||||| BASE/v11.4
-      ? [{ id: params.cardId, status: params.status, position: params.position }]
-=======
-      ? [
-          {
-            id: params.cardId,
-            status: params.status,
-            position: params.position,
             ...(params.labelsRemove ? { labelsRemove: params.labelsRemove } : {}),
           },
         ]
->>>>>>> THEIRS/pro-main
       : card
         ? planWorkboardCardDrop(cards, card, params.status, params.beforeCardId, params.boardFilter)
         : [];

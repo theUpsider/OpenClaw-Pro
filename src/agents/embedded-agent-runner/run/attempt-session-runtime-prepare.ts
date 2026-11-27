@@ -113,7 +113,7 @@ export async function prepareEmbeddedAttemptSessionRuntime(input: {
     sandboxSessionKey,
     sessionAgentId,
   } = input.setup;
-  const { catalogToolHookContext, effectiveTools } = input.toolCatalog;
+  const { catalogToolHookContext, effectiveTools, toolSearchRunPlan } = input.toolCatalog;
   const { clientTools, uncompactedEffectiveTools } = input.bundleTools;
   const {
     codeModeControlsEnabledForRun,
@@ -515,8 +515,8 @@ export async function prepareEmbeddedAttemptSessionRuntime(input: {
   const anthropicPayloadLogger = createAnthropicPayloadLogger(traceContext);
   let trajectoryRecorder: Awaited<ReturnType<typeof createTrajectoryRuntimeRecorder>> = null;
   {
-    const capabilityToolNames: toolSearchRunPlan.capabilityToolNames,
-    clientToolCount = preparedAgentSession.clientToolDefs.length;
+    const capabilityToolNames = toolSearchRunPlan.capabilityToolNames;
+    const clientToolCount = preparedAgentSession.clientToolDefs.length;
     const candidate = sessionLock.ownedTranscriptWriteContext?.sessionTarget;
     const sessionKey = candidate?.sessionKey;
     const assertCommitAllowed = sessionLock.ownedTranscriptWriteContext?.assertCommitAllowed;
@@ -576,6 +576,7 @@ export async function prepareEmbeddedAttemptSessionRuntime(input: {
       });
       assertActive();
       retained?.assertCurrent();
+      const wireToolNames = [...activeSession.getActiveToolNames()].toSorted();
       recorder?.recordEvent("session.started", {
         trigger: attempt.trigger,
         sessionFile: attempt.sessionFile,
@@ -586,9 +587,17 @@ export async function prepareEmbeddedAttemptSessionRuntime(input: {
         localModelLean: localModelLeanEnabled,
         toolCount: effectiveToolCount,
         clientToolCount,
-    // The post-pin session surface: the tool pin (pinTools -> prepareSessionToolSurface)
-    // already shaped activeSession, so its active names are what the session sends.
-    wireToolNames: activeSession.getActiveToolNames(),
+        // Fork telemetry: the owner flag plus the full tool-name sets, so a name lost to
+        // the trajectory array cap stays detectable through count and digest.
+        senderIsOwner: attempt.senderIsOwner,
+        capabilityToolNames: [...capabilityToolNames].toSorted(),
+        capabilityToolNamesCount: capabilityToolNames.size,
+        capabilityToolNamesHash: sha256Hex(JSON.stringify([...capabilityToolNames].toSorted())),
+        // The post-pin session surface: the tool pin (pinTools -> prepareSessionToolSurface)
+        // already shaped activeSession, so its active names are what the session sends.
+        wireToolNames,
+        wireToolNamesCount: wireToolNames.length,
+        wireToolNamesHash: sha256Hex(JSON.stringify(wireToolNames)),
       });
       const fastMode = typeof attempt.fastMode === "boolean" ? attempt.fastMode : undefined;
       recorder?.recordEvent(

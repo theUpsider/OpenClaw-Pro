@@ -896,14 +896,8 @@ export default function controlUiViteConfig(
         candidates.add(dependency);
       }
     }
-<<<<<<< OURS/upstream-11.10
     const dependencies = [...candidates].filter((dep) => !loaded.has(dep) && dep !== filename);
     return waitsForStyles && !loaded.has(filename) ? [filename, ...dependencies] : dependencies;
-||||||| BASE/v11.4
-    return pending.filter((dep) => !loaded.has(dep));
-=======
-    return deps.filter((dep) => !loaded.has(dep));
->>>>>>> THEIRS/pro-main
   };
   return {
     base,

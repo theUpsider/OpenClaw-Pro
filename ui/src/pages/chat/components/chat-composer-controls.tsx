@@ -7,7 +7,6 @@ import { registerSessionNavigationEnglish } from "../../../i18n/locales/en-sessi
 import { isMobileBrowserPlatform } from "../../../lib/browser-platform.ts";
 import { canSubmitBeforeChatHistory } from "../../../lib/chat/commands.ts";
 import {
-<<<<<<< OURS/upstream-11.10
   formatKeyboardShortcutParts,
   isApplePlatform,
   KEYBOARD_SHORTCUT_COMBOS,
@@ -20,40 +19,6 @@ import { ComposerContent } from "./chat-composer-content.tsx";
 import type { createChatComposerContext } from "./chat-composer-frame.ts";
 import { ChatLazyBoundary } from "./chat-lazy-boundary.tsx";
 import { MicrophoneActivity, voiceStatusLabel } from "./chat-voice-activity.tsx";
-||||||| BASE/v11.4
-  realtimeTalkDeviceIssueMessage,
-  type RealtimeTalkDeviceIssue,
-  type RealtimeTalkInputDevice,
-} from "../talk/input.ts";
-import type { RealtimeTalkLevelSignal } from "../talk/level.ts";
-import type { RealtimeTalkStatus } from "../talk/session.ts";
-import { solidTemplate, renderComposerSendTooltip } from "./chat-composer-controls.ts";
-import { LitContent } from "./chat-composer-interop.tsx";
-import {
-  renderChatVoiceStatus,
-  renderMicrophoneActivity,
-  voiceStatusLabel,
-} from "./chat-voice-activity.ts";
-=======
-  realtimeTalkDeviceIssueMessage,
-  type RealtimeTalkDeviceIssue,
-  type RealtimeTalkInputDevice,
-} from "../talk/input.ts";
-import type { RealtimeTalkLevelSignal } from "../talk/level.ts";
-import type { RealtimeTalkStatus } from "../talk/session.ts";
-import { solidTemplate } from "./chat-composer-controls.ts";
-import { LitContent } from "./chat-composer-interop.tsx";
-import {
-  ChatSendAction,
-  chatSendAvailability,
-  primaryPointerDownRef,
-} from "./chat-send-action.tsx";
-import {
-  renderChatVoiceStatus,
-  renderMicrophoneActivity,
-  voiceStatusLabel,
-} from "./chat-voice-activity.ts";
->>>>>>> THEIRS/pro-main
 
 registerEnglishCatalog(registerSessionNavigationEnglish);
 
@@ -283,21 +248,11 @@ export function renderComposerVoiceButtonSolid(props: ComposerVoiceButtonProps) 
   );
 }
 
-<<<<<<< OURS/upstream-11.10
 function primaryPointerDownRef(read: () => ((event: PointerEvent) => void) | undefined) {
   // Preserve input focus before native tooltip listeners run at the target.
   return nativeListener("pointerdown", (event) => read()?.(event), true);
 }
 
-||||||| BASE/v11.4
-function primaryPointerDownRef(read: () => ((event: PointerEvent) => void) | undefined) {
-  // Preserve input focus before native tooltip listeners run at the target.
-  return (button: HTMLButtonElement) =>
-    button.addEventListener("pointerdown", (event) => read()?.(event), true);
-}
-
-=======
->>>>>>> THEIRS/pro-main
 export function ComposerDictationSendAction(props: {
   readDictation: () => ComposerDictationOwner;
   onSend: (submissionAction?: Event) => void;
@@ -368,7 +323,6 @@ export function renderChatAbortActionSolid(
 }
 
 export function renderChatPrimaryActionsSolid(props: ChatRunControlsProps) {
-<<<<<<< OURS/upstream-11.10
   const MicrophonePicker = renderMicrophonePickerSolid;
   const microphonePicker = (
     <Show when={props.microphonePicker}>{(picker) => <MicrophonePicker {...picker()} />}</Show>
@@ -388,40 +342,9 @@ export function renderChatPrimaryActionsSolid(props: ChatRunControlsProps) {
     t(props.alternateFollowUpMode === "queue" ? "chat.runControls.queue" : "chat.queue.steer");
   const alternateAvailable = () =>
     props.alternateFollowUpMode && props.canSend && hasComposedContent();
-||||||| BASE/v11.4
-  const hasComposedContent = createMemo(() => Boolean(props.draft.trim() || props.hasAttachments));
-  const labels = createMemo(() =>
-    props.suggestionComposer
-      ? (["chat.sessionSuggestions.suggest", "chat.sessionSuggestions.suggestMessage"] as const)
-      : !props.canAbort || props.followUpMode === undefined || props.followUpMode === "interrupt"
-        ? (["chat.runControls.send", "chat.runControls.sendMessage"] as const)
-        : props.followUpMode === "steer"
-          ? (["chat.queue.steer", "chat.followUpModeSteer"] as const)
-          : (["chat.runControls.queue", "chat.runControls.queueMessage"] as const),
-  );
-  const label = () => props.submissionLabel ?? t(labels()[0]);
-  const description = () => props.submissionLabel ?? t(labels()[1]);
-  const alternateLabel = () =>
-    t(props.alternateFollowUpMode === "queue" ? "chat.runControls.queue" : "chat.queue.steer");
-  const alternateAvailable = () =>
-    props.alternateFollowUpMode && props.canSend && hasComposedContent();
-  const tooltip = () =>
-    alternateAvailable()
-      ? `${label()} ⏎ · ${alternateLabel()} ${t("chat.sendShortcutModifierEnter")}`
-      : label();
-  const tooltipTemplate = () =>
-    alternateAvailable()
-      ? renderComposerSendTooltip(label(), alternateLabel(), t("chat.sendShortcutModifierEnter"))
-      : undefined;
-=======
-  const availability = chatSendAvailability(props);
-  const hasComposedContent = createMemo(availability.hasComposedContent);
-  const hasSendableContent = createMemo(availability.hasSendableContent);
->>>>>>> THEIRS/pro-main
   const voiceErrored = () => props.voiceStatus === "error";
   const cameraLabel = () =>
     t(props.voiceVideoEnabled ? "chat.composer.turnCameraOff" : "chat.composer.turnCameraOn");
-<<<<<<< OURS/upstream-11.10
   const sendDisabledReason = () =>
     props.canSend && canSubmitBeforeChatHistory(props.draft) ? null : props.submitDisabledReason;
   const sendBusy = () => props.sending || Boolean(sendDisabledReason() && props.submitPending);
@@ -484,47 +407,6 @@ export function renderChatPrimaryActionsSolid(props: ChatRunControlsProps) {
       </button>
     </openclaw-tooltip>
   );
-||||||| BASE/v11.4
-  const sendDisabledReason = () =>
-    props.canSend && canSubmitBeforeChatHistory(props.draft) ? null : props.submitDisabledReason;
-  const sendBusy = () => props.sending || Boolean(sendDisabledReason() && props.submitPending);
-  const sendStatus = () =>
-    sendDisabledReason() ??
-    (props.sending
-      ? t("chat.composer.sendingMessage")
-      : hasComposedContent()
-        ? null
-        : t("chat.composer.emptyHint"));
-  const hasSendableContent = createMemo(
-    () => hasComposedContent() && props.canSend && !props.sending && !sendDisabledReason(),
-  );
-  const SendAction = () => (
-    <openclaw-tooltip
-      prop:content={
-        props.preparingAttachments
-          ? t("chat.composer.preparingAttachments")
-          : (sendStatus() ?? tooltip())
-      }
-      prop:contentTemplate={
-        !props.preparingAttachments && sendStatus() == null ? tooltipTemplate() : undefined
-      }
-    >
-      <button
-        class={`chat-send-btn chat-send-btn--send${props.sending ? " chat-send-btn--sending" : ""}`}
-        ref={primaryPointerDownRef(() => props.onPrimaryActionPointerDown)}
-        onClick={(event) => props.onSend(event)}
-        disabled={!hasSendableContent()}
-        aria-label={sendStatus() ?? description()}
-        aria-busy={sendBusy() || props.preparingAttachments ? "true" : "false"}
-      >
-        {sendBusy() ? <span class="btn__spinner" aria-hidden="true" /> : <Icon name="arrowUp" />}
-        <span class="agent-chat__control-label">{label()}</span>
-      </button>
-    </openclaw-tooltip>
-  );
-=======
-  const SendAction = () => <ChatSendAction {...props} />;
->>>>>>> THEIRS/pro-main
   const TalkAction = (action: { camera?: boolean }) => (
     <openclaw-tooltip
       class={{ "chat-mobile-talk-action": !action.camera }}

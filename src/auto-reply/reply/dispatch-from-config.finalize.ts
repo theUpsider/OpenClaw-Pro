@@ -420,22 +420,14 @@ export async function finalizeDispatchAndAudit(state: ExecuteDispatchReadyState)
     const owned = state.replyOperationRunState.replyCompletion;
     return resolveReplyCompletion(
       owned?.expectation ?? "required",
-<<<<<<< OURS/upstream-11.10
       collaborativeSteeringRefused ||
         beforeAgentRunBlocked ||
-        sendPolicyDenied ||
-        owned?.outcome === "blocked"
-||||||| BASE/v11.4
-      beforeAgentRunBlocked || sendPolicyDenied || owned?.outcome === "blocked"
-=======
-      beforeAgentRunBlocked ||
         sendPolicyDenied ||
         owned?.outcome === "blocked" ||
         // Deliberate gate silence; a failed agent turn keeps its real outcome.
         (state.replyOperationRunState.visibleReplySuppression === "reply-gate" &&
           delivery !== "delivered" &&
           state.getAgentRunTerminalOutcome() !== "failed")
->>>>>>> THEIRS/pro-main
         ? "blocked"
         : owned?.outcome === "silent"
           ? "silent"

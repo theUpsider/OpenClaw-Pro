@@ -290,7 +290,6 @@ export function controlUiLocaleModulesPlugin(buildInputs?: Set<string>): Plugin 
           if (activeCache !== catalogCache) {
             continue;
           }
-<<<<<<< OURS/upstream-11.10
           if (request.namespace === "configHints") {
             return `export default ${JSON.stringify(partition.configHints)};`;
           }
@@ -360,29 +359,6 @@ ${sharedErrorImport}
 export default createLazyLocaleCatalog(${JSON.stringify(partition.base)}, {${loaders.join(",")}});`;
         }
       },
-||||||| BASE/v11.4
-          throw error;
-        }
-        if (activeCache !== catalogCache) {
-          continue;
-        }
-        if (request.configHints) {
-          return `export default ${JSON.stringify(partition.configHints)};`;
-        }
-        return `import configHints from ${JSON.stringify(`${localeConfigHintsModulePrefix}${request.locale}`)};
-export default { ...${JSON.stringify(partition.base)}, ...configHints };`;
-      }
-=======
-          throw error;
-        }
-        if (activeCache !== catalogCache) {
-          continue;
-        }
-        // The I18nManager loads config hints on first lookup; a static import here
-        // would pull the hint chunk with every locale switch.
-        return `export default ${JSON.stringify(request.configHints ? partition.configHints : partition.base)};`;
-      }
->>>>>>> THEIRS/pro-main
     },
   };
 }

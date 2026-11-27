@@ -48,63 +48,6 @@ function isProductionSource(filePath: string): boolean {
   );
 }
 
-<<<<<<< OURS/upstream-11.10
-function listRegisterToolCalls(filePath: string, source: string): string[][] {
-  if (!source.includes("registerTool")) {
-    return [];
-||||||| BASE/v11.4
-function readBalancedCallArguments(source: string, openParenIndex: number): string | undefined {
-  let depth = 0;
-  let quote: '"' | "'" | "`" | undefined;
-  let escaped = false;
-  for (let index = openParenIndex; index < source.length; index += 1) {
-    const char = source[index];
-    if (!char) {
-      continue;
-    }
-    if (quote) {
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (char === "\\") {
-        escaped = true;
-        continue;
-      }
-      if (char === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (char === '"' || char === "'" || char === "`") {
-      quote = char;
-      continue;
-    }
-    if (char === "(" || char === "{" || char === "[") {
-      depth += 1;
-      continue;
-    }
-    if (char === ")" || char === "}" || char === "]") {
-      depth -= 1;
-      if (depth === 0 && char === ")") {
-        return source.slice(openParenIndex + 1, index);
-      }
-    }
-  }
-  return undefined;
-}
-
-function listRegisterToolCalls(source: string): string[] {
-  const calls: string[] = [];
-  const pattern = /\bregisterTool\s*\(/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(source))) {
-    const openParenIndex = source.indexOf("(", match.index);
-    const args = readBalancedCallArguments(source, openParenIndex);
-    if (args !== undefined) {
-      calls.push(args);
-    }
-=======
 /**
  * Text between a balanced delimiter pair, starting at its opening character.
  * Returns undefined when the delimiter never closes. `close` is the character
@@ -163,17 +106,9 @@ function readBalancedArrayBody(source: string, openBracketIndex: number): string
   return readBalancedDelimiters(source, openBracketIndex, "]");
 }
 
-function listRegisterToolCalls(source: string): string[] {
-  const calls: string[] = [];
-  const pattern = /\bregisterTool\s*\(/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(source))) {
-    const openParenIndex = source.indexOf("(", match.index);
-    const args = readBalancedCallArguments(source, openParenIndex);
-    if (args !== undefined) {
-      calls.push(args);
-    }
->>>>>>> THEIRS/pro-main
+function listRegisterToolCalls(filePath: string, source: string): string[][] {
+  if (!source.includes("registerTool")) {
+    return [];
   }
   const sourceFile = parser.parseSourceFile(filePath, source);
   const calls: string[][] = [];
@@ -198,21 +133,94 @@ function listRegisterToolCalls(source: string): string[] {
   return calls;
 }
 
-<<<<<<< OURS/upstream-11.10
 function extractStringLiterals(source: string): string[] {
   return [...source.matchAll(/["']([^"']+)["']/g)].flatMap((match) => (match[1] ? [match[1]] : []));
-||||||| BASE/v11.4
-function extractStringLiterals(source: string): string[] {
-  const names: string[] = [];
-  const pattern = /["']([^"']+)["']/g;
+}
+
+function extractStaticRegisteredToolNamesFromObject(source: string): string[] {
+  return [
+    ...new Set([
+      ...[...source.matchAll(/\bnames\s*:\s*\[([\s\S]*?)\]/g)].flatMap((match) =>
+        extractStringLiterals(match[1] ?? ""),
+      ),
+      ...[...source.matchAll(/\bname\s*:\s*["']([^"']+)["']/g)].flatMap((match) =>
+        match[1] ? [match[1]] : [],
+      ),
+    ]),
+  ];
+}
+
+/**
+ * Raw `registerTool(...)` argument texts across a plugin's production modules.
+ * The fork's tool-contract rules resolve spreads, optional flags and metadata
+ * from this text, so the raw-argument form is kept alongside the AST call scan.
+ */
+function listRegisterToolCallArguments(source: string): string[] {
+  const calls: string[] = [];
+  const pattern = /\bregisterTool\s*\(/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(source))) {
-    if (match[1]) {
-      names.push(match[1]);
+    const openParenIndex = source.indexOf("(", match.index);
+    const args = readBalancedCallArguments(source, openParenIndex);
+    if (args !== undefined) {
+      calls.push(args);
     }
   }
-  return names;
-=======
+  return calls;
+}
+
+function splitTopLevelArgs(args: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let quote: '"' | "'" | "`" | undefined;
+  let escaped = false;
+  let start = 0;
+  for (let index = 0; index < args.length; index += 1) {
+    const char = args[index];
+    if (!char) {
+      continue;
+    }
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "(" || char === "{" || char === "[") {
+      depth += 1;
+      continue;
+    }
+    if (char === ")" || char === "}" || char === "]") {
+      depth -= 1;
+      continue;
+    }
+    if (char === "," && depth === 0) {
+      const part = args.slice(start, index).trim();
+      if (part.length > 0) {
+        parts.push(part);
+      }
+      start = index + 1;
+    }
+  }
+  const part = args.slice(start).trim();
+  if (part.length > 0) {
+    parts.push(part);
+  }
+  return parts;
+}
+
 /**
  * Const array bodies by identifier across the plugin's production modules, so a
  * `names: [...SOME_ARRAY]` spread resolves against the array's own literal entries.
@@ -238,63 +246,8 @@ function collectConstArrayBodies(sources: readonly string[]): Map<string, string
     }
   }
   return bodies;
->>>>>>> THEIRS/pro-main
 }
 
-<<<<<<< OURS/upstream-11.10
-function extractStaticRegisteredToolNamesFromObject(source: string): string[] {
-  return [
-    ...new Set([
-      ...[...source.matchAll(/\bnames\s*:\s*\[([\s\S]*?)\]/g)].flatMap((match) =>
-        extractStringLiterals(match[1] ?? ""),
-      ),
-      ...[...source.matchAll(/\bname\s*:\s*["']([^"']+)["']/g)].flatMap((match) =>
-        match[1] ? [match[1]] : [],
-      ),
-    ]),
-  ];
-||||||| BASE/v11.4
-function extractStaticRegisteredToolNamesFromObject(source: string): string[] {
-  const names = new Set<string>();
-  const namesPattern = /\bnames\s*:\s*\[([\s\S]*?)\]/g;
-  let namesMatch: RegExpExecArray | null;
-  while ((namesMatch = namesPattern.exec(source))) {
-    for (const name of extractStringLiterals(namesMatch[1] ?? "")) {
-      names.add(name);
-    }
-  }
-
-  const namePattern = /\bname\s*:\s*["']([^"']+)["']/g;
-  let nameMatch: RegExpExecArray | null;
-  while ((nameMatch = namePattern.exec(source))) {
-    if (nameMatch[1]) {
-      names.add(nameMatch[1]);
-    }
-  }
-  return [...names];
-}
-
-function extractStaticRegisteredToolNames(callArgs: string): string[] {
-  const args = splitTopLevelArgs(callArgs);
-  const names = new Set<string>();
-  const firstArg = args[0]?.trim() ?? "";
-  const optionsArg = args[1]?.trim() ?? "";
-  if (firstArg.startsWith("{")) {
-    for (const name of extractStaticRegisteredToolNamesFromObject(firstArg)) {
-      names.add(name);
-    }
-  }
-  if (optionsArg.startsWith("{")) {
-    for (const name of extractStaticRegisteredToolNamesFromObject(optionsArg)) {
-      names.add(name);
-    }
-  }
-  return [...names];
-}
-
-function readManifest(manifestPath: string): PluginManifestFile {
-  return JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as PluginManifestFile;
-=======
 /**
  * Resolves a `names: [...]` array body to its literal entries, following
  * `...IDENT` spreads into the plugin's own const arrays. `resolved` is false as
@@ -452,7 +405,6 @@ function collectPluginToolNameLiterals(sources: readonly string[], pluginId: str
 
 function readManifest(manifestPath: string): PluginManifestFile {
   return JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as PluginManifestFile;
->>>>>>> THEIRS/pro-main
 }
 
 function normalizeManifestTools(value: unknown): string[] {
@@ -606,40 +558,24 @@ function collectToolContractFailures(extensionsDir: string): string[] {
 
   for (const manifestPath of listPluginManifestPaths(extensionsDir)) {
     const pluginDir = path.dirname(manifestPath);
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as PluginManifestFile;
+    const manifest = readManifest(manifestPath);
     const pluginId = typeof manifest.id === "string" ? manifest.id : path.basename(pluginDir);
-<<<<<<< OURS/upstream-11.10
-    const declaredTools = new Set(normalizeManifestTools(manifest.contracts?.tools));
-    const calls = walkFiles(pluginDir)
-      .filter(isProductionSource)
-      .flatMap((filePath) => listRegisterToolCalls(filePath, fs.readFileSync(filePath, "utf-8")));
-    if (calls.length === 0) {
-      continue;
-||||||| BASE/v11.4
-    const declaredTools = new Set(normalizeManifestTools(manifest.contracts?.tools));
-    const registeredNames = new Set<string>();
-    let registerCallCount = 0;
+    const pluginSources: string[] = [];
+    const astRegisteredNames: string[] = [];
 
     for (const filePath of walkFiles(pluginDir).filter(isProductionSource)) {
       const source = fs.readFileSync(filePath, "utf-8");
-      for (const call of listRegisterToolCalls(source)) {
-        registerCallCount += 1;
-        for (const name of extractStaticRegisteredToolNames(call)) {
-          registeredNames.add(name);
-        }
+      pluginSources.push(source);
+      // Upstream's AST scan (filePath, source) runs alongside the fork's raw-argument
+      // rules: both feed the same declared-tools union, so neither mechanism is lost.
+      for (const names of listRegisterToolCalls(filePath, source)) {
+        astRegisteredNames.push(...names);
       }
     }
 
-    if (registerCallCount === 0) {
-      continue;
-=======
-    const pluginSources: string[] = [];
-
-    for (const filePath of walkFiles(pluginDir).filter(isProductionSource)) {
-      pluginSources.push(fs.readFileSync(filePath, "utf-8"));
-    }
-
-    failures.push(...collectPluginToolContractFailures(pluginId, manifest, pluginSources));
+    failures.push(
+      ...collectPluginToolContractFailures(pluginId, manifest, pluginSources, astRegisteredNames),
+    );
   }
 
   return failures;
@@ -654,13 +590,14 @@ function collectPluginToolContractFailures(
   pluginId: string,
   manifest: PluginManifestFile,
   pluginSources: readonly string[],
+  astRegisteredNames: readonly string[] = [],
 ): string[] {
   const failures: string[] = [];
   const declaredTools = new Set(normalizeManifestTools(manifest.contracts?.tools));
-  const registeredNames = new Set<string>();
-  const registerToolCalls = pluginSources.flatMap((source) => listRegisterToolCalls(source));
+  const registeredNames = new Set<string>(astRegisteredNames);
+  const registerToolCalls = pluginSources.flatMap((source) => listRegisterToolCallArguments(source));
 
-  if (registerToolCalls.length === 0) {
+  if (registerToolCalls.length === 0 && registeredNames.size === 0) {
     return failures;
   }
   if (declaredTools.size === 0) {
@@ -675,7 +612,6 @@ function collectPluginToolContractFailures(
     const extracted = extractRegisteredToolNames(call, constArrayBodies);
     for (const name of extracted.names) {
       registeredNames.add(name);
->>>>>>> THEIRS/pro-main
     }
     for (const name of extracted.optionalNames) {
       optionalRegisteredNames.add(name);
@@ -699,17 +635,6 @@ function collectPluginToolContractFailures(
     return failures;
   }
 
-<<<<<<< OURS/upstream-11.10
-    const missing = [...new Set(calls.flat())]
-      .filter((name) => !declaredTools.has(name))
-      .toSorted();
-    if (missing.length > 0) {
-      failures.push(`${pluginId}: missing contracts.tools for ${missing.join(", ")}`);
-||||||| BASE/v11.4
-    const missing = [...registeredNames].filter((name) => !declaredTools.has(name)).toSorted();
-    if (missing.length > 0) {
-      failures.push(`${pluginId}: missing contracts.tools for ${missing.join(", ")}`);
-=======
   // Second gap: a registered tool name may be declared yet never reachable
   // through the plugin's own registration surface. Only judged when every
   // registerTool call named its tools statically, so dynamic registrations
@@ -720,7 +645,6 @@ function collectPluginToolContractFailures(
       failures.push(
         `${pluginId}: emits agent tool names missing from its registerTool declarations: ${undeclared.join(", ")}`,
       );
->>>>>>> THEIRS/pro-main
     }
   }
 

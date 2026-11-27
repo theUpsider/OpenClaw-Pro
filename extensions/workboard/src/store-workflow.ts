@@ -64,6 +64,7 @@ import {
   clearDiagnostics,
   deriveChildIdempotencyKey,
   normalizeArtifact,
+  normalizeAutomation,
   normalizeBoundedString,
   normalizeProofInput,
   normalizeStatus,
@@ -353,18 +354,6 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         ...finished,
         metadata: {
           ...metadata,
-<<<<<<< OURS/upstream-11.10
-          automation: { ...metadata.automation, summary, createdCardIds },
-||||||| BASE/v11.4
-          automation: normalizeAutomation(
-            {
-              ...metadata.automation,
-              summary,
-              createdCardIds,
-            },
-            metadata.automation,
-          ),
-=======
           automation: normalizeAutomation(
             {
               ...metadata.automation,
@@ -381,7 +370,6 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
             },
             metadata.automation,
           ),
->>>>>>> THEIRS/pro-main
           comments: appendComment(metadata.comments, summary, now),
           workerLogs: appendWorkerLogEntry(metadata.workerLogs, summaryCapLog),
           proof: appendCompletionProof(metadata.proof, proof, proofId),

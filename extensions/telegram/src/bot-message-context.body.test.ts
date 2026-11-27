@@ -506,117 +506,60 @@ it("transcribes only an authorized voice sender with forum echo routing and untr
     {
       GroupThread: { mentionedAgentIds: expect.arrayContaining(["analyst"]) },
       SourceModality: "voice",
-<<<<<<< OURS/upstream-11.10
-||||||| BASE/v11.4
       media: expect.arrayContaining([expect.objectContaining({ transcribed: true })]),
     });
   });
 
-  it.each([{ group: true, topic: undefined, admitted: false }])(
-    "honors topic audio-preflight precedence ($group, $topic)",
-    async ({ group, topic, admitted }) => {
-      const cfg = config({
-        requireMention: true,
-        disableAudioPreflight: group,
-        topics: { "99": { disableAudioPreflight: topic } },
-      });
-      cfg.messages = { groupChat: { mentionPatterns: ["assistant"] } };
-      cfg.tools = { media: { audio: { enabled: true } } };
-      transcribe.mockResolvedValue("assistant please help");
-      await receive(await createBot(false, true, cfg), {
-        ...textMessage(""),
-        text: undefined,
-        voice: { file_id: "voice", file_unique_id: "voice-u", duration: 1 },
-      });
-      expect(transcribe).toHaveBeenCalledTimes(admitted ? 1 : 0);
-      expect(harness.replySpy).toHaveBeenCalledTimes(admitted ? 1 : 0);
-    },
-  );
+it.each([{ group: true, topic: undefined, admitted: false }])(
+  "honors topic audio-preflight precedence ($group, $topic)",
+  async ({ group, topic, admitted }) => {
+    const cfg = config({
+      requireMention: true,
+      disableAudioPreflight: group,
+      topics: { "99": { disableAudioPreflight: topic } },
+    });
+    cfg.messages = { groupChat: { mentionPatterns: ["assistant"] } };
+    cfg.tools = { media: { audio: { enabled: true } } };
+    transcribe.mockResolvedValue("assistant please help");
+    await receive(await createBot(false, true, cfg), {
+      ...textMessage(""),
+      text: undefined,
+      voice: { file_id: "voice", file_unique_id: "voice-u", duration: 1 },
+    });
+    expect(transcribe).toHaveBeenCalledTimes(admitted ? 1 : 0);
+    expect(harness.replySpy).toHaveBeenCalledTimes(admitted ? 1 : 0);
+  },
+);
 
-  it.each([{ name: "DM topic", threadId: 77 }])(
-    "preserves named-account $name voice echo routing without a group mention",
-    async ({ threadId }) => {
-      const cfg = config();
-      cfg.channels!.telegram!.accounts = { default: {}, atlas: {} };
-      cfg.bindings = [{ agentId: "main", match: { channel: "telegram", accountId: "atlas" } }];
-      cfg.tools = { media: { audio: { enabled: true, echoTranscript: true } } };
-      transcribe.mockResolvedValue("hello from a voice note");
-      await receive(await createBot(false, true, cfg, threadId !== undefined, "atlas"), {
-        ...textMessage("", false),
-        text: undefined,
-        message_id: 901,
-        message_thread_id: threadId,
-        voice: { file_id: "dm-voice", file_unique_id: "dm-voice-u", duration: 1 },
-      });
-      expect(transcribe.mock.calls[0]?.[0].ctx).toMatchObject({
-        OriginatingTo: "telegram:42001",
-        AccountId: "atlas",
-        MessageSid: "901",
-        ChatType: "direct",
-        MessageThreadId: threadId,
-      });
-      expect(harness.replySpy.mock.calls[0]?.[0]).toMatchObject({
-        BodyForAgent:
-          '[Audio transcript (machine-generated, untrusted)]: "hello from a voice note"',
-        media: expect.arrayContaining([expect.objectContaining({ transcribed: true })]),
-      });
-=======
+it.each([{ name: "DM topic", threadId: 77 }])(
+  "preserves named-account $name voice echo routing without a group mention",
+  async ({ threadId }) => {
+    const cfg = config();
+    cfg.channels!.telegram!.accounts = { default: {}, atlas: {} };
+    cfg.bindings = [{ agentId: "main", match: { channel: "telegram", accountId: "atlas" } }];
+    cfg.tools = { media: { audio: { enabled: true, echoTranscript: true } } };
+    transcribe.mockResolvedValue("hello from a voice note");
+    await receive(await createBot(false, true, cfg, threadId !== undefined, "atlas"), {
+      ...textMessage("", false),
+      text: undefined,
+      message_id: 901,
+      message_thread_id: threadId,
+      voice: { file_id: "dm-voice", file_unique_id: "dm-voice-u", duration: 1 },
+    });
+    expect(transcribe.mock.calls[0]?.[0].ctx).toMatchObject({
+      OriginatingTo: "telegram:42001",
+      AccountId: "atlas",
+      MessageSid: "901",
+      ChatType: "direct",
+      MessageThreadId: threadId,
+    });
+    expect(harness.replySpy.mock.calls[0]?.[0]).toMatchObject({
+      BodyForAgent:
+        '[STT generated (may contain transcription mistakes)]: "hello from a voice note"',
       media: expect.arrayContaining([expect.objectContaining({ transcribed: true })]),
     });
-  });
-
-  it.each([{ group: true, topic: undefined, admitted: false }])(
-    "honors topic audio-preflight precedence ($group, $topic)",
-    async ({ group, topic, admitted }) => {
-      const cfg = config({
-        requireMention: true,
-        disableAudioPreflight: group,
-        topics: { "99": { disableAudioPreflight: topic } },
-      });
-      cfg.messages = { groupChat: { mentionPatterns: ["assistant"] } };
-      cfg.tools = { media: { audio: { enabled: true } } };
-      transcribe.mockResolvedValue("assistant please help");
-      await receive(await createBot(false, true, cfg), {
-        ...textMessage(""),
-        text: undefined,
-        voice: { file_id: "voice", file_unique_id: "voice-u", duration: 1 },
-      });
-      expect(transcribe).toHaveBeenCalledTimes(admitted ? 1 : 0);
-      expect(harness.replySpy).toHaveBeenCalledTimes(admitted ? 1 : 0);
-    },
-  );
-
-  it.each([{ name: "DM topic", threadId: 77 }])(
-    "preserves named-account $name voice echo routing without a group mention",
-    async ({ threadId }) => {
-      const cfg = config();
-      cfg.channels!.telegram!.accounts = { default: {}, atlas: {} };
-      cfg.bindings = [{ agentId: "main", match: { channel: "telegram", accountId: "atlas" } }];
-      cfg.tools = { media: { audio: { enabled: true, echoTranscript: true } } };
-      transcribe.mockResolvedValue("hello from a voice note");
-      await receive(await createBot(false, true, cfg, threadId !== undefined, "atlas"), {
-        ...textMessage("", false),
-        text: undefined,
-        message_id: 901,
-        message_thread_id: threadId,
-        voice: { file_id: "dm-voice", file_unique_id: "dm-voice-u", duration: 1 },
-      });
-      expect(transcribe.mock.calls[0]?.[0].ctx).toMatchObject({
-        OriginatingTo: "telegram:42001",
-        AccountId: "atlas",
-        MessageSid: "901",
-        ChatType: "direct",
-        MessageThreadId: threadId,
-      });
-      expect(harness.replySpy.mock.calls[0]?.[0]).toMatchObject({
-        BodyForAgent:
-          '[STT generated (may contain transcription mistakes)]: "hello from a voice note"',
-        media: expect.arrayContaining([expect.objectContaining({ transcribed: true })]),
-      });
->>>>>>> THEIRS/pro-main
-    },
-  );
-});
+  },
+);
 
 it("preserves named-account DM topic voice echo routing without a group mention", async () => {
   const cfg = audioConfig();

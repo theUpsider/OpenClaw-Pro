@@ -28,7 +28,6 @@ export function retainOpenClawStateWorkerLease(
   },
   finalize?: (scope: DomainScope) => Promise<void>,
   onNativeLost?: () => void,
-  onNativeLost?: () => void,
 ): OpenClawStateWorkerLease {
   const host = getPluginSharedStateResourceHost();
   host?.assertSharedStateAdmission();
@@ -259,7 +258,6 @@ export function retainOpenClawStateWorkerLease(
       releaseOperation = owner.retainOperation(store, () => {
         // An idle logical lease must release its hold even when it has no command to reject.
         void retire();
-        onNativeLost?.();
         // Long-lived holders (the cron actor) otherwise learn of the loss only on their next command.
         onNativeLost?.();
       });

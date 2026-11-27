@@ -37,7 +37,6 @@ const LobsterParameters = Type.Object({
   maxStdoutBytes: optionalPositiveIntegerSchema(),
 });
 
-
 /**
  * Bound evaluator for the `decision.evaluate` bridge. The host supplies its live
  * `DecisionRuntimeV1` in-process; an absent runtime fails closed as `unavailable` rather
@@ -51,7 +50,7 @@ function resolveDecisionEvaluator(api: OpenClawPluginApi): DecisionEvaluator {
   return async () => ({ status: "unavailable", reason: "disabled" });
 }
 
-export function createLobsterTool(, toolContext?: OpenClawPluginToolContext) {
+export function createLobsterTool(api: OpenClawPluginApi, toolContext?: OpenClawPluginToolContext) {
   // The bridge refuses to guess an owner: an empty agent id makes the command throw.
   const boundAgentId = typeof toolContext?.agentId === "string" ? toolContext.agentId.trim() : "";
   const runner = createEmbeddedLobsterRunner({

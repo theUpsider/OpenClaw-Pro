@@ -506,14 +506,8 @@ describe.skipIf(!connection)("database port command PostgreSQL conformance", () 
       expect(
         (
           await client.query(
-<<<<<<< OURS/upstream-11.10
             `SELECT applied_at FROM "${engine.namespace}".workboard_schema_migrations WHERE id = $1`,
             [`schema-${metadata.version}`],
-||||||| BASE/v11.4
-            `SELECT applied_at FROM "${engine.namespace}".workboard_schema_migrations WHERE id = 'schema-3'`,
-=======
-            `SELECT applied_at FROM "${engine.namespace}".workboard_schema_migrations WHERE id = 'schema-${metadata.version}'`,
->>>>>>> THEIRS/pro-main
           )
         ).rows,
       ).toEqual([{ applied_at: String(migrationTime) }]);

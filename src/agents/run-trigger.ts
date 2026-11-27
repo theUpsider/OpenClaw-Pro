@@ -39,28 +39,3 @@ export function resolveModelCallUrgency(provenance: {
   }
   return "normal";
 }
-<<<<<<< OURS/upstream-11.10
-||||||| BASE/v11.4
-
-/** Bounded internal diagnostic labels, independent of execution policy triggers. */
-export type IsolatedCompletionPurpose =
-  | "isolated-completion"
-  | "session-activity-summary"
-  | "session-observer"
-  | "conversation-label"
-  | "progress-narration"
-  | "transcript-summary"
-  | "plugin-completion";
-=======
-
-/** Bounded internal diagnostic labels, independent of execution policy triggers. */
-export type IsolatedCompletionPurpose =
-  | "isolated-completion"
-  | "goal-verification"
-  | "session-activity-summary"
-  | "session-observer"
-  | "conversation-label"
-  | "progress-narration"
-  | "transcript-summary"
-  | "plugin-completion";
->>>>>>> THEIRS/pro-main

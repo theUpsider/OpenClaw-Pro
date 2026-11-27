@@ -231,12 +231,28 @@ describe("worker protocol schemas", () => {
     };
 
     // Compatible providers can encode routing state in IDs longer than internal worker IDs.
-<<<<<<< OURS/upstream-11.10
     checkAll(
       accepts,
       ["response" + "x".repeat(477), "x".repeat(MAX_PAYLOAD_BYTES)],
       [true, true, true],
     );
+    // Fork: an opaque ID cannot borrow the text allowance; it counts against the context residual.
+    const withIds = (count: number) =>
+      validateInferenceStart({
+        ...inferenceStart,
+        context: {
+          messages: Array.from({ length: count }, () => ({
+            ...assistantMessage,
+            content: [{ type: "text" as const, text: "ok" }],
+            usage: structuredClone(assistantMessage.usage),
+            stopReason: "stop" as const,
+            responseId: "x".repeat(MAX_PAYLOAD_BYTES),
+          })),
+        },
+      });
+    const idsPerResidual = WORKER_CONTEXT_MAX_RESIDUAL_BYTES / MAX_PAYLOAD_BYTES;
+    expect(withIds(idsPerResidual / 2)).toBe(true);
+    expect(withIds(idsPerResidual)).toBe(false);
     checkAll(
       accepts,
       ["", " ", " response", "response ", "x".repeat(MAX_PAYLOAD_BYTES + 1)],
@@ -245,73 +261,6 @@ describe("worker protocol schemas", () => {
     check(
       validateCommit,
       transcriptMessage({ ...assistantMessage, model: "x".repeat(257) }),
-||||||| BASE/v11.4
-    for (const responseId of [
-      "response" + "x".repeat(477),
-      "x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES),
-    ]) {
-      expect(accepts(responseId)).toEqual([true, true, true]);
-    }
-    for (const responseId of [
-      "",
-      " ",
-      " response",
-      "response ",
-      "x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES + 1),
-    ]) {
-      expect(accepts(responseId)).toEqual([false, false, false]);
-    }
-    expect(
-      validateWorkerTranscriptCommitParams(
-        transcriptCommit({
-          messages: [{ ...assistantMessage, model: "x".repeat(257) }],
-        }),
-      ),
-    ).toBe(false);
-    expect(validateWorkerInferenceStartParams({ ...inferenceStart, runId: "x".repeat(257) })).toBe(
-=======
-    for (const responseId of [
-      "response" + "x".repeat(477),
-      "x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES - 1024),
-    ]) {
-      expect(accepts(responseId)).toEqual([true, true, true]);
-    }
-    // Opaque IDs never borrow the text allowance: they count against the context residual.
-    expect(accepts("x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES))).toEqual([true, true, true]);
-    const withIds = (count: number) =>
-      validateWorkerInferenceStartParams({
-        ...inferenceStart,
-        context: {
-          messages: Array.from({ length: count }, () => ({
-            ...assistantMessage,
-            content: [{ type: "text" as const, text: "ok" }],
-            usage: structuredClone(assistantMessage.usage),
-            stopReason: "stop" as const,
-            responseId: "x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES),
-          })),
-        },
-      });
-    const idsPerResidual = WORKER_CONTEXT_MAX_RESIDUAL_BYTES / WORKER_PROTOCOL_MAX_PAYLOAD_BYTES;
-    expect(withIds(idsPerResidual / 2)).toBe(true);
-    expect(withIds(idsPerResidual)).toBe(false);
-    for (const responseId of [
-      "",
-      " ",
-      " response",
-      "response ",
-      "x".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES + 1),
-    ]) {
-      expect(accepts(responseId)).toEqual([false, false, false]);
-    }
-    expect(
-      validateWorkerTranscriptCommitParams(
-        transcriptCommit({
-          messages: [{ ...assistantMessage, model: "x".repeat(257) }],
-        }),
-      ),
-    ).toBe(false);
-    expect(validateWorkerInferenceStartParams({ ...inferenceStart, runId: "x".repeat(257) })).toBe(
->>>>>>> THEIRS/pro-main
       false,
     );
     check(validateInferenceStart, { ...inferenceStart, runId: "x".repeat(257) }, false);
@@ -506,31 +455,9 @@ describe("worker protocol schemas", () => {
 
 describe("worker message wire boundaries", () => {
   it.each([
-<<<<<<< OURS/upstream-11.10
     [[true, true, true], { type: "image", data: "encoded", mimeType: "image/png" }],
     [[false, true, false], { type: "text", text: "a".repeat(MAX_PAYLOAD_BYTES + 1) }],
   ] as const)("retains each transport's content limits (%j)", (accepts, content) => {
-||||||| BASE/v11.4
-    {
-      content: { type: "image", data: "encoded", mimeType: "image/png" },
-      accepts: [true, true, true],
-    },
-    {
-      content: { type: "text", text: "a".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES + 1) },
-      accepts: [false, true, false],
-    },
-  ])("retains each transport's content limits ($accepts)", ({ content, accepts }) => {
-=======
-    {
-      content: { type: "image", data: "encoded", mimeType: "image/png" },
-      accepts: [true, true, true],
-    },
-    {
-      content: { type: "text", text: "a".repeat(WORKER_PROTOCOL_MAX_PAYLOAD_BYTES + 1) },
-      accepts: [true, true, false],
-    },
-  ])("retains each transport's content limits ($accepts)", ({ content, accepts }) => {
->>>>>>> THEIRS/pro-main
     const message = { role: "user", content: [content], timestamp: 1 };
     expect([
       validateCommit(transcriptMessage(message)),

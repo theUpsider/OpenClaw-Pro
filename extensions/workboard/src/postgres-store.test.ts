@@ -334,38 +334,13 @@ describe.skipIf(!postgresUrl)("experimental PostgreSQL workboard admission and r
     await opened.close();
     // One newer than this build: the store may not be downgraded in place.
     await observer.query(
-<<<<<<< OURS/upstream-11.10
       `UPDATE ${quoteIdentifier(schema)}.openclaw_schema_meta SET version = ${SCHEMA_VERSION + 1} WHERE store = 'workboard'`,
-||||||| BASE/v11.4
-      `UPDATE ${quoteIdentifier(schema)}.openclaw_schema_meta SET version = 4 WHERE store = 'workboard'`,
-=======
-      `UPDATE ${quoteIdentifier(schema)}.openclaw_schema_meta SET version = 7 WHERE store = 'workboard'`,
->>>>>>> THEIRS/pro-main
     );
     replaceAnchorForFreshAdmission(dbPath);
-<<<<<<< OURS/upstream-11.10
     expect(() => createWorkboardDatabase(dbPath, undefined, postgresInput)).toThrow(
       new RegExp(`expected.*${SCHEMA_VERSION}`, "i"),
     );
-||||||| BASE/v11.4
-    expect(() => createWorkboardDatabase(dbPath, undefined, postgresInput)).toThrow(/expected.*3/i);
-=======
-    expect(() => createWorkboardDatabase(dbPath, undefined, postgresInput)).toThrow(/expected.*6/i);
->>>>>>> THEIRS/pro-main
     expect(
-<<<<<<< OURS/upstream-11.10
-      await rows<{ version: number }>(
-        `SELECT version::integer FROM ${quoteIdentifier(schema)}.openclaw_schema_meta WHERE store = 'workboard'`,
-      ),
-    ).toEqual([{ version: SCHEMA_VERSION + 1 }]);
-||||||| BASE/v11.4
-      (
-        await observer.query<{ version: number }>(
-          `SELECT version::integer FROM ${quoteIdentifier(schema)}.openclaw_schema_meta WHERE store = 'workboard'`,
-        )
-      ).rows,
-    ).toEqual([{ version: 4 }]);
-=======
       (
         await observer.query<{ version: number }>(
           `SELECT version::integer FROM ${quoteIdentifier(schema)}.openclaw_schema_meta WHERE store = 'workboard'`,
@@ -493,7 +468,6 @@ describe.skipIf(!postgresUrl)("experimental PostgreSQL workboard admission and r
     } finally {
       await migrated.close();
     }
->>>>>>> THEIRS/pro-main
   });
 
   it("refuses PostgreSQL metadata belonging to a different anchor", async () => {

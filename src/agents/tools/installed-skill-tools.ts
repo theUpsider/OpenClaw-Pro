@@ -10,9 +10,10 @@ import {
   type InstalledSkill,
 } from "../installed-skill-catalog.js";
 import {
+  bindSkillInstructionRead,
   formatSkillInstructions,
   rememberSkillInstructionDelivery,
-  type bindSkillInstructionRead, SkillInstructionResult,
+  type SkillInstructionResult,
 } from "../skill-instruction-result.js";
 import {
   resolveToolResultBudget,
@@ -84,10 +85,8 @@ export function formatSkillInstructionsForModel(
 }
 
 export function createInstalledSkillTools(
-  
   skills: readonly InstalledSkill[],
   options?: { modelContextWindowTokens?: number },
-,
   /** Supplying a host run ID opts into content-free read facts, not exposure receipts. */
   runId?: string,
 ): AnyAgentTool[] {
@@ -147,7 +146,6 @@ export function createInstalledSkillTools(
         execute: async (id, args, signal) => {
           const params = asToolParamsRecord(args);
           const name = readToolStringParam(params, "name", { required: true });
-<<<<<<< OURS/upstream-11.10
           const relativePath = readToolStringParam(params, "relativePath", {
             required: params.relativePath !== undefined || params.relative_path !== undefined,
             trim: false,
@@ -158,20 +156,11 @@ export function createInstalledSkillTools(
             budget,
             readCallable,
           );
+          // Host-bound read facts stay content-free; the model text pages below.
+          bindSkillInstructionRead(instructions, text, runId, id);
           // Details keep the complete document for Code Mode values; only model text pages.
           const result = {
             content: [{ type: "text" as const, text }],
-||||||| BASE/v11.4
-          const instructions = await readInstalledSkill(skills, name, signal);
-          return {
-            content: [{ type: "text", text: formatSkillInstructions(instructions) }],
-=======
-          const instructions = await readInstalledSkill(skills, name, signal);
-          const text = formatSkillInstructions(instructions);
-          bindSkillInstructionRead(instructions, text, runId, id);
-          return {
-            content: [{ type: "text", text }],
->>>>>>> THEIRS/pro-main
             details: instructions,
           };
           if (

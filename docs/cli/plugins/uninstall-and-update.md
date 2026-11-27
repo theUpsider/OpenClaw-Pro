@@ -231,19 +231,11 @@ the wait; disconnecting its Gateway request also cancels it. Before publication,
 cancellation restores the previous generation when recovery succeeds, without
 cancelling admitted runs. Once publication commits, cancellation does not undo it.
 Service shutdown, resource cleanup, and recovery keep their existing deadlines.
-<<<<<<< OURS/upstream-11.10
 Detailed readiness, `openclaw status`, and `status --json` (`pluginReload`)
 expose the pending reload, its drain deadline, and why new runs are waiting.
 The ten-minute budget is shared across drain stages. On expiry, the reload fails
 and restores the previous generation without cancelling its admitted work.
 Incoming messages retain their channel's existing queue and replay
-||||||| BASE/v11.4
-Detailed readiness exposes the pending reload; an explicit wait has no drain
-deadline. Incoming messages retain their channel's existing queue and replay
-=======
-Detailed readiness exposes the pending reload and its drain deadline. Incoming
-messages retain their channel's existing queue and replay
->>>>>>> THEIRS/pro-main
 contract; this option does not add durable ingress to channels that lack it.
 Run this maintenance command outside a turn that itself holds the target plugin:
 waiting for that turn while it waits for reload cannot make progress. Agents can

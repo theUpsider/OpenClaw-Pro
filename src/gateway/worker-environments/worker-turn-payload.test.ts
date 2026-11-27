@@ -331,36 +331,6 @@ describe("fitLaunchDescriptor", () => {
   );
 
   it.each([0, 1])("fits the complete transport bound at cap %+i byte(s)", async (delta) => {
-<<<<<<< OURS/upstream-11.10
-    const messages = replayPayload();
-    const targetBytes = MAX_BYTES + delta;
-    const emptyBytes = measureLaunch(measuredDescriptor(messages));
-    toolResultAt(messages, 1).details = { payload: "x".repeat(targetBytes - emptyBytes) };
-    expect(measureLaunch(measuredDescriptor(messages))).toBe(targetBytes);
-    const fitted = await fit(messages, true);
-||||||| BASE/v11.4
-    const projected = windowInitialMessages([
-      assistantMessage(1, true),
-      toolResultMessage({ payload: "" }, 2),
-    ]);
-    if (projected.kind !== "complete" || projected.messages[1]?.role !== "toolResult") {
-      throw new Error("expected replay context");
-    }
-    const operationalRunInstance = createTestAdmittedRunContext("run").operationalRunInstance;
-    const build = (token: string, messages: typeof projected.messages) =>
-      parseWorkerLaunchPlan(buildDescriptor(messages, token, operationalRunInstance));
-    const targetBytes = WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES + delta;
-    const emptyBytes = measureLaunch(build(runtimeIdentityToken.value, projected.messages));
-    projected.messages[1].details = { payload: "x".repeat(targetBytes - emptyBytes) };
-    const candidate = build(runtimeIdentityToken.value, projected.messages);
-    expect(measureLaunch(candidate)).toBe(targetBytes);
-    const fitted = await fitLaunchDescriptorWithRuntimeIdentity({
-      build,
-      measure: measureLaunch,
-      messages: projected.messages,
-      runtimeIdentity: { agentId: "main", sessionKey: "worker:session", operationalRunInstance },
-    });
-=======
     const projected = windowInitialMessages([
       assistantMessage(1, true),
       toolResultMessage({ payload: "" }, 2),
@@ -384,7 +354,6 @@ describe("fitLaunchDescriptor", () => {
       messages: projected.messages,
       runtimeIdentity: { agentId: "main", sessionKey: "worker:session", operationalRunInstance },
     });
->>>>>>> THEIRS/pro-main
     expect(fitted.kind).toBe(delta > 0 ? "provider-replay-unavailable" : "launch");
     expect(runtimeIdentityToken.mint).toHaveBeenCalledTimes(delta > 0 ? 0 : 1);
     if (fitted.kind === "launch") {
@@ -400,87 +369,6 @@ describe("fitLaunchDescriptor", () => {
     }
   });
 
-<<<<<<< OURS/upstream-11.10
-  it("fits the actual near-ceiling launch transport with nested escaping", async () => {
-    const messages = replayPayload();
-    const emptyBytes = Buffer.byteLength(JSON.stringify(buildDescriptor(messages)));
-    const payloadBytes = MAX_BYTES - 4_608 - emptyBytes;
-    const escaped = '"\\\0\n'.repeat(500_000);
-    toolResultAt(messages, 1).details = {
-      payload: escaped + "x".repeat(payloadBytes - (JSON.stringify(escaped).length - 2)),
-    };
-    const candidate = measuredDescriptor(messages);
-    parseNodeWorkerLaunchInput(JSON.stringify(launchInput(candidate)));
-    const suffix = "/__openclaw__/worker";
-    const prefix = "wss://worker.invalid/";
-    const descriptor = parseWorkerLaunchDescriptor({
-      ...candidate,
-      connectionEndpoint: {
-        kind: "websocket",
-        url: prefix + "x".repeat(4_096 - prefix.length - suffix.length) + suffix,
-        tlsFingerprint: "a".repeat(64),
-        cloudflareAccess: { clientId: "i".repeat(4_096), clientSecret: "s".repeat(4_096) },
-      },
-    });
-    const frame = { type: "turn", turnId: candidate.assignment.turnId, descriptor };
-    const line = JSON.stringify(frame);
-    parseWorkerProcessRequest(JSON.parse(line));
-||||||| BASE/v11.4
-  it.each(["nested escaping", "maximal endpoint"])(
-    "fits the actual near-ceiling launch transport: %s",
-    async (scenario) => {
-      const operationalRunInstance = createTestAdmittedRunContext("run").operationalRunInstance;
-      const projected = windowInitialMessages([
-        assistantMessage(1, true),
-        toolResultMessage({ payload: "" }, 2),
-      ]);
-      if (projected.kind !== "complete") {
-        throw new Error("expected complete projection");
-      }
-      const messages = projected.messages;
-      const result = messages[1];
-      if (result?.role !== "toolResult") {
-        throw new Error("expected tool result");
-      }
-      const build = (identityToken: string, initialMessages: typeof messages) =>
-        buildDescriptor(initialMessages, identityToken, operationalRunInstance);
-      const emptyBytes = Buffer.byteLength(
-        JSON.stringify(build(runtimeIdentityToken.value, messages)),
-      );
-      const payloadBytes = WORKER_PROTOCOL_MAX_INFERENCE_PAYLOAD_BYTES - 4_608 - emptyBytes;
-      const escaped = scenario === "nested escaping" ? '"\\\0\n'.repeat(500_000) : "";
-      result.details = {
-        payload: escaped + "x".repeat(payloadBytes - (JSON.stringify(escaped).length - 2)),
-      };
-      const candidate = parseWorkerLaunchPlan(build(runtimeIdentityToken.value, messages));
-      const input = {
-        environmentSession: 1,
-        launchId: candidate.assignment.turnId,
-        gatewayNamespace: "fixture-gateway",
-        expectedBundleHash: candidate.admission.handshake.bundleHash,
-        placementGeneration: 1,
-        descriptor: candidate,
-      };
-      const paramsJSON = JSON.stringify(input);
-      parseNodeWorkerLaunchInput(paramsJSON);
-      const suffix = "/__openclaw__/worker";
-      const prefix = "wss://worker.invalid/";
-      const descriptor = parseWorkerLaunchDescriptor({
-        ...candidate,
-        connectionEndpoint: {
-          kind: "websocket",
-          url: prefix + "x".repeat(4_096 - prefix.length - suffix.length) + suffix,
-          tlsFingerprint: "a".repeat(64),
-          cloudflareAccess: { clientId: "i".repeat(4_096), clientSecret: "s".repeat(4_096) },
-        },
-      });
-      const line = JSON.stringify({
-        type: "turn",
-        turnId: candidate.assignment.turnId,
-        descriptor,
-      });
-      parseWorkerProcessRequest(JSON.parse(line));
-=======
   it.each(["nested escaping", "maximal endpoint"])(
     "fits the actual near-ceiling launch transport: %s",
     async (scenario) => {
@@ -544,7 +432,6 @@ describe("fitLaunchDescriptor", () => {
       expect(() => parseWorkerProcessRequest(JSON.parse(line))).toThrow(
         "invalid worker launch descriptor",
       );
->>>>>>> THEIRS/pro-main
 
     await expect(fit(messages)).resolves.toMatchObject({ kind: "provider-replay-unavailable" });
     expect(runtimeIdentityToken.mint).not.toHaveBeenCalled();

@@ -501,54 +501,7 @@ export function buildAgentSystemPrompt(params: {
   const toolGuidanceSection = listToolPromptGuidance(availableTools).flatMap((section) => [
     section,
     "",
-<<<<<<< OURS/upstream-11.10
   ]);
-||||||| BASE/v11.4
-  ];
-  // CLI backends own native file tools outside OpenClaw's projected tool list.
-  // Keep their skill catalog visible while embedded runs require a real read tool.
-  const canAccessSkills = params.codeModeActive
-    ? visibleTools.has("exec")
-    : visibleTools.has("read") ||
-      availableTools.has("skills_read") ||
-      promptSurface === "cli_backend";
-  const skillsSection = canAccessSkills
-    ? buildSkillsSection({
-        skillsPrompt,
-        readToolName,
-        codeModeActive: params.codeModeActive,
-        installedSkillSearch: availableTools.has("skills_search"),
-        installedSkillRead: availableTools.has("skills_read"),
-      })
-    : [];
-  params.onRenderedSkillsPrompt?.(canAccessSkills ? (skillsPrompt ?? "") : "");
-  const skillWorkshopSection = availableTools.has(SKILL_WORKSHOP_TOOL_NAME)
-    ? buildSkillWorkshopPromptSection()
-    : [];
-=======
-  ];
-  // CLI backends own native file tools outside OpenClaw's projected tool list.
-  // Keep their skill catalog visible while embedded runs require a real reader:
-  // Code Mode needs an admitted `skills_read` endpoint, other runs need `read`.
-  const canAccessSkills = params.codeModeActive
-    ? visibleTools.has("exec") && availableTools.has("skills_read")
-    : visibleTools.has("read") ||
-      availableTools.has("skills_read") ||
-      promptSurface === "cli_backend";
-  const skillsSection = canAccessSkills
-    ? buildSkillsSection({
-        skillsPrompt,
-        readToolName,
-        codeModeActive: params.codeModeActive,
-        installedSkillSearch: availableTools.has("skills_search"),
-        installedSkillRead: availableTools.has("skills_read"),
-      })
-    : [];
-  params.onRenderedSkillsPrompt?.(canAccessSkills ? (skillsPrompt ?? "") : "");
-  const skillWorkshopSection = availableTools.has(SKILL_WORKSHOP_TOOL_NAME)
-    ? buildSkillWorkshopPromptSection()
-    : [];
->>>>>>> THEIRS/pro-main
   const memorySection =
     isMinimal || params.includeMemorySection === false
       ? []

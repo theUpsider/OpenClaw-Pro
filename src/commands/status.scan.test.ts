@@ -284,97 +284,6 @@ describe("status scans", () => {
         raw: null,
         parsed: sourceConfig,
       },
-<<<<<<< OURS/upstream-11.10
-||||||| BASE/v11.4
-      remoteUrlMissing: true,
-      gatewayMode: "remote",
-      gatewayProbeAuth: { token: "tok" },
-      gatewayProbe: { ...createUnreachableGatewayProbe(url, "timeout"), ok: true },
-      gatewayReachable: true,
-      gatewaySelf: null,
-      gatewayCallOverrides: { url, token: "tok" },
-    };
-
-    beforeEach(() => {
-      mocks.readBestEffortConfigSnapshot.mockResolvedValue({
-        config: { session: {} },
-        sourceConfig: { session: { raw: true } },
-        configDiagnostics: null,
-      });
-      mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
-        resolvedConfig: { session: {} },
-        diagnostics: ["secret warning"],
-      });
-      vi.spyOn(commandConfigSnapshot, "readCommandConfigSnapshot");
-      mocks.callGateway.mockImplementation(async ({ method }: { method: string }) =>
-        method === "status"
-          ? {
-              secretEgressProxy: {
-                state: "degraded",
-                caExpiresAt: "2036-09-01T00:00:00.000Z",
-                failedCertificates: 1,
-                message: "Check OpenSSL, then retry.",
-              },
-              degradedSecretOwners: [],
-              degradedPlugins: [],
-              startupMigrationWarning: "Retained legacy state; run openclaw doctor --fix.",
-              installationReplacementWarning: "Installation replaced; draining before handoff.",
-              childRuntime: {
-                execPath: "/opt/homebrew/Cellar/node@24/24.20.0/bin/node",
-                available: false,
-              },
-              sqliteWal,
-            }
-          : { channelAccounts: {} },
-      );
-      mocks.collectChannelStatusIssues.mockReturnValue([{ channel: "quietchat", message: "boom" }]);
-=======
-      remoteUrlMissing: true,
-      gatewayMode: "remote",
-      gatewayProbeAuth: { token: "tok" },
-      gatewayProbe: { ...createUnreachableGatewayProbe(url, "timeout"), ok: true },
-      gatewayReachable: true,
-      gatewaySelf: null,
-      gatewayCallOverrides: { url, token: "tok" },
-    };
-
-    beforeEach(() => {
-      mocks.readBestEffortConfigSnapshot.mockResolvedValue({
-        config: { session: {} },
-        sourceConfig: { session: { raw: true } },
-        configDiagnostics: null,
-      });
-      mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
-        resolvedConfig: { session: {} },
-        diagnostics: ["secret warning"],
-      });
-      vi.spyOn(commandConfigSnapshot, "readCommandConfigSnapshot");
-      mocks.callGateway.mockImplementation(async ({ method }: { method: string }) =>
-        method === "status"
-          ? {
-              secretEgressProxy: {
-                state: "degraded",
-                caExpiresAt: "2036-09-01T00:00:00.000Z",
-                failedCertificates: 1,
-                message: "Check OpenSSL, then retry.",
-              },
-              degradedSecretOwners: [],
-              degradedPlugins: [],
-              startupMigrationWarning: "Retained legacy state; run openclaw doctor --fix.",
-              startupRecoveryWarning: "Startup session recovery is incomplete.",
-              startupRecoveryTombstoneWarning:
-                "Restart recovery will not resume 1 main session(s).",
-              installationReplacementWarning: "Installation replaced; draining before handoff.",
-              childRuntime: {
-                execPath: "/opt/homebrew/Cellar/node@24/24.20.0/bin/node",
-                available: false,
-              },
-              sqliteWal,
-            }
-          : { channelAccounts: {} },
-      );
-      mocks.collectChannelStatusIssues.mockReturnValue([{ channel: "quietchat", message: "boom" }]);
->>>>>>> THEIRS/pro-main
     });
     mocks.resolveCommandSecretRefsViaGateway.mockResolvedValue({
       resolvedConfig: { session: {} },
@@ -395,7 +304,6 @@ describe("status scans", () => {
           urlSource: "missing gateway.remote.url (fallback local)",
           message: "fallback",
         },
-<<<<<<< OURS/upstream-11.10
         remoteUrlMissing: true,
         gatewayMode: "remote",
         gatewayProbeAuth: { token: "tok" },
@@ -416,40 +324,6 @@ describe("status scans", () => {
       showSecrets: false,
       includeSetupFallbackPlugins: true,
       liveChannelStatus: { channelAccounts: {} },
-||||||| BASE/v11.4
-      );
-      expect(result.channelIssues).toEqual([{ channel: "quietchat", message: "boom" }]);
-      expect(result.runtimeDegradation?.startupMigrationWarning).toBe(
-        "Retained legacy state; run openclaw doctor --fix.",
-      );
-      expect(result.runtimeDegradation?.installationReplacementWarning).toBe(
-        "Installation replaced; draining before handoff.",
-      );
-      expect(result.runtimeDegradation?.childRuntime).toEqual({
-        execPath: "/opt/homebrew/Cellar/node@24/24.20.0/bin/node",
-        available: false,
-      });
-=======
-      );
-      expect(result.channelIssues).toEqual([{ channel: "quietchat", message: "boom" }]);
-      expect(result.runtimeDegradation?.startupMigrationWarning).toBe(
-        "Retained legacy state; run openclaw doctor --fix.",
-      );
-      expect(result.runtimeDegradation?.installationReplacementWarning).toBe(
-        "Installation replaced; draining before handoff.",
-      );
-      // Recovery diagnostics are Gateway-process state; the CLI must carry them over.
-      expect(result.runtimeDegradation?.startupRecoveryWarning).toBe(
-        "Startup session recovery is incomplete.",
-      );
-      expect(result.runtimeDegradation?.startupRecoveryTombstoneWarning).toBe(
-        "Restart recovery will not resume 1 main session(s).",
-      );
-      expect(result.runtimeDegradation?.childRuntime).toEqual({
-        execPath: "/opt/homebrew/Cellar/node@24/24.20.0/bin/node",
-        available: false,
-      });
->>>>>>> THEIRS/pro-main
     });
   });
 });

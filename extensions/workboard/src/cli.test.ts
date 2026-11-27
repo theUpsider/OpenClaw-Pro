@@ -28,6 +28,30 @@ vi.mock("openclaw/plugin-sdk/cli-state-owner", async (importOriginal) => ({
   }) => runLocal({ assertCurrent() {} }),
 }));
 
+function createProgram(store: WorkboardStore): Command {
+  const program = new Command();
+  program.exitOverride();
+  program.configureOutput({
+    writeErr: () => {},
+    writeOut: () => {},
+  });
+  registerWorkboardCli({ program, withStore: async (action) => action(store) });
+  return program;
+}
+
+async function createAmbiguousPrefix(store: WorkboardStore): Promise<string> {
+  const seen = new Map<string, string>();
+  for (let index = 0; index < 40; index += 1) {
+    const card = await store.create({ title: `Card ${index}` });
+    const prefix = card.id.slice(0, 1);
+    if (seen.has(prefix)) {
+      return prefix;
+    }
+    seen.set(prefix, card.id);
+  }
+  throw new Error("could not create cards with a shared prefix");
+}
+
 async function captureStdout(run: () => Promise<unknown>): Promise<string> {
   let output = "";
   using _ = vi.spyOn(process.stdout, "write").mockImplementation((chunk): boolean => {
@@ -53,69 +77,6 @@ describe("registerWorkboardCli", () => {
     delete process.env.OPENCLAW_GATEWAY_URL;
   });
 
-<<<<<<< OURS/upstream-11.10
-||||||| BASE/v11.4
-  it("records full-host authority on locally created cards", async () => {
-    const store = createWorkboardSqliteTestStore();
-    const program = createProgram(store);
-
-    await program.parseAsync(["workboard", "create", "Host card"], { from: "user" });
-
-    await expect(store.list()).resolves.toEqual([
-      expect.objectContaining({
-        metadata: expect.objectContaining({
-          automation: expect.objectContaining({ workspaceAccess: { unrestricted: true } }),
-        }),
-      }),
-    ]);
-  });
-
-  it("redacts claim tokens from card JSON output", async () => {
-    const store = createWorkboardSqliteTestStore();
-    const card = await store.create({ title: "Claimed worker", status: "running" });
-    await store.claim(card.id, { ownerId: "worker", token: "secret-token" });
-    const program = createProgram(store);
-
-    const listOutput = await captureStdout(async () => {
-      await program.parseAsync(["workboard", "list", "--json"], { from: "user" });
-    });
-    const showOutput = await captureStdout(async () => {
-      await program.parseAsync(["workboard", "show", card.id, "--json"], { from: "user" });
-    });
-
-    expect(listOutput).not.toContain("secret-token");
-    expect(showOutput).not.toContain("secret-token");
-    expect(listOutput).toContain("[redacted]");
-    expect(showOutput).toContain("[redacted]");
-  });
-
-  it("hides archived cards from text output by default and reveals them with --include-archived", async () => {
-    const store = createWorkboardSqliteTestStore();
-    await store.create({ title: "Active card" });
-    const archived = await store.create({ title: "Archived card" });
-    await store.archive(archived.id, true);
-    const program = createProgram(store);
-
-    const defaultOutput = await captureStdout(async () => {
-      await program.parseAsync(["workboard", "list"], { from: "user" });
-    });
-    const includeOutput = await captureStdout(async () => {
-      await program.parseAsync(["workboard", "list", "--include-archived"], { from: "user" });
-    });
-
-    expect(defaultOutput).toContain("Active card");
-    expect(defaultOutput).not.toContain("Archived card");
-    expect(includeOutput).toContain("Active card");
-    expect(includeOutput).toContain("Archived card");
-    expect(includeOutput).toContain("(archived)");
-    const jsonOutput = await captureStdout(async () => {
-      await createProgram(store).parseAsync(["workboard", "list", "--json"], { from: "user" });
-    });
-    expect(jsonOutput).toContain(archived.id);
-    expect(jsonOutput).toContain("archivedAt");
-  });
-
-=======
   it("records full-host authority on locally created cards", async () => {
     const store = createWorkboardSqliteTestStore();
     const program = createProgram(store);
@@ -217,7 +178,6 @@ describe("registerWorkboardCli", () => {
     expect(jsonOutput).toContain("archivedAt");
   });
 
->>>>>>> THEIRS/pro-main
   it("rejects invalid list status filters instead of reporting an empty board", async () => {
     const running = await store.create({ title: "Active work", status: "running" });
     await store.create({ title: "Queued work", status: "todo" });

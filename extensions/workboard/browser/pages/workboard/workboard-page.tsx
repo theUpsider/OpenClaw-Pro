@@ -25,30 +25,16 @@ import {
   resetWorkboardConnectionState,
   stopWorkboardLiveRefresh,
 } from "../../lib/workboard/runtime.ts";
-import { createWorkboardSessionResolver } from "../../lib/workboard/session-resolution.ts";
-import {
-  WORKBOARD_CHANGED_EVENT,
-  type WorkboardBoardMetadata,
-  type WorkboardCard,
-  type WorkboardUiState,
-<<<<<<< OURS/upstream-11.10
-} from "../../lib/workboard/types.ts";
-||||||| BASE/v11.4
-  WORKBOARD_CHANGED_EVENT,
-} from "../../lib/workboard/index.ts";
-import { invalidateWorkboardLoads } from "../../lib/workboard/runtime.ts";
-import { createWorkboardSessionResolver } from "../../lib/workboard/session-resolution.ts";
-import type { WorkboardBoardMetadata } from "../../lib/workboard/types.ts";
-=======
-  WORKBOARD_CHANGED_EVENT,
-} from "../../lib/workboard/index.ts";
-import { invalidateWorkboardLoads } from "../../lib/workboard/runtime.ts";
 import {
   createWorkboardSessionResolver,
   createWorkboardDockSessions,
 } from "../../lib/workboard/session-resolution.ts";
-import type { WorkboardBoardMetadata } from "../../lib/workboard/types.ts";
->>>>>>> THEIRS/pro-main
+import { WORKBOARD_CHANGED_EVENT } from "../../lib/workboard/index.ts";
+import type {
+  WorkboardBoardMetadata,
+  WorkboardCard,
+  WorkboardUiState,
+} from "../../lib/workboard/types.ts";
 import {
   buildAgentFilterOptions,
   normalizeActiveAgentFilter,

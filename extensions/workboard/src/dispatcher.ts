@@ -21,17 +21,6 @@ import {
   type ResolveAgentWorkspaceRuntime,
 } from "./dispatcher-workspace.js";
 import { workboardSessionKeyForCard } from "./session-link.js";
-<<<<<<< OURS/upstream-11.10
-import { cardBoardId } from "./store-card-helpers.js";
-import {
-  workboardBoardOwnerSlotLimit,
-  workboardCardConsumesOwnerSlot,
-  workboardCardSlotOwner,
-} from "./store-constants.js";
-||||||| BASE/v11.4
-import { cardBoardId } from "./store-card-helpers.js";
-import { workboardCardConsumesOwnerSlot, workboardCardSlotOwner } from "./store-constants.js";
-=======
 import { cardBoardId, latestRunningAttempt } from "./store-card-helpers.js";
 import {
   addWorkboardOwnerSlot,
@@ -45,7 +34,6 @@ import {
   workboardOwnerSlotLimit,
 } from "./store-constants.js";
 import type { WorkboardDispatchSkip } from "./store-inputs.js";
->>>>>>> THEIRS/pro-main
 import { WorkboardStore, type WorkboardDispatchResult } from "./store.js";
 import {
   assertCanonicalWorkboardRootAccess,
@@ -122,171 +110,6 @@ function cardHasActiveClaim(card: WorkboardCard, now: number): boolean {
   return Boolean(claim && isFutureDateTimestampMs(claim.expiresAt, { nowMs: now }));
 }
 
-<<<<<<< OURS/upstream-11.10
-function sortReadyCards(a: WorkboardCard, b: WorkboardCard): number {
-  const priorityRank: Record<WorkboardCard["priority"], number> = {
-    urgent: 0,
-    high: 1,
-    normal: 2,
-    low: 3,
-  };
-  return (
-    priorityRank[a.priority] - priorityRank[b.priority] ||
-    a.position - b.position ||
-    a.createdAt - b.createdAt
-  );
-}
-
-||||||| BASE/v11.4
-async function materializeWorkspace(params: {
-  card: WorkboardCard;
-  worktrees?: WorkboardWorktreeRuntime;
-  materializeWorktree: boolean;
-  workspaceAccess: WorkboardWorkspaceAccess;
-  assertOwnerCurrent?: () => void;
-}): Promise<{ workspace?: WorkboardWorkspace; cwd?: string }> {
-  const workspace = params.card.metadata?.automation?.workspace;
-  if (!workspace || workspace.kind === "scratch") {
-    return {};
-  }
-  const sourcePath = workspace.sourcePath ?? workspace.path;
-  const sourceBranch = workspace.sourcePath ? workspace.sourceBranch : workspace.branch;
-  if (!sourcePath || !path.isAbsolute(sourcePath)) {
-    throw new Error("worktree workspace path must be an absolute git checkout path");
-  }
-  // Persisted cards can outlive the caller that created them. Keep the exact
-  // canonical path that passes this dispatcher's current boundary check.
-  const canonicalSourcePath = await assertWorkboardWorkspaceSourceAccess(
-    workspace,
-    params.workspaceAccess,
-  );
-  if (!canonicalSourcePath) {
-    throw new Error("worktree workspace path is required");
-  }
-  if (workspace.kind === "dir" || !params.workspaceAccess.unrestricted) {
-    await assertCanonicalWorkboardRootAccess(canonicalSourcePath, params.workspaceAccess);
-    return workspace.kind === "worktree"
-      ? { cwd: canonicalSourcePath, workspace: { kind: "dir", path: canonicalSourcePath } }
-      : { cwd: canonicalSourcePath };
-  }
-  if (!params.materializeWorktree) {
-    throw new Error("managed worktree materialization was not explicitly authorized");
-  }
-  if (!params.worktrees) {
-    throw new Error("managed worktree runtime is unavailable");
-  }
-  params.assertOwnerCurrent?.();
-  const worktree = await params.worktrees.create({
-    repoRoot: canonicalSourcePath,
-    name: managedWorktreeName(params.card.id),
-    ...(sourceBranch ? { baseRef: sourceBranch } : {}),
-    ownerKind: "workboard",
-    ownerId: params.card.id,
-    ...(params.assertOwnerCurrent ? { commitGuard: params.assertOwnerCurrent } : {}),
-  });
-  let cwd: string;
-  try {
-    cwd = await canonicalPathFromExistingAncestor(worktree.path);
-  } catch (error) {
-    const removed = await params.worktrees
-      .removeIfLossless({
-        path: worktree.path,
-        ownerKind: "workboard",
-        ownerId: params.card.id,
-      })
-      .catch(() => false);
-    if (!removed) {
-      throw new Error(`${formatErrorMessage(error)}; managed worktree cleanup failed`, {
-        cause: error,
-      });
-    }
-    throw error;
-  }
-  return {
-    cwd,
-    workspace: {
-      kind: "worktree",
-      path: worktree.path,
-      branch: worktree.branch,
-      sourcePath,
-      ...(sourceBranch ? { sourceBranch } : {}),
-    },
-  };
-}
-
-function sortReadyCards(a: WorkboardCard, b: WorkboardCard): number {
-  const priorityRank: Record<WorkboardCard["priority"], number> = {
-    urgent: 0,
-    high: 1,
-    normal: 2,
-    low: 3,
-  };
-  return (
-    priorityRank[a.priority] - priorityRank[b.priority] ||
-    a.position - b.position ||
-    a.createdAt - b.createdAt
-  );
-}
-
-function selectStartableCards(
-  cards: WorkboardCard[],
-  limit: number,
-  candidates: WorkboardCard[],
-  ownerOverride: string | undefined,
-  now: number,
-  mode: "scheduled" | "exact",
-): { cards: WorkboardCard[]; rejection?: WorkboardStartFailure } {
-  if (limit <= 0) {
-    return { cards: [] };
-  }
-  const runningOwners = new Set<string>();
-  for (const card of cards) {
-    if (!workboardCardConsumesOwnerSlot(card, now)) {
-      continue;
-    }
-    runningOwners.add(workboardCardSlotOwner(card));
-  }
-  const selected: WorkboardCard[] = [];
-  const fallback: WorkboardCard[] = [];
-  const selectedOwners = new Set<string>();
-  const ordered = mode === "scheduled" ? candidates.toSorted(sortReadyCards) : candidates;
-  for (const card of ordered) {
-    const owner = ownerOverride || workboardCardSlotOwner(card, now);
-    const rejection = card.metadata?.archivedAt
-      ? "Card is archived; restore it before starting."
-      : cardHasActiveClaim(card, now)
-        ? `Card is already claimed by ${card.metadata?.claim?.ownerId ?? "another worker"}.`
-        : mode === "scheduled" && card.status !== "ready"
-          ? ""
-          : mode === "exact" &&
-              card.status !== "backlog" &&
-              card.status !== "todo" &&
-              card.status !== "ready"
-            ? `Card cannot start from ${card.status}; move it to backlog, todo, or ready first.`
-            : runningOwners.has(owner)
-              ? `Owner ${owner} already has active Workboard work; complete or stop it before starting another card.`
-              : undefined;
-    if (rejection !== undefined) {
-      if (mode === "exact") {
-        return {
-          cards: [],
-          rejection: { cardId: card.id, title: card.title, error: rejection },
-        };
-      }
-      continue;
-    }
-    if (selectedOwners.has(owner)) {
-      fallback.push(card);
-      continue;
-    }
-    selectedOwners.add(owner);
-    selected.push(card);
-  }
-  // Try each owner before a failed owner's extra cards consume the outage budget.
-  return { cards: [...selected, ...fallback] };
-}
-
-=======
 async function materializeWorkspace(params: {
   card: WorkboardCard;
   worktrees?: WorkboardWorktreeRuntime;
@@ -438,7 +261,6 @@ function selectStartableCards(
   return { cards: [...selected, ...fallback] };
 }
 
->>>>>>> THEIRS/pro-main
 export async function dispatchAndStartWorkboardCards(
   params: WorkboardDispatchStartParams,
 ): Promise<WorkboardDispatchAndStartResult> {
@@ -485,75 +307,19 @@ async function runWorkboardDispatch(
   const cards = await params.store.list();
   const candidates = directCard ? [directCard] : await params.store.list({ boardId });
   const ownerOverride = params.options?.ownerId?.trim() || undefined;
-<<<<<<< OURS/upstream-11.10
-  const { boards } = await params.store.listBoards();
-  const boardsById = new Map(boards.map((board) => [board.id, board]));
-  const ownerSlotLimit = (card: WorkboardCard) =>
-    workboardBoardOwnerSlotLimit(boardsById.get(cardBoardId(card)));
-  // Owner capacity is shared across boards; each card's board sets how much of it may be used.
-  const activeByOwner = new Map<string, number>();
-  const ownerHasRoom = (owner: string, card: WorkboardCard) =>
-    (activeByOwner.get(owner) ?? 0) < ownerSlotLimit(card);
-||||||| BASE/v11.4
-  const startedOwners = new Set<string>();
-=======
   const startedOwners = collectWorkboardOwnerSlotUsage(cards, now, workboardOwnerSlotLimit);
->>>>>>> THEIRS/pro-main
   // Allow one fallback per worker slot without draining the queue during an outage.
   const maxAttempts = maxStarts * 2;
   let attemptedStarts = 0;
 
-  const mode = directCardId ? "exact" : "scheduled";
-  const selection = ((): { cards: WorkboardCard[]; rejection?: WorkboardStartFailure } => {
-    if (maxStarts <= 0) {
-      return { cards: [] };
-    }
-    for (const card of cards) {
-      if (!workboardCardConsumesOwnerSlot(card, now)) {
-        continue;
-      }
-      const owner = workboardCardSlotOwner(card);
-      activeByOwner.set(owner, (activeByOwner.get(owner) ?? 0) + 1);
-    }
-    const selected: WorkboardCard[] = [];
-    const fallback: WorkboardCard[] = [];
-    const selectedOwners = new Set<string>();
-    const ordered = mode === "scheduled" ? candidates.toSorted(sortReadyCards) : candidates;
-    for (const card of ordered) {
-      const owner = ownerOverride || workboardCardSlotOwner(card, now);
-      const rejection = card.metadata?.archivedAt
-        ? "Card is archived; restore it before starting."
-        : cardHasActiveClaim(card, now)
-          ? `Card is already claimed by ${card.metadata?.claim?.ownerId ?? "another worker"}.`
-          : mode === "scheduled" && card.status !== "ready"
-            ? ""
-            : mode === "exact" &&
-                card.status !== "backlog" &&
-                card.status !== "todo" &&
-                card.status !== "ready"
-              ? `Card cannot start from ${card.status}; move it to backlog, todo, or ready first.`
-              : !ownerHasRoom(owner, card)
-                ? `Owner ${owner} already has ${activeByOwner.get(owner)} active Workboard card(s); this board allows ${ownerSlotLimit(card)}. Complete or stop one before starting another card.`
-                : undefined;
-      if (rejection !== undefined) {
-        if (mode === "exact") {
-          return {
-            cards: [],
-            rejection: { cardId: card.id, title: card.title, error: rejection },
-          };
-        }
-        continue;
-      }
-      if (selectedOwners.has(owner)) {
-        fallback.push(card);
-        continue;
-      }
-      selectedOwners.add(owner);
-      selected.push(card);
-    }
-    // Try each owner before a failed owner's extra cards consume the outage budget.
-    return { cards: [...selected, ...fallback] };
-  })();
+  const selection = selectStartableCards(
+    cards,
+    maxStarts,
+    candidates,
+    ownerOverride,
+    now,
+    directCardId ? "exact" : "scheduled",
+  );
   if (selection.rejection) {
     startFailures.push(selection.rejection);
   }
@@ -565,13 +331,7 @@ async function runWorkboardDispatch(
     if (started.length >= maxStarts || attemptedStarts >= maxAttempts) {
       break;
     }
-<<<<<<< OURS/upstream-11.10
-    if (!ownerHasRoom(ownerId, card)) {
-||||||| BASE/v11.4
-    if (startedOwners.has(ownerId)) {
-=======
     if (!workboardOwnerSlotAdmitsCard(startedOwners, ownerId, workboardOwnerSlotLimit(card))) {
->>>>>>> THEIRS/pro-main
       continue;
     }
     const sessionKey = workboardSessionKeyForCard(card);
@@ -882,13 +642,7 @@ async function runWorkboardDispatch(
             execution: acceptedExecution,
           })
           .catch(() => undefined)) ?? acceptedCard;
-<<<<<<< OURS/upstream-11.10
-      activeByOwner.set(ownerId, (activeByOwner.get(ownerId) ?? 0) + 1);
-||||||| BASE/v11.4
-      startedOwners.add(ownerId);
-=======
       addWorkboardOwnerSlot(startedOwners, ownerId, workboardOwnerSlotLimit(card));
->>>>>>> THEIRS/pro-main
       started.push({
         cardId: updated.id,
         title: updated.title,

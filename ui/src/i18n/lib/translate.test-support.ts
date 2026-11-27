@@ -1,11 +1,14 @@
 import { onTestFinished, vi } from "vitest";
 import { getSafeLocalStorage } from "../../local-storage.ts";
+import type { Locale } from "../../../../src/shared/control-ui-locale.ts";
 import * as registry from "./registry.ts";
 import { i18n } from "./translate.ts";
+import type { TranslationMap } from "./types.ts";
 
+type LocaleTranslationLoader = (locale: Locale) => Promise<TranslationMap | null>;
 type TranslateTestApi = {
   createI18nManager(
-    ,
+    loadLocaleTranslation: LocaleTranslationLoader,
     loadLocaleConfigHints?: LocaleTranslationLoader,
   ): typeof i18n;
 };
@@ -26,7 +29,7 @@ export function createI18nManagerForTesting(
 ): typeof i18n {
   const spy = vi.spyOn(registry, "loadLazyLocaleTranslation").mockImplementation(load);
   onTestFinished(() => spy.mockRestore());
-  return getTestApi().createI18nManager(, loadLocaleConfigHints);
+  return getTestApi().createI18nManager(load, loadLocaleConfigHints);
 }
 
 /** Restores locale, preference, and document attributes after a shared-worker test. */

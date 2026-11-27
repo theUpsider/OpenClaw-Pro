@@ -16,6 +16,7 @@ import type { ChatMobileHost, MobileDetailsRoute } from "./chat-mobile-host.ts";
 import { ChatPaneBrowserAnnotationRender } from "./chat-pane-browser-annotation-render.ts";
 import { chatDetailsDockingLayout } from "./chat-snapshot-prewarm.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
+import { resolveSubagentFacts, type SubagentFacts } from "./subagent-facts.ts";
 import { listSubagents } from "./chat-subagent-wait.ts";
 import type { ChatProps } from "./chat-view.tsx";
 import type { ChatDetailsProps } from "./components/chat-details-types.ts";
@@ -439,6 +440,13 @@ export abstract class ChatPaneHeaderLayout extends ChatPaneBrowserAnnotationRend
           },
         }
       : undefined;
+    // The detail header carries the subagent run facts (agent, model, thinking).
+    // Upstream resolves them through this builder, so the fork's inline header facts
+    // are threaded here and rendered by the layout view instead of the old render path.
+    const facts: SubagentFacts | undefined =
+      this.onBackToSubagents && selectedSession
+        ? resolveSubagentFacts(selectedSession)
+        : undefined;
     const subagentHeader = this.onBackToSubagents
       ? {
           sessionKey: state.sessionKey,
@@ -446,6 +454,7 @@ export abstract class ChatPaneHeaderLayout extends ChatPaneBrowserAnnotationRend
           title: this.resolveHeaderSessionTitle(selectedSession),
           stop: subagentStop,
           details: headerDetails,
+          facts,
           mobile: this.sessionPresentation === "mobile",
           desktop:
             this.sessionPresentation === "desktop" ? { sessionKey: state.sessionKey } : undefined,

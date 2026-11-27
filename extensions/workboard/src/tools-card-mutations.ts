@@ -26,28 +26,10 @@ type WorkboardCardMutation = (
   card: WorkboardCard,
 ) => Promise<WorkboardCard>;
 
-<<<<<<< OURS/upstream-11.10
 export function createWorkboardCardMutations(
   store: WorkboardStore,
   ownerId: string,
   runId: string | undefined,
-) {
-  const readParams = async (rawParams: unknown, requireClaim = false) => {
-    const record = asRecord(rawParams);
-    const id = readStringParam(record, "id", { required: true });
-    const token = readStringValue(record.token);
-    const card = await store.get(id);
-||||||| BASE/v11.4
-export function createWorkboardCardMutations(store: WorkboardStore, ownerId: string) {
-  const readParams = async (rawParams: unknown, requireClaim = false) => {
-    const record = asRecord(rawParams);
-    const id = readStringParam(record, "id", { required: true });
-    const token = readStringValue(record.token);
-    const card = await store.get(id);
-=======
-export function createWorkboardCardMutations(
-  store: WorkboardStore,
-  ownerId: string,
   voiceBoard?: VoiceBoardBinding,
   agentId?: string,
   interaction?: Omit<NonNullable<WorkboardMutationScope["interaction"]>, "at">,
@@ -63,7 +45,6 @@ export function createWorkboardCardMutations(
       resolveBoundCardId(voiceBoard, bound ? [bound] : []) ??
       readStringParam(record, "id", { required: true });
     const card = bound?.id === id ? bound : await store.get(id);
->>>>>>> THEIRS/pro-main
     if (!card) {
       throw new Error(`card not found: ${id}`);
     }

@@ -265,17 +265,17 @@ describe("Sessions board storage", () => {
     }
 
     await using opened = reopen(dbPath);
-    const { store: reopened, stores } = opened;
+    const { store: reopened, stores: reopenedStores } = opened;
     // A pre-palette database keeps its board metadata and cards; admission adds the
-      // column, so the board comes back without classifications until the next card write seeds them.
-      const reopenedBoard = (await stores.boards.lookup(board.id))?.board;
-      expect(reopenedBoard).toMatchObject({
-        id: board.id,
-        name: seededBoard?.name,
-        color: seededBoard?.color,
-        createdAt: seededBoard?.createdAt,
-      });
-      expect(reopenedBoard).not.toHaveProperty("classifications");
+    // column, so the board comes back without classifications until the next card write seeds them.
+    const reopenedBoard = (await reopenedStores.boards.lookup(board.id))?.board;
+    expect(reopenedBoard).toMatchObject({
+      id: board.id,
+      name: seededBoard?.name,
+      color: seededBoard?.color,
+      createdAt: seededBoard?.createdAt,
+    });
+    expect(reopenedBoard).not.toHaveProperty("classifications");
     expect((await reopened.listBoards()).boards).toContainEqual(
       expect.objectContaining({ id: board.id, total: 1 }),
     );

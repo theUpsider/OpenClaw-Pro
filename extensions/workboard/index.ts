@@ -25,7 +25,7 @@ import { resolveWorkboardSqliteWorkerModuleUrl } from "./src/sqlite-store-paths.
 import { registerWorkboardStoreLifecycle } from "./src/store-lifecycle.js";
 import { strictObject } from "./src/tools-card-mutations.js";
 import { createWorkboardTools } from "./src/tools.js";
-import { readVoiceBoardBinding } from "./src/voice-board-binding.js";
+import { readVoiceBoardBinding, resolveBoundBoardId } from "./src/voice-board-binding.js";
 import {
   guardWorkboardToolsForWorkspaceAccess,
   WORKBOARD_CARD_TOOL_NAMES,
@@ -257,6 +257,7 @@ export default definePluginEntry({
         contextVersion: 2,
         create: (ctx) => {
           const caller = { assertCurrent: ctx.assertInvocationCurrent };
+          const voiceBoard = readVoiceBoardBinding(ctx);
           const resolveBoardId = async (record: Record<string, unknown>): Promise<string> => {
             if (record.boardId !== undefined) {
               return readStringParam(record, "boardId", { required: true });
@@ -264,6 +265,10 @@ export default definePluginEntry({
             const boards = (await store.listBoards()).boards.filter(
               (board) => board.kind === "sessions",
             );
+            const bound = resolveBoundBoardId(voiceBoard, "sessions", boards);
+            if (bound) {
+              return bound;
+            }
             const board = boards[0];
             if (boards.length === 1 && board) {
               return board.id;
@@ -283,9 +288,12 @@ export default definePluginEntry({
               parameters: sessionsBoardReadSchema,
               execute: async (_toolCallId, rawParams) => {
                 const record = asNonArrayRecord(rawParams);
-                return jsonResult(
-                  await sessionsBoard.read(await resolveBoardId(record), undefined, caller),
+                const result = await sessionsBoard.read(
+                  await resolveBoardId(record),
+                  undefined,
+                  caller,
                 );
+                return jsonResult(voiceBoard ? { ...result, voiceBoard } : result);
               },
             },
             {
@@ -319,7 +327,6 @@ export default definePluginEntry({
                 );
               },
             },
-            voiceBoard: readVoiceBoardBinding(ctx),
           ];
           for (const tool of tools) {
             const execute = tool.execute;

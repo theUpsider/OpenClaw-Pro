@@ -423,7 +423,6 @@ export function WorkboardView(
   };
   const filterPopover = workboardPopoverRef("end");
   return (
-<<<<<<< OURS/upstream-11.10
     <WorkboardCardMenus workboard={props} cards={view().filtered}>
       {(menu, selectedMenuCardId) => (
         <section class="workboard">
@@ -446,296 +445,6 @@ export function WorkboardView(
                   </button>
                 ) : null}
                 <span class="workboard-refresh-control" title={view().refreshStatus || undefined}>
-||||||| BASE/v11.4
-    <section class="workboard">
-      <div
-        class="workboard-main"
-        inert={view().dialogOpen || state().bulkSaving}
-        aria-hidden={view().dialogOpen ? "true" : undefined}
-      >
-        <header class="workboard-heading">
-          {props.heading}
-          <div class="workboard-heading__actions settings-section__actions">
-            {view().writable && props.onNewBoard ? (
-              <button
-                class="btn workboard-new-board"
-                type="button"
-                onClick={() => props.onNewBoard?.()}
-              >
-                {icons.plus}
-                {t("workboard.newBoard")}
-              </button>
-            ) : null}
-            <span
-              class="workboard-refresh-control"
-              title={view().refreshStatus || t("common.refresh")}
-            >
-              <button
-                class={[
-                  "btn btn--icon btn--ghost workboard-refresh",
-                  { "workboard-refresh--error": Boolean(state().lastRefreshError) },
-                ]}
-                type="button"
-                aria-label={state().loading ? t("common.refreshing") : t("common.refresh")}
-                aria-busy={state().loading ? "true" : "false"}
-                disabled={
-                  state().loading || state().dispatching || workboardHasActiveWrites(state())
-                }
-                onClick={() => props.onRefresh()}
-              >
-                {icons.refresh}
-              </button>
-            </span>
-            {view().writable ? (
-              <button
-                class="btn workboard-dispatch"
-                type="button"
-                aria-label={t("workboard.dispatch")}
-                title={t(
-                  view().activeBoardFilter === WORKBOARD_ALL_BOARDS_FILTER
-                    ? "workboard.dispatchHelpAll"
-                    : "workboard.dispatchHelp",
-                )}
-                disabled={state().dispatching || workboardHasActiveWrites(state())}
-                onClick={() => void dispatchWorkboard(workboardMutationContext(props))}
-              >
-                {icons.play}
-                <span class="workboard-action-label">{t("workboard.dispatch")}</span>
-              </button>
-            ) : null}
-            {view().writable ? (
-              <button
-                class="btn primary workboard-create"
-                type="button"
-                aria-label={t("workboard.newCard")}
-                aria-haspopup="dialog"
-                aria-expanded={state().draftOpen ? "true" : "false"}
-                aria-controls={workboardCardModalId}
-                disabled={state().dispatching}
-                onClick={() => {
-                  openCreateModal(state(), props);
-                  props.onRequestUpdate?.();
-                }}
-              >
-                {icons.plus}
-                <span class="workboard-action-label">{t("workboard.newCard")}</span>
-                <span class="workboard-create__short-label">{t("workboard.newCardShort")}</span>
-              </button>
-            ) : null}
-          </div>
-        </header>
-        <div
-          class={[
-            "workboard-toolbar",
-            { "workboard-toolbar--selection": view().selectedCards.length > 0 },
-          ]}
-        >
-          {view().selectedCards.length ? (
-            <SelectionActions workboard={props} />
-          ) : (
-            <div class="workboard-toolbar__filters">
-              <div class="workboard-toolbar__navigation">
-                <StatusTabs
-                  state={state()}
-                  requestUpdate={props.onRequestUpdate}
-                  revision={props.revision}
-                />
-                <MobileStatusPicker
-                  state={state()}
-                  cards={view().statusCards}
-                  requestUpdate={props.onRequestUpdate}
-                  revision={props.revision}
-                />
-              </div>
-            </div>
-          )}
-          <div class="workboard-toolbar__tools">
-            <WorkboardSearch workboard={props} />
-            {view().hasAgentControl ? (
-              <div class="workboard-agent-filter">
-                <AgentControl workboard={props} options={view().agentFilterOptions} />
-              </div>
-            ) : null}
-            <button
-              popovertarget={workboardFilterPopoverId}
-              class={["btn workboard-filter-trigger", { active: view().activeFilterCount > 0 }]}
-              type="button"
-              aria-label={
-                view().activeFilterCount > 0
-                  ? t("workboard.filtersActive", { count: String(view().activeFilterCount) })
-                  : t("workboard.filters")
-              }
-              aria-haspopup="dialog"
-              aria-expanded="false"
-            >
-              {icons.listFilter}
-              <span>{t("workboard.filters")}</span>
-              {view().activeFilterCount > 0 ? (
-                <span class="workboard-filter-trigger__count">{view().activeFilterCount}</span>
-              ) : null}
-            </button>
-            <div
-              class="workboard-filter-popover"
-              ref={filterPopover}
-              id={workboardFilterPopoverId}
-              popover="auto"
-              role="dialog"
-              aria-label={t("workboard.filters")}
-            >
-              <div class="workboard-filter-popover__panel">
-                <div class="workboard-filter-heading">
-                  <strong>{t("workboard.filters")}</strong>
-                  {view().hasActiveFilters ? (
-                    <button class="workboard-filter-clear" type="button" onClick={clearFilters}>
-                      {t("workboard.clearFilters")}
-                    </button>
-                  ) : null}
-=======
-    <section class="workboard">
-      <div
-        class="workboard-main"
-        inert={view().dialogOpen || state().bulkSaving}
-        aria-hidden={view().dialogOpen ? "true" : undefined}
-      >
-        <header class="workboard-heading">
-          {props.heading}
-          <div class="workboard-heading__actions settings-section__actions">
-            {view().writable && props.onNewBoard ? (
-              <button
-                class="btn workboard-new-board"
-                type="button"
-                onClick={() => props.onNewBoard?.()}
-              >
-                {icons.plus}
-                {t("workboard.newBoard")}
-              </button>
-            ) : null}
-            <span
-              class="workboard-refresh-control"
-              title={view().refreshStatus || t("common.refresh")}
-            >
-              <button
-                class={[
-                  "btn btn--icon btn--ghost workboard-refresh",
-                  { "workboard-refresh--error": Boolean(state().lastRefreshError) },
-                ]}
-                type="button"
-                aria-label={state().loading ? t("common.refreshing") : t("common.refresh")}
-                aria-busy={state().loading ? "true" : "false"}
-                disabled={
-                  state().loading || state().dispatching || workboardHasActiveWrites(state())
-                }
-                onClick={() => props.onRefresh()}
-              >
-                {icons.refresh}
-              </button>
-            </span>
-            {view().writable ? (
-              <button
-                class="btn workboard-dispatch"
-                type="button"
-                aria-label={t("workboard.dispatch")}
-                title={t(
-                  view().activeBoardFilter === WORKBOARD_ALL_BOARDS_FILTER
-                    ? "workboard.dispatchHelpAll"
-                    : "workboard.dispatchHelp",
-                )}
-                disabled={state().dispatching || workboardHasActiveWrites(state())}
-                onClick={() => void dispatchWorkboard(workboardMutationContext(props))}
-              >
-                {icons.play}
-                <span class="workboard-action-label">{t("workboard.dispatch")}</span>
-              </button>
-            ) : null}
-            {view().writable ? (
-              <button
-                class="btn primary workboard-create"
-                type="button"
-                aria-label={t("workboard.newCard")}
-                aria-haspopup="dialog"
-                aria-expanded={state().draftOpen ? "true" : "false"}
-                aria-controls={workboardCardModalId}
-                disabled={state().dispatching}
-                onClick={() => {
-                  openCreateModal(state(), props);
-                  props.onRequestUpdate?.();
-                }}
-              >
-                {icons.plus}
-                <span class="workboard-action-label">{t("workboard.newCard")}</span>
-                <span class="workboard-create__short-label">{t("workboard.newCardShort")}</span>
-              </button>
-            ) : null}
-          </div>
-        </header>
-        <div
-          class={[
-            "workboard-toolbar",
-            { "workboard-toolbar--selection": view().selectedCards.length > 0 },
-          ]}
-        >
-          {view().selectedCards.length ? (
-            <SelectionActions workboard={props} />
-          ) : (
-            <div class="workboard-toolbar__filters">
-              <div class="workboard-toolbar__navigation">
-                <StatusTabs
-                  state={state()}
-                  requestUpdate={props.onRequestUpdate}
-                  revision={props.revision}
-                />
-                <MobileStatusPicker
-                  state={state()}
-                  cards={view().statusCards}
-                  requestUpdate={props.onRequestUpdate}
-                  revision={props.revision}
-                />
-                <InboxToggle workboard={props} count={workboardInboxHeadlineCount(view().inbox)} />
-              </div>
-            </div>
-          )}
-          <div class="workboard-toolbar__tools">
-            <WorkboardSearch workboard={props} />
-            {view().hasAgentControl ? (
-              <div class="workboard-agent-filter">
-                <AgentControl workboard={props} options={view().agentFilterOptions} />
-              </div>
-            ) : null}
-            <button
-              popovertarget={workboardFilterPopoverId}
-              class={["btn workboard-filter-trigger", { active: view().activeFilterCount > 0 }]}
-              type="button"
-              aria-label={
-                view().activeFilterCount > 0
-                  ? t("workboard.filtersActive", { count: String(view().activeFilterCount) })
-                  : t("workboard.filters")
-              }
-              aria-haspopup="dialog"
-              aria-expanded="false"
-            >
-              {icons.listFilter}
-              <span>{t("workboard.filters")}</span>
-              {view().activeFilterCount > 0 ? (
-                <span class="workboard-filter-trigger__count">{view().activeFilterCount}</span>
-              ) : null}
-            </button>
-            <div
-              class="workboard-filter-popover"
-              ref={filterPopover}
-              id={workboardFilterPopoverId}
-              popover="auto"
-              role="dialog"
-              aria-label={t("workboard.filters")}
-            >
-              <div class="workboard-filter-popover__panel">
-                <div class="workboard-filter-heading">
-                  <strong>{t("workboard.filters")}</strong>
-                  {view().hasActiveFilters ? (
-                    <button class="workboard-filter-clear" type="button" onClick={clearFilters}>
-                      {t("workboard.clearFilters")}
-                    </button>
-                  ) : null}
->>>>>>> THEIRS/pro-main
                   <button
                     class={[
                       "btn btn--icon btn--ghost workboard-refresh",
@@ -816,15 +525,16 @@ export function WorkboardView(
                   <div class="workboard-toolbar__navigation">
                     <StatusTabs
                       state={state()}
-                      onChange={props.onRequestUpdate}
+                      requestUpdate={props.onRequestUpdate}
                       revision={props.revision}
                     />
                     <MobileStatusPicker
                       state={state()}
                       cards={view().statusCards}
-                      onChange={props.onRequestUpdate}
+                      requestUpdate={props.onRequestUpdate}
                       revision={props.revision}
                     />
+                    <InboxToggle workboard={props} count={workboardInboxHeadlineCount(view().inbox)} />
                   </div>
                 </div>
               )}
@@ -835,7 +545,6 @@ export function WorkboardView(
                     <AgentControl workboard={props} options={view().agentFilterOptions} />
                   </div>
                 ) : null}
-<<<<<<< OURS/upstream-11.10
                 <button
                   popovertarget={workboardFilterPopoverId}
                   class={["btn workboard-filter-trigger", { active: view().activeFilterCount > 0 }]}
@@ -855,106 +564,6 @@ export function WorkboardView(
                   <span>{t("workboard.filters")}</span>
                   {view().activeFilterCount > 0 ? (
                     <span class="workboard-filter-trigger__count">{view().activeFilterCount}</span>
-||||||| BASE/v11.4
-                <div class="workboard-filter-display">
-                  <DisplayChoices
-                    state={state()}
-                    revision={props.revision}
-                    requestUpdate={props.onRequestUpdate}
-                  />
-                </div>
-                <MultiFilter
-                  label={t("workboard.fieldPriority")}
-                  values={state().priorityFilter}
-                  options={view().priorityOptions}
-                  onChange={() => props.onRequestUpdate?.()}
-                />
-                <MultiFilter
-                  label={t("workboard.filterAttention")}
-                  values={state().attentionFilter}
-                  options={view().attentionOptions}
-                  wide
-                  onChange={() => props.onRequestUpdate?.()}
-                />
-                <div class="workboard-filter-fields">
-                  <FilterSelect
-                    value={state().donePeriod}
-                    options={[
-                      { value: "all", label: t("workboard.filterAllTime") },
-                      { value: "week", label: t("workboard.filterLastWeek") },
-                    ]}
-                    label={t("workboard.filterDonePeriod")}
-                    onChange={(value) => {
-                      state().donePeriod = value;
-                      props.onRequestUpdate?.();
-                    }}
-                  />
-                  {view().boardOptions.length >= 3 ? (
-                    <FilterSelect
-                      value={view().activeBoardFilter}
-                      options={view().boardOptions}
-                      label={t("workboard.boardFilter")}
-                      onChange={(value) => {
-                        state().boardFilter = value;
-                        props.onBoardFilterChange?.(value);
-                        props.onRequestUpdate?.();
-                      }}
-                    />
-=======
-                <div class="workboard-filter-display">
-                  <DisplayChoices
-                    state={state()}
-                    revision={props.revision}
-                    requestUpdate={props.onRequestUpdate}
-                  />
-                </div>
-                <MultiFilter
-                  label={t("workboard.fieldPriority")}
-                  values={state().priorityFilter}
-                  options={view().priorityOptions}
-                  onChange={() => props.onRequestUpdate?.()}
-                />
-                <MultiFilter
-                  label={t("workboard.filterAttention")}
-                  values={state().attentionFilter}
-                  options={view().attentionOptions}
-                  wide
-                  onChange={() => props.onRequestUpdate?.()}
-                />
-                {view().labelOptions.length ? (
-                  <MultiFilter
-                    label={t("workboard.filterLabels")}
-                    values={state().labelFilter}
-                    options={view().labelOptions}
-                    wide
-                    onChange={() => props.onRequestUpdate?.()}
-                  />
-                ) : null}
-                <div class="workboard-filter-fields">
-                  <FilterSelect
-                    value={state().donePeriod}
-                    options={[
-                      { value: "all", label: t("workboard.filterAllTime") },
-                      { value: "week", label: t("workboard.filterLastWeek") },
-                    ]}
-                    label={t("workboard.filterDonePeriod")}
-                    onChange={(value) => {
-                      state().donePeriod = value;
-                      props.onRequestUpdate?.();
-                    }}
-                  />
-                  {view().boardOptions.length >= 3 ? (
-                    <FilterSelect
-                      value={view().activeBoardFilter}
-                      options={view().boardOptions}
-                      label={t("workboard.boardFilter")}
-                      onChange={(value) => {
-                        state().boardFilter = value;
-                        props.onBoardFilterChange?.(value);
-                        props.onRequestUpdate?.();
-                      }}
-                    />
->>>>>>> THEIRS/pro-main
                   ) : null}
                 </button>
                 <div
@@ -996,7 +605,7 @@ export function WorkboardView(
                       <DisplayChoices
                         state={state()}
                         revision={props.revision}
-                        onChange={props.onRequestUpdate}
+                        requestUpdate={props.onRequestUpdate}
                       />
                     </div>
                     <MultiFilter
@@ -1012,6 +621,15 @@ export function WorkboardView(
                       wide
                       onChange={() => props.onRequestUpdate?.()}
                     />
+                    {view().labelOptions.length ? (
+                      <MultiFilter
+                        label={t("workboard.filterLabels")}
+                        values={state().labelFilter}
+                        options={view().labelOptions}
+                        wide
+                        onChange={() => props.onRequestUpdate?.()}
+                      />
+                    ) : null}
                     <div class="workboard-filter-fields">
                       <FilterSelect
                         value={state().donePeriod}
@@ -1061,7 +679,6 @@ export function WorkboardView(
                 />
               ) : null}
             </div>
-<<<<<<< OURS/upstream-11.10
             {state().nextCursor ? (
               <div class="workboard-pagination" role="status">
                 <span>{t("workboard.partialCards", { count: String(state().cards.length) })}</span>
@@ -1076,87 +693,58 @@ export function WorkboardView(
                   {t(state().loading ? "common.refreshing" : "workboard.loadMoreCards")}
                 </button>
               </div>
-||||||| BASE/v11.4
-          </div>
-          {!view().selectedCards.length ? (
-            <ActiveFilters filters={view().activeFilters} requestUpdate={props.onRequestUpdate} />
-          ) : null}
-        </div>
-        {(view().filtered.length === 0 && view().activeFiltering) ||
-        view().visibleStatuses.length === 0 ? (
-          <div class="workboard-empty-state" role="status">
-            <strong>{t("workboard.emptyFilteredTitle")}</strong>
-            <span>{t("workboard.emptyFilteredHint")}</span>
-            {view().hasActiveFilters ? (
-              <button class="btn" type="button" onClick={clearFilters}>
-                {t("workboard.clearFilters")}
-              </button>
-=======
-          </div>
-          {!view().selectedCards.length ? (
-            <ActiveFilters filters={view().activeFilters} requestUpdate={props.onRequestUpdate} />
-          ) : null}
-        </div>
-        {view().attentionInbox ? (
-          view().inbox.length ? (
-            <WorkboardInbox workboard={props} entries={view().inbox} />
-          ) : view().inboxHiddenByFilters ? (
-            <div class="workboard-empty-state" role="status">
-              <strong>{t("workboard.inboxNoMatchTitle")}</strong>
-              <span>{t("workboard.inboxNoMatchHint")}</span>
-              <button class="btn" type="button" onClick={clearOtherFilters}>
-                {t("workboard.inboxClearOtherFilters")}
-              </button>
-            </div>
-          ) : (
-            <div class="workboard-empty-state" role="status">
-              <strong>{t("workboard.inboxEmptyTitle")}</strong>
-              <span>{t("workboard.inboxEmptyHint")}</span>
-              <button
-                class="btn"
-                type="button"
-                onClick={() => {
-                  state().attentionInbox = false;
-                  props.onRequestUpdate?.();
-                }}
-              >
-                {t("workboard.inboxShowAll")}
-              </button>
-            </div>
-          )
-        ) : (view().filtered.length === 0 && view().activeFiltering) ||
-          view().visibleStatuses.length === 0 ? (
-          <div class="workboard-empty-state" role="status">
-            <strong>{t("workboard.emptyFilteredTitle")}</strong>
-            <span>{t("workboard.emptyFilteredHint")}</span>
-            {view().hasActiveFilters ? (
-              <button class="btn" type="button" onClick={clearFilters}>
-                {t("workboard.clearFilters")}
-              </button>
->>>>>>> THEIRS/pro-main
             ) : null}
-            <Show when={view().cardsKnown}>
-              {(view().filtered.length === 0 && view().activeFiltering) ||
-              view().visibleStatuses.length === 0 ? (
+            {view().attentionInbox ? (
+              view().inbox.length ? (
+                <WorkboardInbox workboard={props} entries={view().inbox} />
+              ) : view().inboxHiddenByFilters ? (
                 <div class="workboard-empty-state" role="status">
-                  <strong>{t("workboard.emptyFilteredTitle")}</strong>
-                  <span>{t("workboard.emptyFilteredHint")}</span>
-                  {view().hasActiveFilters ? (
-                    <button class="btn" type="button" onClick={clearFilters}>
-                      {t("workboard.clearFilters")}
-                    </button>
-                  ) : null}
+                  <strong>{t("workboard.inboxNoMatchTitle")}</strong>
+                  <span>{t("workboard.inboxNoMatchHint")}</span>
+                  <button class="btn" type="button" onClick={clearOtherFilters}>
+                    {t("workboard.inboxClearOtherFilters")}
+                  </button>
                 </div>
               ) : (
-                <WorkboardColumns
-                  workboard={props}
-                  statuses={view().visibleStatuses}
-                  byStatus={view().byStatus}
-                  cardRefs={cardRefs}
-                  menuCardId={selectedMenuCardId()}
-                />
-              )}
-            </Show>
+                <div class="workboard-empty-state" role="status">
+                  <strong>{t("workboard.inboxEmptyTitle")}</strong>
+                  <span>{t("workboard.inboxEmptyHint")}</span>
+                  <button
+                    class="btn"
+                    type="button"
+                    onClick={() => {
+                      state().attentionInbox = false;
+                      props.onRequestUpdate?.();
+                    }}
+                  >
+                    {t("workboard.inboxShowAll")}
+                  </button>
+                </div>
+              )
+            ) : (
+              <Show when={view().cardsKnown}>
+                {(view().filtered.length === 0 && view().activeFiltering) ||
+                view().visibleStatuses.length === 0 ? (
+                  <div class="workboard-empty-state" role="status">
+                    <strong>{t("workboard.emptyFilteredTitle")}</strong>
+                    <span>{t("workboard.emptyFilteredHint")}</span>
+                    {view().hasActiveFilters ? (
+                      <button class="btn" type="button" onClick={clearFilters}>
+                        {t("workboard.clearFilters")}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <WorkboardColumns
+                    workboard={props}
+                    statuses={view().visibleStatuses}
+                    byStatus={view().byStatus}
+                    cardRefs={cardRefs}
+                    menuCardId={selectedMenuCardId()}
+                  />
+                )}
+              </Show>
+            )}
             {menu}
           </div>
           <WorkboardToast

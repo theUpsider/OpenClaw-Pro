@@ -298,233 +298,6 @@ function lifecycleFromSession(
   return { state: "idle", sourceUpdatedAt };
 }
 
-<<<<<<< OURS/upstream-11.10
-||||||| BASE/v11.4
-async function syncWorkboardLifecycleSessions(params: {
-  store: WorkboardStore;
-  cards?: readonly WorkboardCard[];
-  sessions: readonly WorkboardLifecycleSession[];
-  complete?: boolean;
-  now?: number;
-  recoverPreparedBefore?: number;
-  onMatched?: WorkboardLifecycleMatchHandler;
-}): Promise<number> {
-  const now = params.now ?? Date.now();
-  const sessionsByKey = new Map<string, WorkboardLifecycleSession>();
-  const sessionsByWorkboardSuffix = new Map<string, WorkboardLifecycleSession>();
-  const ambiguousWorkboardSuffixes = new Set<string>();
-  for (const session of params.sessions) {
-    sessionsByKey.set(session.key, session);
-    const suffixIndex = session.key.lastIndexOf(":subagent:workboard-");
-    if (suffixIndex >= 0) {
-      const suffix = session.key.slice(suffixIndex + 1);
-      const existing = sessionsByWorkboardSuffix.get(suffix);
-      if (existing && existing.key !== session.key) {
-        sessionsByWorkboardSuffix.delete(suffix);
-        ambiguousWorkboardSuffixes.add(suffix);
-      } else if (!ambiguousWorkboardSuffixes.has(suffix)) {
-        sessionsByWorkboardSuffix.set(suffix, session);
-      }
-    }
-  }
-  let count = 0;
-  for (const card of params.cards ?? (await params.store.list())) {
-    if (card.metadata?.archivedAt) {
-      continue;
-    }
-    const lookupKey = workboardCardSessionLookupKey(card);
-    const suffixIndex = lookupKey.lastIndexOf("subagent:workboard-");
-    const linkedSessionKey = cardSessionKey(card);
-    const canUseAgentlessFallback =
-      linkedSessionKey?.startsWith("subagent:workboard-") === true ||
-      (!linkedSessionKey &&
-        (!card.agentId ||
-          (card.agentId === DEFAULT_WORKBOARD_DISPATCH_OWNER &&
-            card.metadata?.claim?.ownerId === DEFAULT_WORKBOARD_DISPATCH_OWNER)));
-    // Persisted links and explicit agent targets stay authoritative. The unique
-    // suffix fallback recovers a run accepted before its link could be persisted.
-    const session =
-      sessionsByKey.get(lookupKey) ??
-      (canUseAgentlessFallback && suffixIndex >= 0
-        ? sessionsByWorkboardSuffix.get(lookupKey.slice(suffixIndex))
-        : undefined);
-    const launch = card.metadata?.automation?.launch;
-    const preparedAcceptanceAt =
-      launch?.phase === "prepared" && session && sessionProvesPreparedAcceptance(session)
-        ? session.hasActiveRun === true
-          ? Math.max(now, launch.preparedAt)
-          : session.updatedAt
-        : undefined;
-    if (
-      launch?.phase === "prepared" &&
-      (preparedAcceptanceAt === undefined || preparedAcceptanceAt < launch.preparedAt)
-    ) {
-      if (
-        params.complete &&
-        (params.recoverPreparedBefore === undefined ||
-          launch.preparedAt < params.recoverPreparedBefore) &&
-        (await params.store.failPreparedLaunch(card.id, {
-          expectedLaunch: launch,
-          reason: "Gateway did not accept the prepared Workboard session before restart.",
-          failedAt: now,
-        }))
-      ) {
-        count += 1;
-      }
-      continue;
-    }
-    if (!session) {
-      continue;
-    }
-    const observation = lifecycleFromSession(session, now);
-    if (
-      await params.store.syncLifecycle(card.id, {
-        ...LIFECYCLE_TARGETS[observation.state],
-        sourceUpdatedAt: observation.sourceUpdatedAt,
-        stale: observation.stale,
-        now,
-        association: {
-          ...(cardSessionKey(card) ? { expectedSessionKey: cardSessionKey(card) } : {}),
-          ...(cardRunId(card) ? { expectedRunId: cardRunId(card) } : {}),
-          sessionKey: session.key,
-          ...(preparedAcceptanceAt === undefined ? {} : { acceptedAt: preparedAcceptanceAt }),
-        },
-      })
-    ) {
-      count += 1;
-      if (observation.state === "succeeded" || observation.state === "failed") {
-        await params.onMatched?.({ cards: [card], sessionKey: session.key });
-      }
-    }
-  }
-  return count;
-}
-
-=======
-async function syncWorkboardLifecycleSessions(params: {
-  store: WorkboardStore;
-  cards?: readonly WorkboardCard[];
-  sessions: readonly WorkboardLifecycleSession[];
-  complete?: boolean;
-  now?: number;
-  recoverPreparedBefore?: number;
-  onMatched?: WorkboardLifecycleMatchHandler;
-  readSession?: (sessionKey: string) => Promise<WorkboardLifecycleSessionSnapshot>;
-}): Promise<number> {
-  const now = params.now ?? Date.now();
-  const sessionsByKey = new Map<string, WorkboardLifecycleSession>();
-  const sessionsByWorkboardSuffix = new Map<string, WorkboardLifecycleSession>();
-  const ambiguousWorkboardSuffixes = new Set<string>();
-  for (const session of params.sessions) {
-    sessionsByKey.set(session.key, session);
-    const suffixIndex = session.key.lastIndexOf(":subagent:workboard-");
-    if (suffixIndex >= 0) {
-      const suffix = session.key.slice(suffixIndex + 1);
-      const existing = sessionsByWorkboardSuffix.get(suffix);
-      if (existing && existing.key !== session.key) {
-        sessionsByWorkboardSuffix.delete(suffix);
-        ambiguousWorkboardSuffixes.add(suffix);
-      } else if (!ambiguousWorkboardSuffixes.has(suffix)) {
-        sessionsByWorkboardSuffix.set(suffix, session);
-      }
-    }
-  }
-  let count = 0;
-  for (const card of params.cards ?? (await params.store.list())) {
-    if (card.metadata?.archivedAt) {
-      continue;
-    }
-    const lookupKey = workboardCardSessionLookupKey(card);
-    const suffixIndex = lookupKey.lastIndexOf("subagent:workboard-");
-    const linkedSessionKey = cardSessionKey(card);
-    const canUseAgentlessFallback =
-      linkedSessionKey?.startsWith("subagent:workboard-") === true ||
-      (!linkedSessionKey &&
-        (!card.agentId ||
-          (card.agentId === DEFAULT_WORKBOARD_DISPATCH_OWNER &&
-            card.metadata?.claim?.ownerId === DEFAULT_WORKBOARD_DISPATCH_OWNER)));
-    // Persisted links and explicit agent targets stay authoritative. The unique
-    // suffix fallback recovers a run accepted before its link could be persisted.
-    const session =
-      sessionsByKey.get(lookupKey) ??
-      (canUseAgentlessFallback && suffixIndex >= 0
-        ? sessionsByWorkboardSuffix.get(lookupKey.slice(suffixIndex))
-        : undefined);
-    const launch = card.metadata?.automation?.launch;
-    const preparedAcceptanceAt =
-      launch?.phase === "prepared" && session && sessionProvesPreparedAcceptance(session)
-        ? session.hasActiveRun === true
-          ? Math.max(now, launch.preparedAt)
-          : session.updatedAt
-        : undefined;
-    if (
-      launch?.phase === "prepared" &&
-      (preparedAcceptanceAt === undefined || preparedAcceptanceAt < launch.preparedAt)
-    ) {
-      if (
-        params.complete &&
-        (params.recoverPreparedBefore === undefined ||
-          launch.preparedAt < params.recoverPreparedBefore) &&
-        (await params.store.failPreparedLaunch(card.id, {
-          expectedLaunch: launch,
-          reason: "Gateway did not accept the prepared Workboard session before restart.",
-          failedAt: now,
-        }))
-      ) {
-        count += 1;
-      }
-      continue;
-    }
-    if (
-      (!session || card.metadata?.automation?.danglingSession) &&
-      (await reconcileDanglingWorkboardSession({ ...params, card, session, now }))
-    ) {
-      count += 1;
-      await params.onMatched?.({ cards: [card], sessionKey: linkedSessionKey });
-    }
-    if (!session) {
-      continue;
-    }
-    if (session.restartRecoveryStatus === "tombstoned") {
-      // Detection and a recorded reason only: replacing or resetting the session
-      // stays an operator decision outside this sweep.
-      if (
-        await params.store.blockRestartTombstonedSession(card.id, {
-          expectedSessionKey: linkedSessionKey,
-          sessionKey: session.key,
-          now,
-        })
-      ) {
-        count += 1;
-        await params.onMatched?.({ cards: [card], sessionKey: session.key });
-      }
-      continue;
-    }
-    const observation = lifecycleFromSession(session, now);
-    if (
-      await params.store.syncLifecycle(card.id, {
-        ...LIFECYCLE_TARGETS[observation.state],
-        sourceUpdatedAt: observation.sourceUpdatedAt,
-        stale: observation.stale,
-        now,
-        association: {
-          ...(cardSessionKey(card) ? { expectedSessionKey: cardSessionKey(card) } : {}),
-          ...(cardRunId(card) ? { expectedRunId: cardRunId(card) } : {}),
-          sessionKey: session.key,
-          ...(preparedAcceptanceAt === undefined ? {} : { acceptedAt: preparedAcceptanceAt }),
-        },
-      })
-    ) {
-      count += 1;
-      if (observation.state === "succeeded" || observation.state === "failed") {
-        await params.onMatched?.({ cards: [card], sessionKey: session.key });
-      }
-    }
-  }
-  return count;
-}
-
->>>>>>> THEIRS/pro-main
 function normalizeSession(value: unknown): WorkboardLifecycleSession | undefined {
   if (!isRecord(value) || typeof value.key !== "string" || !value.key) {
     return undefined;
@@ -574,8 +347,10 @@ export async function readWorkboardLifecycleSessions(
     const session = normalizeSession(payload.session);
     // Completeness is scoped to the requested identity, never the catalog, but it does
     // establish this identity: the Gateway was consulted, so an empty list is a
-    // confirmed absence rather than an unknown one.
-    return { sessions: session ? [session] : [], complete: true };
+    // confirmed absence rather than an unknown one. `authoritative` carries that
+    // confirmation to the fork's dangling-link reader, which only blocks on a keyed
+    // read that actually consulted the Gateway.
+    return { sessions: session ? [session] : [], complete: true, authoritative: true };
   }
   if (options.sessionKey.startsWith("subagent:workboard-")) {
     // Success and failure are shared only within this admitted sweep.
@@ -789,7 +564,39 @@ export function createWorkboardLifecycleService(params: {
                     });
                     continue;
                   }
+                  // Fork intent (dangling session link): a still-active card whose linked
+                  // session vanished is blocked once after two complete misses. Threaded into
+                  // the Upstream inline reconciliation (the fork's whole-function variant is
+                  // dropped) and adapted to this file's reader contract: a keyed read that
+                  // consulted the Gateway is the `authoritative` confirmation of absence.
+                  if (
+                    (!session || card.metadata?.automation?.danglingSession) &&
+                    (await reconcileDanglingWorkboardSession({
+                      store,
+                      card,
+                      session,
+                      complete: snapshot.complete,
+                      readSession: (sessionKey) => readSessions({ sessionKey }),
+                      now,
+                    }))
+                  ) {
+                    await onMatched({ cards: [card], sessionKey: cardSessionKey(card) });
+                  }
                   if (!session) {
+                    continue;
+                  }
+                  // Fork intent (restart tombstone): a session a Gateway restart tombstoned is
+                  // detected and recorded; replacing or resetting it stays an operator decision.
+                  if (session.restartRecoveryStatus === "tombstoned") {
+                    if (
+                      await store.blockRestartTombstonedSession(card.id, {
+                        expectedSessionKey: cardSessionKey(card),
+                        sessionKey: session.key,
+                        now,
+                      })
+                    ) {
+                      await onMatched({ cards: [card], sessionKey: session.key });
+                    }
                     continue;
                   }
                   const observation = lifecycleFromSession(session, now);
@@ -816,29 +623,6 @@ export function createWorkboardLifecycleService(params: {
                     }
                   }
                 }
-<<<<<<< OURS/upstream-11.10
-||||||| BASE/v11.4
-                await syncWorkboardLifecycleSessions({
-                  store: params.store,
-                  cards,
-                  ...snapshot,
-                  now: params.now?.() ?? Date.now(),
-                  recoverPreparedBefore,
-                  onMatched,
-                });
-                cards = await params.store.list();
-=======
-                await syncWorkboardLifecycleSessions({
-                  store: params.store,
-                  cards,
-                  ...snapshot,
-                  now: params.now?.() ?? Date.now(),
-                  recoverPreparedBefore,
-                  onMatched,
-                  readSession: (sessionKey) => readSessions({ includeUnknown: false, sessionKey }),
-                });
-                cards = await params.store.list();
->>>>>>> THEIRS/pro-main
               } catch (error) {
                 if (generation === owner) {
                   ctx.logger.warn(`workboard lifecycle sync failed: ${String(error)}`);

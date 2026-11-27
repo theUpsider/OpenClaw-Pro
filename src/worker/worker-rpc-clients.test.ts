@@ -18,7 +18,6 @@ import {
   WORKER_PROTOCOL_MAX_PAYLOAD_BYTES,
 } from "../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
 import * as transcriptBudget from "../../packages/gateway-protocol/src/worker-transcript-budget.js";
-import { WORKER_MESSAGE_MAX_TEXT_BYTES } from "../../packages/gateway-protocol/src/schema/worker-protocol-primitives.js";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { makeAgentAssistantMessage } from "../agents/test-helpers/agent-message-fixtures.js";
 import { createUsageFixture } from "../agents/test-helpers/usage-fixtures.js";
@@ -201,95 +200,18 @@ const TERMINAL_OUTCOME: WorkerInferenceTerminalOutcome = {
       model: "model-1",
       usage: createUsageFixture(1, 1, 2),
       timestamp: 2,
-<<<<<<< OURS/upstream-11.10
     }),
     stopReason: "stop",
   },
 };
-||||||| BASE/v11.4
-    },
-  };
-}
 
-describe("worker transcript commit client", () => {
-  it("splits semantic batches at the gateway frame byte ceiling", async () => {
-    const harness = connectionHarness();
-    harness.requestTranscriptCommit
-      .mockResolvedValueOnce(successResponse({ entryIds: ["entry-1"], newLeafId: "leaf-1" }))
-      .mockResolvedValueOnce(successResponse({ entryIds: ["entry-2"], newLeafId: "leaf-2" }));
-    const client = new WorkerTranscriptCommitClient(harness.connection, {
-      runEpoch: 3,
-      baseLeafId: null,
-    });
-    const messages = [userMessage("a".repeat(40_000)), userMessage("b".repeat(40_000))];
-=======
-    },
-  };
-}
-
-describe("worker transcript commit client", () => {
-  it("splits semantic batches at the gateway frame byte ceiling", async () => {
-    const harness = connectionHarness();
-    const firstIds = Array.from({ length: 8 }, (_, index) => `entry-${index + 1}`);
-    harness.requestTranscriptCommit
-      .mockResolvedValueOnce(successResponse({ entryIds: firstIds, newLeafId: "leaf-1" }))
-      .mockResolvedValueOnce(successResponse({ entryIds: ["entry-9"], newLeafId: "leaf-2" }));
-    const client = new WorkerTranscriptCommitClient(harness.connection, {
-      runEpoch: 3,
-      baseLeafId: null,
-    });
-    const messages = Array.from({ length: 9 }, () =>
-      userMessage("a".repeat(WORKER_MESSAGE_MAX_TEXT_BYTES)),
-    );
->>>>>>> THEIRS/pro-main
-
-<<<<<<< OURS/upstream-11.10
 it("rejects a message beyond the frame byte ceiling before submitting it", async () => {
   const { client, ...harness } = transcriptHarness();
-||||||| BASE/v11.4
-    await expect(client.commit(messages)).resolves.toEqual({
-      entryIds: ["entry-1", "entry-2"],
-      newLeafId: "leaf-2",
-    });
-=======
-    await expect(client.commit(messages)).resolves.toEqual({
-      entryIds: [...firstIds, "entry-9"],
-      newLeafId: "leaf-2",
-    });
->>>>>>> THEIRS/pro-main
 
-<<<<<<< OURS/upstream-11.10
   await expect(client.commit([userMessage("a".repeat(80_000))])).rejects.toThrow(
     "worker transcript message exceeds the protocol payload limit",
   );
   expect(harness.commit).not.toHaveBeenCalled();
-||||||| BASE/v11.4
-    expect(harness.requestTranscriptCommit).toHaveBeenCalledTimes(2);
-    expect(harness.requestTranscriptCommit.mock.calls[0]?.[1]).toMatchObject({
-      seq: 1,
-      baseLeafId: null,
-      messages: [messages[0]],
-    });
-    expect(harness.requestTranscriptCommit.mock.calls[1]?.[1]).toMatchObject({
-      seq: 2,
-      baseLeafId: "leaf-1",
-      messages: [messages[1]],
-    });
-  });
-=======
-    expect(harness.requestTranscriptCommit).toHaveBeenCalledTimes(2);
-    expect(harness.requestTranscriptCommit.mock.calls[0]?.[1]).toMatchObject({
-      seq: 1,
-      baseLeafId: null,
-      messages: messages.slice(0, 8),
-    });
-    expect(harness.requestTranscriptCommit.mock.calls[1]?.[1]).toMatchObject({
-      seq: 2,
-      baseLeafId: "leaf-1",
-      messages: [messages[8]],
-    });
-  });
->>>>>>> THEIRS/pro-main
 });
 
 it("splits semantic batches at the gateway frame byte ceiling", async () => {

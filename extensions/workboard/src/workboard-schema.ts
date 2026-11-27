@@ -1,13 +1,7 @@
-<<<<<<< OURS/upstream-11.10
-export const SCHEMA_VERSION = 4;
-||||||| BASE/v11.4
-export const SCHEMA_VERSION = 3;
-=======
 // Columns added after a table shipped are declared last in their CREATE TABLE: PostgreSQL
 // builds them with ALTER TABLE ADD COLUMN (which appends) and admission compares column
 // positions, so a middle placement would refuse its own migration.
 export const SCHEMA_VERSION = 6;
->>>>>>> THEIRS/pro-main
 
 export const WORKBOARD_SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS workboard_schema_migrations (

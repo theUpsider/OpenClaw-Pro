@@ -67,7 +67,6 @@ it("rejects an oversized connect using the shared pre-auth limit before transpor
     }),
     expect.anything(),
   );
-<<<<<<< OURS/upstream-11.10
   expect(connection.frames).toEqual([]);
   expect(connection.close).not.toHaveBeenCalled();
 });
@@ -88,157 +87,6 @@ it("keeps admitted retry timing while advancing backoff", async () => {
       message: "temporarily unavailable",
       retryable: true,
       retryAfterMs: 90_000,
-||||||| BASE/v11.4
-
-  it.each(["before response", "before publication"])(
-    "rejects hello when the connect deadline closes the transport %s",
-    async (closingOrder) => {
-      vi.useFakeTimers();
-      const { client, connections, onHello, onConnectHello, onClose, onTiming } =
-        createHandshakeClient(undefined, true);
-      try {
-        client.start();
-        const first = connections[0];
-        assert(first);
-        first.close(1012, "restart");
-        first.handlers.close(1012, "restart");
-        await vi.advanceTimersByTimeAsync(10);
-        const connection = connections[1];
-        assert(connection);
-        receiveConnectChallenge(connection);
-        const pending = client.request("status").catch((error: unknown) => error);
-
-        if (closingOrder === "before publication") {
-          receiveHello(connection);
-        }
-        // Advance synchronously so an already-resolved response publishes only
-        // after the deadline has moved the transport into its closing window.
-        vi.advanceTimersByTime(DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS);
-        expect(connection.close).toHaveBeenCalledExactlyOnceWith(4000, "connect timeout");
-        if (closingOrder === "before response") {
-          receiveHello(connection);
-        }
-        await vi.advanceTimersByTimeAsync(0);
-
-        expect(client.connected).toBe(false);
-        expect(client.connecting).toBe(true);
-        expect(onHello).not.toHaveBeenCalled();
-        expect(onConnectHello).not.toHaveBeenCalled();
-        expect(onTiming.mock.calls.some(([timing]) => timing.phase === "hello")).toBe(false);
-        expect(onClose).toHaveBeenCalledTimes(1);
-        expect(client.hasPendingRequests).toBe(true);
-        const onSent = vi.fn();
-        await expect(client.request("status", undefined, { onSent })).rejects.toThrow(
-          "gateway not connected",
-        );
-        expect(onSent).not.toHaveBeenCalled();
-
-        connection.handlers.close(4000, "connect timeout");
-        await expect(pending).resolves.toEqual(new Error("gateway closed (4000): connect timeout"));
-        expect(client.hasPendingRequests).toBe(false);
-        expect(onClose).toHaveBeenLastCalledWith(
-          expect.objectContaining({ helloReceived: false, connectRequestSent: true }),
-          { retry: true, notify: true },
-        );
-        // An unusable hello must not reset the second retry's exponential delay.
-        await vi.advanceTimersByTimeAsync(10);
-        expect(connections).toHaveLength(2);
-        await vi.advanceTimersByTimeAsync(10);
-        const replacement = connections[2];
-        assert(replacement);
-        receiveConnectChallenge(replacement);
-        receiveHello(replacement);
-        await vi.advanceTimersByTimeAsync(0);
-        expect(onHello).toHaveBeenCalledExactlyOnceWith({ type: "hello-ok" });
-        expect(onConnectHello).toHaveBeenCalledOnce();
-        expect(client.connecting).toBe(false);
-        expect(client.connected).toBe(true);
-        await vi.advanceTimersByTimeAsync(DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS);
-        expect(replacement.close).not.toHaveBeenCalled();
-        replacement.close(1012, "restart");
-        replacement.handlers.close(1012, "restart");
-        await vi.advanceTimersByTimeAsync(10);
-        expect(connections).toHaveLength(4);
-      } finally {
-        client.stop();
-      }
-=======
-
-  it.each(["before response", "before publication"])(
-    "rejects hello when the connect deadline closes the transport %s",
-    async (closingOrder) => {
-      vi.useFakeTimers();
-      const { client, connections, onHello, onConnectHello, onClose, onTiming } =
-        createHandshakeClient(undefined, true);
-      try {
-        client.start();
-        const first = connections[0];
-        assert(first);
-        first.close(1012, "restart");
-        first.handlers.close(1012, "restart");
-        await vi.advanceTimersByTimeAsync(10);
-        const connection = connections[1];
-        assert(connection);
-        receiveConnectChallenge(connection);
-        const pending = client.request("status").catch((error: unknown) => error);
-
-        if (closingOrder === "before publication") {
-          receiveHello(connection);
-        }
-        // Advance synchronously so an already-resolved response publishes only
-        // after the deadline has moved the transport into its closing window.
-        vi.advanceTimersByTime(DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS);
-        expect(connection.close).toHaveBeenCalledExactlyOnceWith(4000, "connect timeout");
-        if (closingOrder === "before response") {
-          receiveHello(connection);
-        }
-        await vi.advanceTimersByTimeAsync(0);
-
-        expect(client.connected).toBe(false);
-        expect(client.connecting).toBe(true);
-        expect(onHello).not.toHaveBeenCalled();
-        expect(onConnectHello).not.toHaveBeenCalled();
-        expect(onTiming.mock.calls.some(([timing]) => timing.phase === "hello")).toBe(false);
-        expect(onClose).toHaveBeenCalledTimes(1);
-        expect(client.hasPendingRequests).toBe(true);
-        const onSent = vi.fn();
-        await expect(client.request("status", undefined, { onSent })).rejects.toThrow(
-          "gateway not connected",
-        );
-        expect(onSent).not.toHaveBeenCalled();
-
-        connection.handlers.close(4000, "connect timeout");
-        await expect(pending).resolves.toEqual(new Error("gateway closed (4000): connect timeout"));
-        expect(client.hasPendingRequests).toBe(false);
-        expect(onClose).toHaveBeenLastCalledWith(
-          expect.objectContaining({ helloReceived: false, connectRequestSent: true }),
-          { retry: true, notify: true },
-        );
-        // An unusable hello must not reset the second retry's exponential delay.
-        await vi.advanceTimersByTimeAsync(10);
-        expect(connections).toHaveLength(2);
-        await vi.advanceTimersByTimeAsync(10);
-        const replacement = connections[2];
-        assert(replacement);
-        receiveConnectChallenge(replacement);
-        receiveHello(replacement);
-        await vi.advanceTimersByTimeAsync(0);
-        expect(onHello).toHaveBeenCalledExactlyOnceWith({ type: "hello-ok" });
-        expect(onConnectHello).toHaveBeenCalledOnce();
-        expect(client.connecting).toBe(false);
-        expect(client.connected).toBe(true);
-        // The connect deadline no longer applies, and outliving the stable window
-        // lets the next outage restart at the initial delay.
-        await vi.advanceTimersByTimeAsync(STABLE_CONNECTION_BACKOFF_RESET_MS);
-        expect(replacement.close).not.toHaveBeenCalled();
-        replacement.close(1012, "restart");
-        replacement.handlers.close(1012, "restart");
-        await vi.advanceTimersByTimeAsync(10);
-        expect(connections).toHaveLength(4);
-      } finally {
-        client.stop();
-      }
->>>>>>> THEIRS/pro-main
     },
     false,
   );
@@ -755,36 +603,36 @@ test("delivers a gap-revealing chat abort before recovery retires its socket", (
   });
   expect(calls).toEqual(["event", "listener", "gap"]);
   expect(connection.close).toHaveBeenCalledOnce();
+});
 
-  it("resets reconnect backoff only after a connection stays up past the stable window", async () => {
-    vi.useFakeTimers();
-    const { client, connections, onReconnectScheduled } = createHandshakeClient();
-    const connectAndClose = async (index: number, connectedMs: number) => {
-      const connection = connections[index];
-      assert(connection);
-      receiveConnectChallenge(connection);
-      receiveHello(connection);
-      await vi.advanceTimersByTimeAsync(0);
-      expect(client.connected).toBe(true);
-      await vi.advanceTimersByTimeAsync(connectedMs);
-      connection.close(1006, "transport lost");
-      const delayMs = onReconnectScheduled.mock.lastCall?.[0];
-      assert(delayMs !== undefined);
-      await vi.advanceTimersByTimeAsync(delayMs);
-      expect(connections).toHaveLength(index + 2);
-      return delayMs;
-    };
-    try {
-      client.start();
-      // initialMs 10, multiplier 2, no jitter draw.
-      expect(await connectAndClose(0, 0)).toBe(10);
-      // Hello succeeded, but the socket died inside the window: backoff keeps growing.
-      expect(await connectAndClose(1, STABLE_CONNECTION_BACKOFF_RESET_MS - 1)).toBe(20);
-      expect(await connectAndClose(2, 1_000)).toBe(40);
-      // A connection that outlived the window restarts at the initial delay.
-      expect(await connectAndClose(3, STABLE_CONNECTION_BACKOFF_RESET_MS)).toBe(10);
-    } finally {
-      client.stop();
-    }
-  });
+it("resets reconnect backoff only after a connection stays up past the stable window", async () => {
+  vi.useFakeTimers();
+  const { client, connections, onReconnectScheduled } = createHandshakeClient();
+  const connectAndClose = async (index: number, connectedMs: number) => {
+    const connection = connections[index];
+    assert(connection);
+    receiveConnectChallenge(connection);
+    receiveHello(connection);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(client.connected).toBe(true);
+    await vi.advanceTimersByTimeAsync(connectedMs);
+    connection.close(1006, "transport lost");
+    const delayMs = onReconnectScheduled.mock.lastCall?.[0];
+    assert(delayMs !== undefined);
+    await vi.advanceTimersByTimeAsync(delayMs);
+    expect(connections).toHaveLength(index + 2);
+    return delayMs;
+  };
+  try {
+    client.start();
+    // initialMs 10, multiplier 2, no jitter draw.
+    expect(await connectAndClose(0, 0)).toBe(10);
+    // Hello succeeded, but the socket died inside the window: backoff keeps growing.
+    expect(await connectAndClose(1, STABLE_CONNECTION_BACKOFF_RESET_MS - 1)).toBe(20);
+    expect(await connectAndClose(2, 1_000)).toBe(40);
+    // A connection that outlived the window restarts at the initial delay.
+    expect(await connectAndClose(3, STABLE_CONNECTION_BACKOFF_RESET_MS)).toBe(10);
+  } finally {
+    client.stop();
+  }
 });

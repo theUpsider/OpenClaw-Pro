@@ -143,7 +143,6 @@ export async function startCronScheduler(
   const channel = new BroadcastChannel(channelName);
   channel.unref();
   const context = captureOpenClawStateWorkerContext();
-<<<<<<< OURS/upstream-11.10
   const acquireLease = (onNativeLost?: () => void) =>
     createOpenClawStateWorkerLease(
       context,
@@ -158,19 +157,6 @@ export async function startCronScheduler(
         refreshCronScheduler(state);
       })
     : undefined;
-||||||| BASE/v11.4
-  const lease = createOpenClawStateWorkerLease(context, async (scope) => {
-    await scope.execute({ type: "cron.schedulerStop", input: { storeKey, channelName } });
-  });
-=======
-  const lease = createOpenClawStateWorkerLease(
-    context,
-    async (scope) => {
-      await scope.execute({ type: "cron.schedulerStop", input: { storeKey, channelName } });
-    },
-    () => recoverLostCronSchedulerLease(state, lease),
-  );
->>>>>>> THEIRS/pro-main
   const connection: ActorConnection = {
     assertCurrent: () => context.admission.assertCurrent(),
     lease,

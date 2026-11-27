@@ -281,7 +281,6 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: approved lexical database-engine admission scope for workboard boot/migrations.
       // +1: async auth-provider preparation for Codex and voice model-session patches.
       // +1: isHostNoticePayload for agent-to-agent reply filtering.
-<<<<<<< OURS/upstream-11.10
       // +1: approved jsonPathValue on the experimental database-engine worker entrypoint.
       // +11: approved experimental engine-owned search capabilities on existing entrypoints.
       // +14: versioned Decision data contracts, lossless codecs, validation, and typed errors.
@@ -325,17 +324,6 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // Decisions HTTP replaces the unshipped OpenAI executor: +3 net (#195641).
       // Gateway person principal and access-refresh classifier: +2 (#196276, #176886).
       3888,
-||||||| BASE/v11.4
-      // +1: managed plugin resource root retained during redirected agent execution.
-      3761,
-=======
-      // +1: managed plugin resource root retained during redirected agent execution.
-      // +1: ControlUiDictationControlProps for host dictation on plugin board surfaces.
-      // +1: ControlUiMarkdownProps for host Markdown rendering on plugin surfaces.
-      // +2: ControlUiComposerSessionControlsProps and ControlUiComposerSendActionProps
-      // for the host composer's model, thinking and send controls on plugin surfaces.
-      3765,
->>>>>>> THEIRS/pro-main
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(

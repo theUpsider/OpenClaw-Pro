@@ -452,31 +452,6 @@ async function verifyExplicitDrainWait(
     expect(operation.state.settled).toBe(false);
     expect(fixture.firstStop).not.toHaveBeenCalled();
     expect(instance.disposing).toBe(false);
-<<<<<<< OURS/upstream-11.10
-    if (outcome !== "complete") {
-      if (outcome === "cancel") {
-        controller.abort(new Error("operator cancelled reload"));
-        await vi.advanceTimersByTimeAsync(0);
-      } else {
-        await vi.advanceTimersByTimeAsync(530_000);
-      }
-      expect(operation.state.settled).toBe(true);
-      expect(await reloading).toMatchObject(reloadFailure("drain"));
-      if (outcome === "time out") {
-        expect(await reloading).toMatchObject({
-          cause: { message: expect.stringContaining("admitted work did not settle within 600s") },
-        });
-      }
-      expectServing(fixture, instance);
-||||||| BASE/v11.4
-    if (outcome === "cancel") {
-      controller.abort(new Error("operator cancelled reload"));
-      await vi.advanceTimersByTimeAsync(0);
-      expect(settled).toBe(true);
-      expect(await reloading).toMatchObject({ details: { phase: "drain", committed: false } });
-      expect(fixture.registryOwner.registry).toBe(fixture.previousRegistry);
-      expect(instance.run(() => "still serving")).toBe("still serving");
-=======
     if (outcome !== "complete") {
       if (outcome === "cancel") {
         controller.abort(new Error("operator cancelled reload"));
@@ -504,7 +479,6 @@ async function verifyExplicitDrainWait(
       expect(fixture.candidates).toHaveLength(0);
       expect(instance.acceptingCalls).toBe(true);
       expect(instance.run(() => "still serving")).toBe("still serving");
->>>>>>> THEIRS/pro-main
       expect(instance.disposing).toBe(false);
       instance.retainWork()();
       expect(fixture.rollbackConfigEffects).toHaveBeenCalledOnce();

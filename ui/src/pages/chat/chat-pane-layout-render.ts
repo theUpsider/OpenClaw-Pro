@@ -47,7 +47,6 @@ import {
   type SidebarLayout,
   type SidebarSlotId,
 } from "./sidebar-layout.ts";
-import { formatSubagentModel, resolveSubagentFacts, type SubagentFacts } from "./subagent-facts.ts";
 
 type ChatPaneLayoutRenderParams = {
   state: ChatPageHost;
@@ -67,48 +66,6 @@ type ChatPaneLayoutRenderParams = {
   openPanelSlot: (slot: SidebarSlotId) => void;
   closePanelSlot: (slot: SidebarSlotId) => void;
 };
-
-/** The detail header has room for the provider, so it shows `provider · model` as text. */
-function renderSubagentFacts(facts: SubagentFacts) {
-  const fact = (label: string, value: string | undefined) =>
-    t("chat.subagentsPanel.fact", { label, value: value ?? t("chat.subagentsPanel.unknown") });
-  const model = formatSubagentModel(facts);
-  const thinking = fact(t("sessionsView.thinking"), facts.thinking);
-  return html`<div
-    class="chat-subagents__facts chat-subagent-detail__facts"
-    role="group"
-    aria-label=${t("chat.subagentsPanel.facts")}
-  >
-    ${
-      facts.agentId
-        ? html`<span class="chip chat-subagents__fact"
-            ><openclaw-agent-row-chip .agentId=${facts.agentId}></openclaw-agent-row-chip
-          ></span>`
-        : html`<span class="chip chat-subagents__fact chat-subagents__fact--unknown"
-            >${fact(t("chat.subagentsPanel.agent"), undefined)}</span
-          >`
-    }
-    <span
-      class="chip chat-subagents__fact ${model ? "" : "chat-subagents__fact--unknown"}"
-      data-fact="model"
-      title=${fact(t("sessionsView.model"), model)}
-      >${model ?? fact(t("sessionsView.model"), undefined)}</span
-    >
-    <span
-      class="chip chat-subagents__fact ${facts.thinking ? "" : "chat-subagents__fact--unknown"}"
-      data-fact="thinking"
-      title=${thinking}
-      >${thinking}</span
-    >
-    ${
-      facts.badge
-        ? html`<span class="chip chat-subagents__fact" data-fact=${facts.badge.kind}
-            >${t(facts.badge.labelKey)}</span
-          >`
-        : nothing
-    }
-  </div>`;
-}
 
 export abstract class ChatPaneLayoutRender extends ChatPaneHeaderLayout {
   private readonly detailsElements: import("./components/chat-details.tsx").ChatDetailsElements = {
@@ -343,7 +300,6 @@ export abstract class ChatPaneLayoutRender extends ChatPaneHeaderLayout {
       progressCardVisibility: panePresentation,
       transcriptVisible: slotPresentation("conversation"),
       historyState: catalog ? undefined : state,
-<<<<<<< OURS/upstream-11.10
     } satisfies Partial<ChatProps>);
     sessionWorkspace.transcriptAttachments = this.attachmentCatalog.read({
       state,
@@ -373,94 +329,6 @@ export abstract class ChatPaneLayoutRender extends ChatPaneHeaderLayout {
     });
     const discussion = this.sessionDiscussionSource(state, state.sessionKey.trim());
     const discussionState = this.sessionDiscussion.snapshot.states.get(state.sessionKey.trim());
-||||||| BASE/v11.4
-    };
-    const chat = solidContent(ChatView, { props: paneChatProps, application: this.context });
-    const headerDetails = ownsSubagentsPanel
-      ? html`<openclaw-chat-details
-          ${ref(this.headerDetailsRef)}
-          .props=${paneChatProps}
-          .mobile=${this.mergedChrome && !this.onBackToSubagents}
-          .presented=${livePresentation(this.mergedChrome ? panePresentation : (paneChatProps.transcriptVisible ?? this.presented))}
-        ></openclaw-chat-details>`
-      : nothing;
-    const subagentStop =
-      chatProps.disabledBanner?.presentation &&
-      chatProps.canAbort &&
-      chatProps.onAbort &&
-      !hasTerminalRunStatus(chatProps.runStatus)
-        ? html`<button
-            class="chat-subagent-detail__stop"
-            type="button"
-            aria-label=${t("chat.runControls.stopGenerating")}
-            @click=${chatProps.onAbort}
-          >
-            ${icons.stop}<span>${t("chat.runControls.stop")}</span>
-          </button>`
-        : nothing;
-    const subagentHeader = this.onBackToSubagents
-      ? html`<header class="chat-subagent-detail__header">
-          <button class="chat-subagent-detail__back" type="button" @click=${this.onBackToSubagents}>
-            ${icons.arrowLeft}${t("chat.subagentsPanel.back")}
-          </button>
-          <div class="chat-subagent-detail__heading">
-            <strong class="chat-subagent-detail__title"
-              >${this.resolveHeaderSessionTitle(selectedSession)}</strong
-            >
-            ${subagentStop} ${headerDetails}
-          </div>
-        </header>`
-      : nothing;
-    const discussion = this.buildSessionDiscussionPanel(state, state.sessionKey.trim());
-    const discussionState = this.sessionDiscussionStates.get(state.sessionKey.trim());
-    const discussionAvailable = discussionState === "available" || discussionState === "open";
-=======
-    };
-    const chat = solidContent(ChatView, { props: paneChatProps, application: this.context });
-    const headerDetails = ownsSubagentsPanel
-      ? html`<openclaw-chat-details
-          ${ref(this.headerDetailsRef)}
-          .props=${paneChatProps}
-          .mobile=${this.mergedChrome && !this.onBackToSubagents}
-          .presented=${livePresentation(this.mergedChrome ? panePresentation : (paneChatProps.transcriptVisible ?? this.presented))}
-        ></openclaw-chat-details>`
-      : nothing;
-    const subagentStop =
-      chatProps.disabledBanner?.presentation &&
-      chatProps.canAbort &&
-      chatProps.onAbort &&
-      !hasTerminalRunStatus(chatProps.runStatus)
-        ? html`<button
-            class="chat-subagent-detail__stop"
-            type="button"
-            aria-label=${t("chat.runControls.stopGenerating")}
-            @click=${chatProps.onAbort}
-          >
-            ${icons.stop}<span>${t("chat.runControls.stop")}</span>
-          </button>`
-        : nothing;
-    const subagentFacts =
-      this.onBackToSubagents && selectedSession
-        ? renderSubagentFacts(resolveSubagentFacts(selectedSession))
-        : nothing;
-    const subagentHeader = this.onBackToSubagents
-      ? html`<header class="chat-subagent-detail__header">
-          <button class="chat-subagent-detail__back" type="button" @click=${this.onBackToSubagents}>
-            ${icons.arrowLeft}${t("chat.subagentsPanel.back")}
-          </button>
-          <div class="chat-subagent-detail__heading">
-            <strong class="chat-subagent-detail__title"
-              >${this.resolveHeaderSessionTitle(selectedSession)}</strong
-            >
-            ${subagentStop} ${headerDetails}
-          </div>
-          ${subagentFacts}
-        </header>`
-      : nothing;
-    const discussion = this.buildSessionDiscussionPanel(state, state.sessionKey.trim());
-    const discussionState = this.sessionDiscussionStates.get(state.sessionKey.trim());
-    const discussionAvailable = discussionState === "available" || discussionState === "open";
->>>>>>> THEIRS/pro-main
     const desktopAvailable = isDesktopPanelAvailable(this.context.gateway.snapshot);
     const companionSessionKey = state.sessionKey;
     // Publish the mutable owner's current fields across the reactive property boundary.

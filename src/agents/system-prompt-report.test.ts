@@ -205,7 +205,6 @@ describe("buildSystemPromptReport", () => {
 });
 
 describe("rendered skills diagnostics", () => {
-<<<<<<< OURS/upstream-11.10
   it.each<[Partial<Parameters<typeof buildAgentSystemPrompt>[0]>, boolean, boolean?]>([
     [{ toolNames: ["skills_read"] }, true],
     [{ codeModeActive: true, toolNames: ["exec"] }, false],
@@ -231,60 +230,6 @@ describe("rendered skills diagnostics", () => {
     ],
   ])("reports the catalog actually rendered for %j", (params, included, workspaceCopy = false) => {
     const skillsPrompt = params.skillsPrompt ?? catalog;
-||||||| BASE/v11.4
-  it.each([
-    { name: "visible skills_read", params: { toolNames: ["skills_read"] }, included: true },
-    {
-      name: "Code Mode exec",
-      params: { codeModeActive: true, toolNames: ["exec"] },
-      included: true,
-    },
-    { name: "CLI native tools", params: { promptSurface: "cli_backend" }, included: true },
-    {
-      name: "minimal prompt with read",
-      params: { promptMode: "minimal", toolNames: ["read"] },
-      included: true,
-    },
-    {
-      name: "no prompt sections",
-      params: { promptMode: "none", toolNames: ["read"] },
-      included: false,
-    },
-  ] satisfies Array<{
-    name: string;
-    params: Partial<Parameters<typeof buildAgentSystemPrompt>[0]>;
-    included: boolean;
-  }>)("reports the catalog actually rendered for $name", ({ params, included }) => {
-=======
-  it.each([
-    { name: "visible skills_read", params: { toolNames: ["skills_read"] }, included: true },
-    {
-      name: "Code Mode exec without a reader",
-      params: { codeModeActive: true, toolNames: ["exec"] },
-      included: false,
-    },
-    {
-      name: "Code Mode exec with an admitted reader",
-      params: { codeModeActive: true, toolNames: ["exec"], capabilityToolNames: ["skills_read"] },
-      included: true,
-    },
-    { name: "CLI native tools", params: { promptSurface: "cli_backend" }, included: true },
-    {
-      name: "minimal prompt with read",
-      params: { promptMode: "minimal", toolNames: ["read"] },
-      included: true,
-    },
-    {
-      name: "no prompt sections",
-      params: { promptMode: "none", toolNames: ["read"] },
-      included: false,
-    },
-  ] satisfies Array<{
-    name: string;
-    params: Partial<Parameters<typeof buildAgentSystemPrompt>[0]>;
-    included: boolean;
-  }>)("reports the catalog actually rendered for $name", ({ params, included }) => {
->>>>>>> THEIRS/pro-main
     const systemPrompt = buildAgentSystemPrompt({
       workspaceDir: "/workspace",
       skillsPrompt,

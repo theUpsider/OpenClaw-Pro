@@ -1,17 +1,10 @@
-import {
-  Value } from "typebox/value";
+import { Value } from "typebox/value";
 import {
   WorkerTranscriptCommitRequestFrameSchema,
   type WorkerTranscriptCommitRequestFrame,
-  type,
-  WorkerTranscriptMessage,
-WorkerTranscriptMessage,
+  type WorkerTranscriptMessage,
 } from "./schema/worker-admission.js";
-import type {
-  WorkerInferenceContext,
-  WORKER_PROTOCOL_MAX_MEDIA_PAYLOAD_BYTES,
-  WORKER_PROTOCOL_MAX_PAYLOAD_BYTES,
-} from "./schema/worker-inference.js";
+import type { WorkerInferenceContext } from "./schema/worker-inference.js";
 import {
   checkWorkerProtocolJson,
   WORKER_CONTEXT_MAX_RESIDUAL_BYTES,
@@ -22,12 +15,6 @@ import {
   WORKER_PROTOCOL_MAX_PAYLOAD_BYTES,
   WORKER_PROVIDER_REPLAY_MAX_DATA_BYTES,
 } from "./schema/worker-protocol-primitives.js";
-
-function transcriptImageData({ content }: WorkerTranscriptMessage): string[] {
-  return typeof content === "string"
-    ? []
-    : content.flatMap((part) => (part.type === "image" ? [part.data] : []));
-}
 
 type BudgetMessage = WorkerTranscriptMessage | WorkerInferenceContext["messages"][number];
 type WorkerTextContext = {
@@ -143,8 +130,17 @@ export function isWorkerTextFrameWithinBudget(
 export function isWorkerTranscriptFrameWithinBudget(
   frame: WorkerTranscriptCommitRequestFrame,
 ): boolean {
-<<<<<<< OURS/upstream-11.10
-  return isWorkerFrameWithinBudget(frame, () => frame.params.messages.flatMap(transcriptImageData));
+  return (
+    !checkWorkerProtocolJson(frame) &&
+    Value.Check(WorkerTranscriptCommitRequestFrameSchema, frame) &&
+    isWorkerTextFrameWithinBudget(frame, { messages: frame.params.messages, residual: "context" })
+  );
+}
+
+function transcriptImageData({ content }: WorkerTranscriptMessage): string[] {
+  return typeof content === "string"
+    ? []
+    : content.flatMap((part) => (part.type === "image" ? [part.data] : []));
 }
 
 export function takeFittingWorkerTranscriptBatch(
@@ -175,19 +171,4 @@ export function takeFittingWorkerTranscriptBatch(
     // Match frame admission: an unserializable message cannot join the batch.
   }
   return batch;
-||||||| BASE/v11.4
-  return isWorkerFrameWithinBudget(frame, () =>
-    frame.params.messages.flatMap(({ content }) =>
-      typeof content === "string"
-        ? []
-        : content.flatMap((part) => (part.type === "image" ? [part.data] : [])),
-    ),
-  );
-=======
-  return (
-    !checkWorkerProtocolJson(frame) &&
-    Value.Check(WorkerTranscriptCommitRequestFrameSchema, frame) &&
-    isWorkerTextFrameWithinBudget(frame, { messages: frame.params.messages, residual: "context" })
-  );
->>>>>>> THEIRS/pro-main
 }

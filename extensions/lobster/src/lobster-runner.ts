@@ -239,8 +239,8 @@ async function loadEmbeddedToolRuntimeFromPackage(): Promise<EmbeddedToolRuntime
   // @clawdbot/lobster/core; the plugin's declared @clawdbot/lobster dependency
   // provides it at runtime, so it is a used direct dependency.
   const coreSpecifier = ["@clawdbot", "lobster", "core"].join("/");
-<<<<<<< OURS/upstream-11.10
   const runtime = (await import(coreSpecifier)) as EmbeddedToolPackage;
+  loadedCoreModule = runtime;
   if (profile !== "embedded-aot") {
     return runtime;
   }
@@ -251,23 +251,8 @@ async function loadEmbeddedToolRuntimeFromPackage(): Promise<EmbeddedToolRuntime
     resumeToolRequest: (params) =>
       runtime.withSchemaCompiler(compileLobsterSchema, () => runtime.resumeToolRequest(params)),
   };
-||||||| BASE/v11.4
-  return (await import(coreSpecifier)) as EmbeddedToolRuntime;
-=======
-  const core = (await import(coreSpecifier)) as EmbeddedToolRuntime;
-  loadedCoreModule = core;
-  return core;
->>>>>>> THEIRS/pro-main
 }
 
-<<<<<<< OURS/upstream-11.10
-export function createEmbeddedLobsterRunner() {
-||||||| BASE/v11.4
-export function createEmbeddedLobsterRunner(options?: {
-  loadRuntime?: () => Promise<EmbeddedToolRuntime>;
-}) {
-  const loadRuntime = options?.loadRuntime ?? loadEmbeddedToolRuntimeFromPackage;
-=======
 export function createEmbeddedLobsterRunner(options?: {
   loadRuntime?: () => Promise<EmbeddedToolRuntime>;
   /**
@@ -279,11 +264,10 @@ export function createEmbeddedLobsterRunner(options?: {
 }) {
   const loadRuntime = options?.loadRuntime ?? loadEmbeddedToolRuntimeFromPackage;
   const createRegistry = options?.createRegistry;
->>>>>>> THEIRS/pro-main
   let runtimePromise: Promise<EmbeddedToolRuntime> | undefined;
   return {
     async run(params: LobsterRunnerParams) {
-      runtimePromise ??= loadEmbeddedToolRuntimeFromPackage();
+      runtimePromise ??= loadRuntime();
       const runtime = await runtimePromise;
       // Evaluate the provider here, after the core module is loaded but before any work.
       const registry = createRegistry?.();

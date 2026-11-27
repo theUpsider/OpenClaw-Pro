@@ -16,24 +16,6 @@ import {
   WORKBOARD_ALL_BOARDS_FILTER,
 } from "../../lib/workboard/board-filter.ts";
 import { workboardBoardName } from "../../lib/workboard/board-presentation.ts";
-<<<<<<< OURS/upstream-11.10
-import { getWorkboardDependencyState } from "../../lib/workboard/card-state.ts";
-import { getWorkboardLifecycle } from "../../lib/workboard/lifecycle.ts";
-import { addWorkboardCardComment } from "../../lib/workboard/mutations.ts";
-import { getWorkboardState } from "../../lib/workboard/runtime.ts";
-import type { WorkboardCard, WorkboardUiState } from "../../lib/workboard/types.ts";
-import { cardAgentLabel } from "./agent-filter.ts";
-||||||| BASE/v11.4
-import {
-  addWorkboardCardComment,
-  getWorkboardDependencyState,
-  getWorkboardLifecycle,
-  getWorkboardState,
-  type WorkboardCard,
-  type WorkboardUiState,
-} from "../../lib/workboard/index.ts";
-import { cardAgentLabel } from "./agent-filter.ts";
-=======
 import {
   addWorkboardCardComment,
   getWorkboardDependencyState,
@@ -49,7 +31,6 @@ import {
   isWorkboardDecisionCard,
 } from "../../lib/workboard/waiting-reason.ts";
 import { cardAgentId, cardAgentLabel } from "./agent-filter.ts";
->>>>>>> THEIRS/pro-main
 import { automationDetailFields, BoardAutomation } from "./view-automation.tsx";
 import { getCardActionState, CardAction, StartExecutionButton } from "./view-card-actions.tsx";
 import { CardArtifacts } from "./view-card-artifacts.tsx";

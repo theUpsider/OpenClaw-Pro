@@ -284,98 +284,6 @@ export async function resolveSubagentSpawnRequest(
   const swarmSchedulerGroupKey = swarmGroupId
     ? JSON.stringify([requesterAgentId, requesterInternalKey, swarmGroupId])
     : undefined;
-<<<<<<< OURS/upstream-11.10
-||||||| BASE/v11.4
-  const callerDepth = await getSubagentDepthFromSessionStoreInWorker(requesterInternalKey, {
-    cfg,
-    agentId: requesterAgentId,
-    store: earlyRequester?.requesterEntry
-      ? createSubagentSessionStore(
-          earlyRequester.requesterTarget.readSource?.path ??
-            earlyRequester.requesterTarget.storePath,
-          requesterAgentId,
-          { sessionKey: requesterInternalKey, entry: earlyRequester.requesterEntry },
-        )
-      : undefined,
-  });
-  const resolveAdmission = (pendingChildren = 0) => {
-    const collectorRuns = params.collect
-      ? swarmGroupId
-        ? listSwarmRunsForGroup(swarmGroupId, requesterInternalKey, requesterAgentId)
-        : []
-      : undefined;
-    return resolveSpawnAdmission({
-      cfg,
-      callerDepth,
-      inheritedToolPolicySource: ctx.inheritedToolPolicySource,
-      collector: collectorRuns
-        ? {
-            liveChildren: collectorRuns.filter((entry) => !entry.collectorCompletion).length,
-            totalChildren: collectorRuns.length,
-            maxChildrenPerGroup: swarmConfig.maxChildrenPerGroup,
-            maxTotalPerGroup: swarmConfig.maxTotalPerGroup,
-          }
-        : undefined,
-      requesterSessionKey: requesterInternalKey,
-      requesterAgentId,
-      targetAgentId,
-      requestedAgentId: effectiveRequestedAgentId,
-      configuredAgentIds,
-      additionalActiveChildren: pendingChildren,
-    });
-  };
-=======
-  const callerDepth = await getSubagentDepthFromSessionStoreInWorker(requesterInternalKey, {
-    cfg,
-    agentId: requesterAgentId,
-    store: earlyRequester?.requesterEntry
-      ? createSubagentSessionStore(
-          earlyRequester.requesterTarget.readSource?.path ??
-            earlyRequester.requesterTarget.storePath,
-          requesterAgentId,
-          { sessionKey: requesterInternalKey, entry: earlyRequester.requesterEntry },
-        )
-      : undefined,
-  });
-  const messageToolGrant = resolveSubagentMessageToolGrant({
-    cfg,
-    requesterAgentId,
-    allowMessaging: params.allowMessaging,
-    collect: params.collect === true,
-    requesterIsSubagent: callerDepth >= 1,
-    requesterMessageToolEnabled: earlyRequester?.requesterEntry?.subagentMessageToolEnabled,
-  });
-  if (!messageToolGrant.ok) {
-    return rejectSubagentSpawnRequest("forbidden", messageToolGrant.error);
-  }
-  const resolveAdmission = (pendingChildren = 0) => {
-    const collectorRuns = params.collect
-      ? swarmGroupId
-        ? listSwarmRunsForGroup(swarmGroupId, requesterInternalKey, requesterAgentId)
-        : []
-      : undefined;
-    return resolveSpawnAdmission({
-      cfg,
-      callerDepth,
-      inheritedToolPolicySource: ctx.inheritedToolPolicySource,
-      collector: collectorRuns
-        ? {
-            liveChildren: collectorRuns.filter((entry) => !entry.collectorCompletion).length,
-            totalChildren: collectorRuns.length,
-            maxChildrenPerGroup: swarmConfig.maxChildrenPerGroup,
-            maxTotalPerGroup: swarmConfig.maxTotalPerGroup,
-          }
-        : undefined,
-      requesterSessionKey: requesterInternalKey,
-      requesterAgentId,
-      targetAgentId,
-      requestedAgentId: effectiveRequestedAgentId,
-      configuredAgentIds,
-      additionalActiveChildren: pendingChildren,
-      messageToolEnabled: messageToolGrant.enabled,
-    });
-  };
->>>>>>> THEIRS/pro-main
   try {
     ctx.assertActive?.();
     await prepareSubagentSessionListReadCache();
@@ -451,6 +359,17 @@ export async function resolveSubagentSpawnRequest(
             )
           : undefined,
       });
+      const messageToolGrant = resolveSubagentMessageToolGrant({
+        cfg,
+        requesterAgentId,
+        allowMessaging: params.allowMessaging,
+        collect: params.collect === true,
+        requesterIsSubagent: callerDepth >= 1,
+        requesterMessageToolEnabled: earlyRequester?.requesterEntry?.subagentMessageToolEnabled,
+      });
+      if (!messageToolGrant.ok) {
+        return rejectSubagentSpawnRequest("forbidden", messageToolGrant.error);
+      }
       const resolveAdmission = (pendingChildren = 0) => {
         const collectorRuns = params.collect
           ? swarmGroupId
@@ -475,6 +394,7 @@ export async function resolveSubagentSpawnRequest(
           requestedAgentId: effectiveRequestedAgentId,
           configuredAgentIds,
           additionalActiveChildren: pendingChildren,
+          messageToolEnabled: messageToolGrant.enabled,
         });
       };
       const admissionReservation = params.collect

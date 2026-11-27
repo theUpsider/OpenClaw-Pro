@@ -537,6 +537,9 @@ export function* assembleOpenClawCodingTools(
   options?.recordToolPrepStage?.("message-provider-policy");
   const toolsForModelProvider = applyModelProviderToolPolicy(toolsForMessageProvider, {
     ...options,
+    // Fork intent: hand the sandbox bridge to the path-scope guard so a container
+    // path is matched against the host rules instead of being invisible to them.
+    ...(sandboxFsBridge ? { sandboxBridge: sandboxFsBridge } : {}),
     agentId,
     preparedRequesterPolicy: capabilityProfile.policy,
     localModelLeanPreserveToolNames,

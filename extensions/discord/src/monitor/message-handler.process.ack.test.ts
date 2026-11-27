@@ -89,45 +89,10 @@ it("keeps one typing refresh loop for default message-tool replies", async () =>
     route,
   });
 
-<<<<<<< OURS/upstream-11.10
   expect(h.createDiscordDraftStream).not.toHaveBeenCalled();
   expect(h.typingMocksForTest.sendTyping).toHaveBeenCalledTimes(2);
 });
-||||||| BASE/v11.4
-  it("keeps one acknowledgement through reasoning, tools, compaction, silence, and success", async () => {
-    vi.useFakeTimers();
-    const dispatchEntered = createDeferred<void>();
-    dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
-      dispatchEntered.resolve();
-      await params?.replyOptions?.onReasoningStream?.({});
-      await vi.advanceTimersByTimeAsync(DEFAULT_TIMING.debounceMs);
-      await params?.replyOptions?.onToolStart?.({ name: "exec", phase: "start" });
-      await vi.advanceTimersByTimeAsync(DEFAULT_TIMING.debounceMs);
-      await params?.replyOptions?.onCompactionStart?.();
-      await vi.advanceTimersByTimeAsync(DEFAULT_TIMING.debounceMs);
-      await params?.replyOptions?.onCompactionEnd?.();
-      await vi.advanceTimersByTimeAsync(DEFAULT_TIMING.stallHardMs + 1_000);
-      return createNoQueuedDispatchResult();
-    });
-=======
-  it("keeps one working reaction through reasoning, tools, compaction, and silence, then ends on done", async () => {
-    vi.useFakeTimers();
-    const dispatchEntered = createDeferred<void>();
-    dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
-      dispatchEntered.resolve();
-      await params?.replyOptions?.onReasoningStream?.({});
-      await vi.advanceTimersByTimeAsync(DEFAULT_TIMING.debounceMs);
-      await params?.replyOptions?.onToolStart?.({ name: "exec", phase: "start" });
-      await vi.advanceTimersByTimeAsync(DEFAULT_TIMING.debounceMs);
-      await params?.replyOptions?.onCompactionStart?.();
-      await vi.advanceTimersByTimeAsync(DEFAULT_TIMING.debounceMs);
-      await params?.replyOptions?.onCompactionEnd?.();
-      await vi.advanceTimersByTimeAsync(DEFAULT_TIMING.stallHardMs + 1_000);
-      return createNoQueuedDispatchResult();
-    });
->>>>>>> THEIRS/pro-main
 
-<<<<<<< OURS/upstream-11.10
 it.each(["delivery", "agent"] as const)("reacts to %s failure", async (failure) => {
   if (failure === "delivery") {
     dispatch.mockResolvedValueOnce({
@@ -135,21 +100,8 @@ it.each(["delivery", "agent"] as const)("reacts to %s failure", async (failure) 
       settledReceipt: {
         counts: { tool: zero, block: zero, final: { ...zero, failedBeforeSend: 1 } },
         anyVisibleDelivered: false,
-||||||| BASE/v11.4
-    const ctx = await createAutomaticSourceDeliveryContext({
-      cfg: {
-        messages: { ackReaction: "👀" },
-        session: { store: "/tmp/openclaw-discord-process-test-sessions.json" },
-=======
-    const ctx = await createAutomaticSourceDeliveryContext({
-      cfg: {
-        // The quiet working reaction does not follow the configured ack emoji.
-        messages: { ackReaction: "👍" },
-        session: { store: "/tmp/openclaw-discord-process-test-sessions.json" },
->>>>>>> THEIRS/pro-main
       },
     });
-<<<<<<< OURS/upstream-11.10
   } else {
     h.readAgentRunTerminalOutcomeForTest.mockReturnValueOnce("failed");
     dispatch.mockImplementationOnce((params) =>
@@ -158,27 +110,6 @@ it.each(["delivery", "agent"] as const)("reacts to %s failure", async (failure) 
   }
   await runAutomatic();
   expect(getReactionEmojis()).toContain(DEFAULT_EMOJIS.error);
-||||||| BASE/v11.4
-
-    const runPromise = runProcessDiscordMessage(ctx);
-    await dispatchEntered.promise;
-    await vi.runAllTimersAsync();
-    await runPromise;
-
-    expect(getReactionEmojis()).toEqual(["👀"]);
-    expect(sendMocks.removeReactionDiscord).not.toHaveBeenCalled();
-  });
-=======
-
-    const runPromise = runProcessDiscordMessage(ctx);
-    await dispatchEntered.promise;
-    await vi.runAllTimersAsync();
-    await runPromise;
-
-    expect(getReactionEmojis()).toEqual(["👀", DEFAULT_EMOJIS.done]);
-    expect(sendMocks.removeReactionDiscord.mock.calls.map((call) => call[2])).toEqual(["👀"]);
-  });
->>>>>>> THEIRS/pro-main
 });
 
 it.each([

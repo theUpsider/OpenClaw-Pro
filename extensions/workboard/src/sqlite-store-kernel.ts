@@ -161,7 +161,6 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
             eb.and([eb("claim_json", "is not", null), eb("status", "!=", "done")]),
           ]),
         );
-      let ownerActive = 0;
       // Labels live in a child table, so the opt-in marker needs its own lookup.
       // Scope it to the candidate cards: a full-table scan inside an IMMEDIATE
       // write transaction would grow with the store, not with the board. Compare
@@ -206,20 +205,8 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
               }
             : undefined,
         };
-<<<<<<< OURS/upstream-11.10
-        if (
-          workboardCardConsumesOwnerSlot(card, now) &&
-          workboardCardSlotOwner(card) === ownerId &&
-          ++ownerActive >= limit
-        ) {
-          return "owner_busy";
-||||||| BASE/v11.4
-        if (workboardCardConsumesOwnerSlot(card, now) && workboardCardSlotOwner(card) === ownerId) {
-          return "owner_busy";
-=======
         if (!workboardCardConsumesOwnerSlot(card, now)) {
           continue;
->>>>>>> THEIRS/pro-main
         }
         if (workboardCardSlotOwner(card) !== ownerId) {
           continue;
