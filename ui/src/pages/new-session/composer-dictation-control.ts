@@ -2,8 +2,8 @@ import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { patchSettings } from "../../app/settings.ts";
 import { t } from "../../i18n/index.ts";
 import { registerNewSessionSetupEnglish } from "../../i18n/locales/en-new-session-setup.ts";
-import { ComposerDictationController } from "../chat/composer-dictation.ts";
-import { ComposerMicrophonePicker } from "../chat/composer-microphone-picker.ts";
+import { ComposerDictationOwner } from "../chat/composer-dictation.ts";
+import { ComposerMicrophoneOwner } from "../chat/composer-microphone-picker.ts";
 import type { NewSessionComposerTextareaController } from "./composer-controller.ts";
 
 registerNewSessionSetupEnglish();
@@ -31,16 +31,20 @@ type NewSessionDictationOptions = {
  * its microphone enters the shared dictation session directly on click.
  */
 export class NewSessionDictationControl {
-  private readonly devicePicker: ComposerMicrophonePicker;
-  private dictation: ComposerDictationController | null = null;
+  private readonly devicePicker: ComposerMicrophoneOwner;
+  private dictation: ComposerDictationOwner | null = null;
+  private dictationUnsubscribe: (() => void) | null = null;
   private owner: { key: string } | null = null;
 
   constructor(private readonly options: NewSessionDictationOptions) {
-    this.devicePicker = new ComposerMicrophonePicker(options.requestUpdate);
+    this.devicePicker = new ComposerMicrophoneOwner();
+    this.devicePicker.subscribe(options.requestUpdate);
   }
 
   dispose(): void {
     this.owner = null;
+    this.dictationUnsubscribe?.();
+    this.dictationUnsubscribe = null;
     this.dictation?.dispose();
     this.dictation = null;
     this.devicePicker.dispose();
@@ -96,14 +100,11 @@ export class NewSessionDictationControl {
           this.options.onError(message);
         }
       },
-      onStateChange: () => {
-        if (ownsDraft()) {
-          this.options.requestUpdate();
-        }
-      },
       onDictationUnavailable: this.devicePicker.handleOpen,
     };
-    this.dictation ??= new ComposerDictationController(dictationOptions);
+    this.dictation ??= new ComposerDictationOwner(dictationOptions);
+    // The retained owner emits "change" for every phase; mirror pro's onStateChange.
+    this.dictationUnsubscribe ??= this.dictation.subscribe(() => this.options.requestUpdate());
     this.dictation.update(dictationOptions);
     const dictation = this.dictation;
 

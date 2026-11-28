@@ -9,10 +9,12 @@ export type WorkboardHost = object;
 export type WorkboardClientContext = {
   host: WorkboardHost;
   client: GatewayBrowserClient | null;
+  requestUpdate?: () => void;
 };
 
 type WorkboardLiveRefreshEntry = {
   client: GatewayBrowserClient | null;
+  requestUpdate?: () => void;
   refresh?: () => Promise<boolean>;
   shouldDefer?: () => boolean;
 };

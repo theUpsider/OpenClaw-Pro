@@ -11,10 +11,9 @@ import {
   identitiesOverlap,
 } from "../../identity.js";
 import { resolveWhatsAppInboundPolicy } from "../../inbound-policy.js";
-import { requireWhatsAppInboundAdmission } from "../../inbound/admission.js";
 import type { AdmittedWebInboundMessage } from "../../inbound/types.js";
 import type { MentionConfig } from "../mentions.js";
-import { buildMentionConfig, debugMention, resolveOwnerList } from "../mentions.js";
+import { buildMentionConfig, isBotMentioned, resolveOwnerList } from "../mentions.js";
 import { stripMentionsForCommand } from "./commands.js";
 import { resolveGroupActivationFor } from "./group-activation.js";
 import {
@@ -115,7 +114,7 @@ function skipGroupMessageAndStoreHistory(
 export async function applyGroupGating(params: ApplyGroupGatingParams) {
   const sender = getSenderIdentity(params.msg);
   const self = getSelfIdentity(params.msg, params.authDir);
-  const admission = requireWhatsAppInboundAdmission(params.msg);
+  const admission = params.msg.admission;
   const conversationId = admission.conversation.id;
   const inboundPolicy = resolveWhatsAppInboundPolicy({
     cfg: params.cfg,
@@ -181,16 +180,14 @@ export async function applyGroupGating(params: ApplyGroupGatingParams) {
     );
   }
 
-  const mentionDebug = debugMention(mentionMsg, mentionConfig, params.authDir);
+  const wasMentioned = isBotMentioned(mentionMsg, mentionConfig, params.authDir);
   params.replyLogger.debug(
     {
       conversationId,
-      wasMentioned: mentionDebug.wasMentioned,
-      ...mentionDebug.details,
+      wasMentioned,
     },
     "group mention debug",
   );
-  const wasMentioned = mentionDebug.wasMentioned;
   const activation = await resolveGroupActivationFor({
     cfg: params.cfg,
     accountId: inboundPolicy.account.accountId,

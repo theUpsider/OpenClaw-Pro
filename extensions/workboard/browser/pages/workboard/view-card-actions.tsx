@@ -16,7 +16,6 @@ import { findWorkboardSession } from "../../lib/workboard/lifecycle.ts";
 import {
   archiveWorkboardCard,
   deleteWorkboardCard,
-  moveWorkboardCard,
 } from "../../lib/workboard/mutations.ts";
 import { getWorkboardState } from "../../lib/workboard/runtime.ts";
 import { getWorkboardLaneQueue } from "../../lib/workboard/lane-queue.ts";
@@ -176,6 +175,7 @@ export function getCardActionState(props: WorkboardProps, card: WorkboardCard) {
     session?.hasActiveRun === true ||
     (session?.hasActiveRun !== false && session?.status === "running");
   return {
+    state,
     busy,
     live,
     linkedSessionKey,

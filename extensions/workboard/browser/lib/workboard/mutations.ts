@@ -186,7 +186,7 @@ export async function moveWorkboardCard(
 ): Promise<boolean> {
   const current = getWorkboardState(params.host);
   if (current.nextCursor && params.beforeCardId !== undefined) {
-    return;
+    return false;
   }
   const cards = current.cards;
   const card = cards.find((candidate) => candidate.id === params.cardId);

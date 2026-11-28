@@ -141,7 +141,7 @@ export function BoardModal(props: {
         : { changed: false };
     if (paletteChange.error) {
       initialDraft.palette.error = paletteChange.error;
-      props.requestUpdate();
+      props.onChange();
       return;
     }
     initialDraft.palette.error = null;
@@ -310,8 +310,8 @@ export function BoardModal(props: {
             <BoardPaletteEditor
               draft={draft().palette}
               canWrite={props.canWrite}
-              saving={draft().saving}
-              requestUpdate={props.requestUpdate}
+              saving={saving()}
+              requestUpdate={props.onChange}
               revision={props.revision}
             />
           ) : undefined}

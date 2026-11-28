@@ -12,7 +12,7 @@ import {
   getWorkboardAcceptanceMarker,
   type WorkboardCard,
   type WorkboardLifecycle,
-} from "../../lib/workboard/types.ts";
+} from "../../lib/workboard/index.ts";
 import { resolveWorkboardInteraction } from "../../lib/workboard/interaction.ts";
 import { needsOperatorAttention } from "../../lib/workboard/operator-attention.ts";
 import { cardAgentLabel } from "./agent-filter.ts";

@@ -186,9 +186,8 @@ export function DailyChartCompact(props: {
     if (day && calendar().pending.has(day.date)) {
       return `${dateLabel}: ${t("usage.daily.pending")}`;
     }
-    // A day with an interrupted response keeps its recorded subtotals as lower bounds.
-    const tokens = `${formatUsageTokens(day?.totalTokens ?? 0, day?.usageReport)} ${t("usage.metrics.tokens").toLowerCase()}`;
-    return `${dateLabel}: ${tokens}, ${formatAnalysisCost(day?.totalCost ?? 0, day?.usageReport)}`;
+    const tokens = `${formatUsageTokens(day?.totalTokens ?? 0)} ${t("usage.metrics.tokens").toLowerCase()}`;
+    return `${dateLabel}: ${tokens}, ${formatAnalysisCost(day?.totalCost ?? 0)}`;
   };
   const tipPosition = (index: number) => {
     const share = (index + 0.5) / Math.max(1, dates().length);
@@ -344,9 +343,7 @@ export function CostBreakdownCompact(props: { totals: UsageTotals; mode: "tokens
         className,
         labelKey,
         percentage: total === 0 ? 0 : (value / total) * 100,
-        formatted: isTokenMode
-          ? formatUsageTokens(value, totals.usageReport)
-          : formatAnalysisCost(value, totals.usageReport),
+        formatted: isTokenMode ? formatUsageTokens(value) : formatAnalysisCost(value),
       };
     });
 
@@ -381,8 +378,8 @@ export function CostBreakdownCompact(props: { totals: UsageTotals; mode: "tokens
       <div class="cost-breakdown-total">
         {t("usage.breakdown.total")}:{" "}
         {state().isTokenMode
-          ? formatUsageTokens(state().totals.totalTokens, state().totals.usageReport)
-          : formatAnalysisCost(state().totals.totalCost, state().totals.usageReport)}
+          ? formatUsageTokens(state().totals.totalTokens)
+          : formatAnalysisCost(state().totals.totalCost)}
       </div>
     </div>
   );

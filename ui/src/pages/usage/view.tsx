@@ -277,17 +277,6 @@ function UsageView(props: UsageControlsProps & { loading: boolean; read: UsageRe
             inert={!showAnalytics()}
             style={{ display: showAnalytics() ? "contents" : "none" }}
           >
-            {/* Interrupted responses leave known subtotals: keep the analytics and mark them as lower bounds. */}
-            <Show
-              when={
-                displayTotals()?.usageReport?.state === "unavailable" ||
-                props.data.overview?.usageReport?.state === "unavailable"
-              }
-            >
-              <div class="callout usage-callout" role="note">
-                {t("usage.lowerBound")}
-              </div>
-            </Show>
             <UsageCreators
               groups={activeAggregates().byCreator ?? []}
               selectedKey={props.filters.creatorKey}

@@ -32,6 +32,22 @@ const schemaAdmission: SqliteDatabaseAdmissionKey<true> = {
   read: (value) => (value === true ? true : undefined),
 };
 
+function tableColumns(db: DatabaseSync, tableName: string): Set<string> {
+  return new Set(
+    db
+      .prepare(`PRAGMA table_info(${tableName})`)
+      .all()
+      .flatMap((row) => (typeof row.name === "string" ? [row.name] : [])),
+  );
+}
+
+function ensureColumn(db: DatabaseSync, tableName: string, columnName: string, definition: string) {
+  if (tableColumns(db, tableName).has(columnName)) {
+    return;
+  }
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${definition}`);
+}
+
 function ensureWorkboardSchema(db: DatabaseSync): void {
   if (getSqliteDatabaseAdmission(db, schemaAdmission)) {
     return;

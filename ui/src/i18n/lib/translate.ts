@@ -172,7 +172,7 @@ class I18nManager {
           const translation = await getOrCreatePromise(
             this.inFlightLocaleLoads,
             locale,
-            () => loadLazyLocaleTranslation(locale),
+            () => this.loadLocaleTranslation(locale),
             { evictOnSettled: true },
           );
           if (!translation) {

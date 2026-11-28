@@ -15,8 +15,6 @@ export function UsageMosaic(props: {
     const timeZone = props.timeZone;
     const selectedHours = props.selectedHours;
     const onSelectHour = props.onSelectHour;
-    // Spans from interrupted responses still count their recorded tokens, so totals are lower bounds.
-    const report = props.overview?.usageReport;
     const stats = {
       hasData: props.overview?.hasTimelineData ?? false,
       totalTokens: props.overview?.hourTokens.reduce((sum, value) => sum + value, 0) ?? 0,
@@ -35,7 +33,7 @@ export function UsageMosaic(props: {
         value > 0
           ? `color-mix(in srgb, var(--accent) ${(8 + intensity * 70).toFixed(1)}%, transparent)`
           : "transparent";
-      const title = `${hour}:00 · ${formatUsageTokens(value, report)} ${normalizeLowercaseStringOrEmpty(t("usage.metrics.tokens"))}`;
+      const title = `${hour}:00 · ${formatUsageTokens(value)} ${normalizeLowercaseStringOrEmpty(t("usage.metrics.tokens"))}`;
       const border =
         intensity > 0.7
           ? "color-mix(in srgb, var(--accent) 60%, transparent)"
@@ -43,7 +41,7 @@ export function UsageMosaic(props: {
       return { hour, bg, title, border, selected: selectedHours.includes(hour) };
     });
 
-    return { stats, timeZone, maxWeekday, hours, onSelectHour, report };
+    return { stats, timeZone, maxWeekday, hours, onSelectHour };
   });
   return (
     <SettingsSection
@@ -60,7 +58,7 @@ export function UsageMosaic(props: {
       }
       actions={
         <div class="usage-mosaic-total">
-          {formatUsageTokens(state().stats.hasData ? state().stats.totalTokens : 0, state().report)}{" "}
+          {formatUsageTokens(state().stats.hasData ? state().stats.totalTokens : 0)}{" "}
           {normalizeLowercaseStringOrEmpty(t("usage.metrics.tokens"))}
         </div>
       }
@@ -81,7 +79,7 @@ export function UsageMosaic(props: {
                       <div class="usage-daypart-cell" style={{ background: bg() }}>
                         <div class="usage-daypart-label">{part.label}</div>
                         <div class="usage-daypart-value">
-                          {formatUsageTokens(part.tokens, state().report)}
+                          {formatUsageTokens(part.tokens)}
                         </div>
                       </div>
                     );

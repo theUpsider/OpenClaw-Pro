@@ -16,6 +16,8 @@ const SUPPORTED_METADATA_KEYS: Record<keyof WorkboardMetadata, true> = {
   notifications: true,
   proof: true,
   stale: true,
+  interaction: true,
+  review: true,
   templateId: true,
   workerLogs: true,
   workerProtocol: true,

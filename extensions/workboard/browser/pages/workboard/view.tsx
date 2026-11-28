@@ -7,11 +7,13 @@ import { t } from "../../i18n/index.ts";
 import { listSelectableAgents } from "../../lib/agents/display.ts";
 import { createElementRefs } from "../../lib/element-refs.ts";
 import {
-  buildWorkboardLabelOptions,
   groupWorkboardCardsByStatus,
-  sortWorkboardCards,
   workboardCardMatchesHealthKey,
 } from "../../lib/workboard/derived.ts";
+import {
+  buildWorkboardLabelOptions,
+  sortWorkboardCards,
+} from "../../lib/workboard/index.ts";
 import { loadWorkboard } from "../../lib/workboard/loading.ts";
 import { dispatchWorkboard } from "../../lib/workboard/mutations.ts";
 import { workboardHasActiveWrites } from "../../lib/workboard/runtime.ts";
@@ -525,13 +527,13 @@ export function WorkboardView(
                   <div class="workboard-toolbar__navigation">
                     <StatusTabs
                       state={state()}
-                      requestUpdate={props.onRequestUpdate}
+                      onChange={props.onRequestUpdate}
                       revision={props.revision}
                     />
                     <MobileStatusPicker
                       state={state()}
                       cards={view().statusCards}
-                      requestUpdate={props.onRequestUpdate}
+                      onChange={props.onRequestUpdate}
                       revision={props.revision}
                     />
                     <InboxToggle workboard={props} count={workboardInboxHeadlineCount(view().inbox)} />
@@ -605,7 +607,7 @@ export function WorkboardView(
                       <DisplayChoices
                         state={state()}
                         revision={props.revision}
-                        requestUpdate={props.onRequestUpdate}
+                        onChange={props.onRequestUpdate}
                       />
                     </div>
                     <MultiFilter

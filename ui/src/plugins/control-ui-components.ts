@@ -29,6 +29,82 @@ export function createControlUiComponents(options: {
   signal: AbortSignal;
   onError: (error: unknown) => void;
 }): ControlUiComponents {
+  function mount<P, E extends HTMLElement>(
+    container: HTMLElement,
+    initial: P,
+    load: () => Promise<E>,
+    apply: (element: E, props: P, current: () => ApplicationContext) => void,
+    listen?: (element: E, props: () => P) => () => void,
+    observe?: (context: ApplicationContext, refresh: () => void) => () => void,
+  ): ControlUiComponentHandle<P> {
+    options.current();
+    options.signal.throwIfAborted();
+    let props = initial;
+    let element: E | undefined;
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    let unlisten: (() => void) | undefined;
+    const current = () => {
+      if (!active) {
+        throw new Error("This plugin component has been disposed.");
+      }
+      options.signal.throwIfAborted();
+      return options.current();
+    };
+    const refresh = () => {
+      if (element && active) {
+        apply(element, props, current);
+      }
+    };
+    const dispose = () => {
+      if (!active) {
+        return;
+      }
+      active = false;
+      options.signal.removeEventListener("abort", dispose);
+      unsubscribe?.();
+      unlisten?.();
+      element?.remove();
+    };
+    options.signal.addEventListener("abort", dispose, { once: true });
+    void load()
+      .then((loaded) => {
+        // Imports can finish after navigation or reload. The retired mount must
+        // never reconnect a dialog, provider lease, or event callback.
+        if (!active || options.signal.aborted) {
+          return;
+        }
+        current();
+        element = loaded;
+        unlisten = listen?.(element, () => {
+          current();
+          return props;
+        });
+        refresh();
+        container.append(element);
+        const context = current();
+        const stops = [context.gateway.subscribe(refresh), context.agents.subscribe(refresh)];
+        if (observe) {
+          stops.push(observe(context, refresh));
+        }
+        unsubscribe = () => stops.forEach((stop) => stop());
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          dispose();
+          options.onError(error);
+        }
+      });
+    return {
+      update(next) {
+        current();
+        props = next;
+        refresh();
+      },
+      dispose,
+    };
+  }
+
   function component<P, K extends keyof HTMLElementTagNameMap>(
     tag: K,
     load: () => Promise<unknown>,

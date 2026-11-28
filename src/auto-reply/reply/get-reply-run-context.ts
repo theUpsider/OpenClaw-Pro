@@ -13,8 +13,10 @@ import {
 import { resolveIngressWorkspaceOverrideForSessionRun } from "../../agents/spawned-context.js";
 import type { SilentReplyPromptMode } from "../../agents/system-prompt.types.js";
 import { resolveEffectiveAgentRuntime } from "../../agents/thinking-runtime.js";
+import { normalizeChatType } from "../../channels/chat-type.js";
 import { copyChannelParticipantAdmissionEvidence } from "../../channels/message-access/admission-evidence.js";
 import { resolveCronSessionWorkspaceOwnershipError } from "../../cron/run-authority.js";
+import { logVerbose } from "../../globals.js";
 import { measureDiagnosticsTimelineSpan } from "../../infra/diagnostics-timeline.js";
 import { isFastTestRuntimeEnv } from "../../infra/env.js";
 import { normalizeMediaFacts, type MediaFact } from "../../media/media-facts.js";
@@ -34,11 +36,12 @@ import {
   isNativeCommandTurn,
   isTextSlashCommandTurn,
   resolveCommandTurnContext,
+  resolveCommandTurnTargetSessionKey,
 } from "../command-turn-context.js";
 import { resolveEnvelopeFormatOptions } from "../envelope.js";
 import { buildInboundMediaNoteProjection } from "../media-note.js";
 import { getRequesterProfile } from "../requester-profile.js";
-import type { TemplateContext } from "../templating.js";
+import type { MsgContext, TemplateContext } from "../templating.js";
 import { normalizeThinkLevel } from "../thinking.js";
 import { applySessionHints } from "./body.js";
 import { appendChannelPromptContext } from "./channel-prompt-context.js";
@@ -90,6 +93,23 @@ const RESUMABLE_ROOM_CONTEXT_OMITTED_PREFIXES = [
   "Chat history since last reply:",
   "Recent chat history:",
 ];
+
+/** Fork seam (reply gate): the conversation type the reply policy applies to. */
+function resolveReplyPolicyConversationType(
+  ctx: Pick<
+    MsgContext,
+    "ChatType" | "CommandSource" | "CommandTargetSessionKey" | "CommandTurn" | "SessionKey"
+  >,
+  inboundSessionKey?: string,
+): "direct" | "group" | undefined {
+  const sourceSessionKey = inboundSessionKey ?? ctx.SessionKey;
+  const targetSessionKey = resolveCommandTurnTargetSessionKey(ctx);
+  if (targetSessionKey && targetSessionKey !== sourceSessionKey) {
+    return undefined;
+  }
+  const chatType = normalizeChatType(ctx.ChatType);
+  return chatType === "channel" ? "group" : chatType;
+}
 
 export async function prepareReplyRunContext(params: RunPreparedReplyParams) {
   const {
@@ -408,10 +428,15 @@ export async function prepareReplyRunContext(params: RunPreparedReplyParams) {
   //   false / true  / reply=false, action=true  -> turn runs, post NOT suppressed (stage 1 off)
   //   false / false / any                       -> gate never called
   //   any   / any   / unavailable               -> fail-open: turn runs, no suppression
+  // Heartbeat turns run as scheduled automations (upstream #180563); the scheduledAutomation and
+  // synthetic-turn exclusions below cover them.
+  const silentReplyConversationType = resolveReplyPolicyConversationType(
+    promptSessionCtx,
+    ctx.SessionKey,
+  );
   const replyGateSettings =
     isGroupChat &&
     silentReplyConversationType === "group" &&
-    !isHeartbeat &&
     !isInternalEvent &&
     !isSyntheticTurn &&
     !isActiveCommandTurn &&

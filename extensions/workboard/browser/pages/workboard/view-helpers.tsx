@@ -193,13 +193,13 @@ export function dispatchSummaryMessage(state: WorkboardUiState) {
     reclaimed: String(summary.reclaimed),
     orchestrated: String(summary.orchestrated),
   });
-  return summary.firstFailure
+  const withFailure = summary.firstFailure
     ? `${message}
 ${t("workboard.dispatchFirstFailure", { message: formatUiExternalText(summary.firstFailure) })}`
     : message;
   return summary.queued
-    ? `${message} ${t("workboard.dispatchSummaryQueued", { count: String(summary.queued) })}`
-    : message;
+    ? `${withFailure} ${t("workboard.dispatchSummaryQueued", { count: String(summary.queued) })}`
+    : withFailure;
 }
 
 export function refreshStatusLabel(state: WorkboardUiState) {

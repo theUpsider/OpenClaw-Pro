@@ -1,6 +1,6 @@
 import { Type, type Static, type TProperties, type TSchema } from "typebox";
 import { Value } from "typebox/value";
-import { isWorkerTextFrameWithinBudget } from "../worker-transcript-budget.js";
+import { isWorkerTextFrameWithinBudget } from "../worker-text-budget.js";
 import { closedObject } from "./closed-object.js";
 import {
   LiveIntegerSchema,

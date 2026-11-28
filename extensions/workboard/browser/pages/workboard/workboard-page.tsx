@@ -118,7 +118,7 @@ export function createWorkboardPage(
         }
       });
     };
-    const sessionResolver = createWorkboardSessionResolver(host, requestUpdate);
+    const sessionResolver = createWorkboardSessionResolver(host, publishPresentation);
     // Separate, dock-inclusive route for the interaction fallback; never merged into the
     // board roster, which feeds the attention filter.
     const dockSessions = createWorkboardDockSessions(host, publishPresentation);

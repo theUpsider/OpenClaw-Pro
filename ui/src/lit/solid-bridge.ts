@@ -1,4 +1,4 @@
-import { ContextProvider } from "@lit/context";
+import { ContextProvider, createContext } from "@lit/context";
 import { insert, render, spread } from "@solidjs/web";
 import {
   createComponent,
@@ -17,13 +17,17 @@ import { ApplicationProvider } from "../lib/reactive/context.ts";
 import type { JSX } from "../types/solid-elements.d.ts";
 import { mountLitContent } from "./solid-content.tsx";
 
+// 11.10 keys its application context as a plain string (see app/context.ts);
+// @lit/context needs a branded Context, so this fork-only bridge derives one.
+const litApplicationContext = createContext<ApplicationContext>(applicationContext);
+
 /** Temporary DOM-context bridge for unported Lit descendants; delete at cutover. */
 export function connectLegacyApplicationContext(
   host: HTMLElement,
   context: ApplicationContext,
 ): () => void {
   const provider = new ContextProvider(host, {
-    context: applicationContext,
+    context: litApplicationContext,
     initialValue: context,
   });
   provider.hostConnected();

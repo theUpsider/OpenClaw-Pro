@@ -172,7 +172,6 @@ function PluginComposerSessionControlsContent(props: PluginComposerSessionContro
       fastModeTarget={controls().session}
       sessionsResult={sessionsResult()}
       stream={null}
-      onRequestUpdate={notify}
       onModelSetup={() => controls().context?.navigate("model-setup")}
       onProviderSettings={(provider) =>
         navigateToModelProvider(controls().context ?? undefined, controls().agent, provider)

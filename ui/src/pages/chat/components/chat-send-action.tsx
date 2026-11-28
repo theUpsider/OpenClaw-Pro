@@ -1,9 +1,14 @@
-import { createMemo } from "solid-js";
+import { createMemo, Show } from "solid-js";
 import { Icon } from "../../../components/solid/icon.tsx";
+import { Kbd, KeyboardShortcut } from "../../../components/solid/kbd.tsx";
 import { canSubmitBeforeChatHistory } from "../../../lib/chat/commands.ts";
+import {
+  formatKeyboardShortcutParts,
+  isApplePlatform,
+  KEYBOARD_SHORTCUT_COMBOS,
+} from "../../../lib/keyboard-shortcut-contract.ts";
 import { t } from "../../../lib/reactive/i18n.ts";
-import { renderComposerSendTooltip } from "./chat-composer-controls.ts";
-import type { ChatRunControlsProps } from "./chat-composer-controls.tsx";
+import type { createChatComposerContext } from "./chat-composer-frame.ts";
 
 export function primaryPointerDownRef(read: () => ((event: PointerEvent) => void) | undefined) {
   // Preserve input focus before native tooltip listeners run at the target.
@@ -11,26 +16,16 @@ export function primaryPointerDownRef(read: () => ((event: PointerEvent) => void
     button.addEventListener("pointerdown", (event) => read()?.(event), true);
 }
 
+type ChatRunControlsProps = ReturnType<typeof createChatComposerContext>["runControlsProps"];
+
 type ChatSendActionProps = Pick<
   ChatRunControlsProps,
-  | "canAbort"
-  | "canSend"
-  | "sending"
-  | "submitPending"
-  | "draft"
-  | "hasAttachments"
-  | "preparingAttachments"
-  | "followUpMode"
-  | "alternateFollowUpMode"
-  | "suggestionComposer"
-  | "submissionLabel"
-  | "submitDisabledReason"
-  | "onPrimaryActionPointerDown"
-  | "onSend"
-> & {
-  /** Plugin hosts point this at their own description of the action. */
-  describedBy?: string;
-};
+  "canAbort" | "canSend" | "sending" | "draft" | "onSend"
+> &
+  Partial<Omit<ChatRunControlsProps, "canAbort" | "canSend" | "sending" | "draft" | "onSend">> & {
+    /** Plugin hosts point this at their own description of the action. */
+    describedBy?: string;
+  };
 
 export function chatSendAvailability(props: ChatSendActionProps) {
   const hasComposedContent = () => Boolean(props.draft.trim() || props.hasAttachments);
@@ -68,9 +63,22 @@ export function ChatSendAction(props: ChatSendActionProps) {
       ? `${label()} ⏎ · ${alternateLabel()} ${t("chat.sendShortcutModifierEnter")}`
       : label();
   const tooltipTemplate = () =>
-    alternateAvailable()
-      ? renderComposerSendTooltip(label(), alternateLabel(), t("chat.sendShortcutModifierEnter"))
-      : undefined;
+    alternateAvailable() ? (
+      <span slot="content">
+        {label()}{" "}
+        <KeyboardShortcut combo={KEYBOARD_SHORTCUT_COMBOS.modifiedEnter} inline />
+        {" · "}
+        {alternateLabel()}{" "}
+        <Kbd
+          keys={
+            isApplePlatform()
+              ? t("chat.sendShortcutModifierEnter")
+              : formatKeyboardShortcutParts(KEYBOARD_SHORTCUT_COMBOS.modifiedEnter, false)
+          }
+          inline
+        />
+      </span>
+    ) : undefined;
   const sendBusy = () => props.sending || Boolean(sendDisabledReason() && props.submitPending);
   const sendStatus = () =>
     sendDisabledReason() ??
@@ -86,10 +94,8 @@ export function ChatSendAction(props: ChatSendActionProps) {
           ? t("chat.composer.preparingAttachments")
           : (sendStatus() ?? tooltip())
       }
-      prop:contentTemplate={
-        !props.preparingAttachments && sendStatus() == null ? tooltipTemplate() : undefined
-      }
     >
+      <Show when={!props.preparingAttachments && sendStatus() == null}>{tooltipTemplate()}</Show>
       <button
         class={`chat-send-btn chat-send-btn--send${props.sending ? " chat-send-btn--sending" : ""}`}
         ref={primaryPointerDownRef(() => props.onPrimaryActionPointerDown)}

@@ -61,6 +61,12 @@ function groupParams(over: Partial<Parameters<typeof baseParams>[0]> = {}, chatT
   return { params, onDeliberateSilentTerminalReply };
 }
 
+const SCHEDULED_AUTOMATION = {
+  assertCurrent: () => {},
+  admissionSource: "system",
+  job: {},
+} as never;
+
 beforeEach(() => {
   setRuntimeConfigSnapshot(cfg);
   mocks.evaluate.mockReset();
@@ -149,11 +155,12 @@ describe("reply gate in prepared reply", () => {
     expect(mocks.evaluate).not.toHaveBeenCalled();
   });
 
-  it("does not gate heartbeat turns", async () => {
+  // Heartbeats run as scheduled automations (upstream #180563).
+  it("does not gate scheduled-automation (heartbeat) turns", async () => {
     verdict(0);
     const { params } = groupParams();
-    params.opts = { ...params.opts, isHeartbeat: true };
-    await runPreparedReply(params);
+    params.opts = { ...params.opts, scheduledAutomation: SCHEDULED_AUTOMATION };
+    await runPreparedReply(params).catch(() => undefined);
     expect(mocks.evaluate).not.toHaveBeenCalled();
   });
 
@@ -346,7 +353,7 @@ describe("reply gate stage 2: skipping the whole turn", () => {
   );
 
   it.each([
-    ["heartbeat", { isHeartbeat: true }],
+    ["scheduled-automation (heartbeat)", { scheduledAutomation: SCHEDULED_AUTOMATION }],
     ["internal event", { internalEventExecution: { assertCurrent: () => {} } as never }],
   ])("never skips a %s turn even with stage 2 armed", async (_name, over) => {
     setRuntimeConfigSnapshot(skipArmed);

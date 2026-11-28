@@ -354,7 +354,7 @@ export function DisplayChoices(props: StatusFilterProps) {
       <DisplayChoice
         state={props.state}
         revision={props.revision}
-        requestUpdate={props.requestUpdate}
+        onChange={props.onChange}
         field="sort"
         labelKey="filterSort"
         options={[

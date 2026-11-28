@@ -304,7 +304,7 @@ export function InlineText(props: InlineTextProps) {
     card: () => props.card,
     base: () => base,
     typed: () => value,
-    inert: () => disabled() || saving,
+    inert: () => disabled() || saving(),
     revision,
     publish,
   });
@@ -612,8 +612,8 @@ export function InlineText(props: InlineTextProps) {
             bindValue={bindValue}
             onInput={input}
             readOnly={Boolean(props.readOnly)}
-            inert={disabled() || isSaving()}
-            inputDisabled={isSaving() || (disabled() && !props.readOnly)}
+            inert={disabled() || saving()}
+            inputDisabled={saving() || (disabled() && !props.readOnly)}
             onSave={(replaces) => void save(replaces)}
           />
         ) : (
@@ -633,7 +633,7 @@ export function InlineText(props: InlineTextProps) {
         <span class="workboard-detail__text-actions">
           {props.field === "notes" && !props.readOnly ? (
             <DictationControl
-              enabled={!disabled() && !isSaving()}
+              enabled={!disabled() && !saving()}
               accessibleLabel={t("workboard.notesDictate")}
               onStart={() => setDictationError(undefined)}
               onTranscript={appendTranscript}

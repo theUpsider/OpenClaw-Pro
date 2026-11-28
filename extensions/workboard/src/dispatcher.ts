@@ -489,78 +489,13 @@ async function runWorkboardDispatch(
       const worktrees = params.worktrees;
       const materializeWorktree = params.options?.materializeWorktree === true;
       const materializationAccess = workspaceAccess;
-      const materialized = await (async (): Promise<{
-        workspace?: WorkboardWorkspace;
-        cwd?: string;
-      }> => {
-        const workspace = materializeCard.metadata?.automation?.workspace;
-        if (!workspace || workspace.kind === "scratch") {
-          return {};
-        }
-        const sourcePath = workspace.sourcePath ?? workspace.path;
-        const sourceBranch = workspace.sourcePath ? workspace.sourceBranch : workspace.branch;
-        if (!sourcePath || !path.isAbsolute(sourcePath)) {
-          throw new Error("worktree workspace path must be an absolute git checkout path");
-        }
-        // Persisted cards can outlive the caller that created them. Keep the exact
-        // canonical path that passes this dispatcher's current boundary check.
-        const canonicalSourcePath = await assertWorkboardWorkspaceSourceAccess(
-          workspace,
-          materializationAccess,
-        );
-        if (!canonicalSourcePath) {
-          throw new Error("worktree workspace path is required");
-        }
-        if (workspace.kind === "dir" || !materializationAccess.unrestricted) {
-          await assertCanonicalWorkboardRootAccess(canonicalSourcePath, materializationAccess);
-          return workspace.kind === "worktree"
-            ? { cwd: canonicalSourcePath, workspace: { kind: "dir", path: canonicalSourcePath } }
-            : { cwd: canonicalSourcePath };
-        }
-        if (!materializeWorktree) {
-          throw new Error("managed worktree materialization was not explicitly authorized");
-        }
-        if (!worktrees) {
-          throw new Error("managed worktree runtime is unavailable");
-        }
-        assertOwnerCurrent?.();
-        const worktree = await worktrees.create({
-          repoRoot: canonicalSourcePath,
-          name: managedWorktreeName(materializeCard.id),
-          ...(sourceBranch ? { baseRef: sourceBranch } : {}),
-          ownerKind: "workboard",
-          ownerId: materializeCard.id,
-          ...(assertOwnerCurrent ? { commitGuard: assertOwnerCurrent } : {}),
-        });
-        let cwd: string;
-        try {
-          cwd = await canonicalPathFromExistingAncestor(worktree.path);
-        } catch (error) {
-          const removed = await worktrees
-            .removeIfLossless({
-              path: worktree.path,
-              ownerKind: "workboard",
-              ownerId: materializeCard.id,
-            })
-            .catch(() => false);
-          if (!removed) {
-            throw new Error(`${formatErrorMessage(error)}; managed worktree cleanup failed`, {
-              cause: error,
-            });
-          }
-          throw error;
-        }
-        return {
-          cwd,
-          workspace: {
-            kind: "worktree",
-            path: worktree.path,
-            branch: worktree.branch,
-            sourcePath,
-            ...(sourceBranch ? { sourceBranch } : {}),
-          },
-        };
-      })();
+      const materialized = await materializeWorkspace({
+        card: materializeCard,
+        worktrees,
+        materializeWorktree,
+        workspaceAccess: materializationAccess,
+        assertOwnerCurrent,
+      });
       const runCwd = materialized.cwd ?? implicitWorkspaceCwd;
       if (runCwd && !workspaceAccess.unrestricted) {
         await assertRestrictedTarget(runCwd);

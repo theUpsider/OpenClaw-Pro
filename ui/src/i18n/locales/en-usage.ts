@@ -140,7 +140,6 @@ const enUsage = {
       messageCounts: "{user} user · {assistant} assistant",
       uniqueToolsCount: "{count} tools used",
       unpriced: "Unpriced",
-      unpriced: "Unpriced",
       messages: "Messages",
       messagesAbbrev: "msgs",
       user: "user",

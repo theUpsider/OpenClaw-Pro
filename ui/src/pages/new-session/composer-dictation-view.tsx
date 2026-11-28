@@ -1,10 +1,10 @@
 import { createMemo } from "solid-js";
 import {
   ComposerDictationSendAction,
-  renderComposerDictationStatusSolid,
   renderComposerVoiceButtonSolid as ComposerVoiceButton,
   renderMicrophonePickerSolid as MicrophonePicker,
 } from "../chat/components/chat-composer-controls.tsx";
+import { ActiveDictationStatus } from "../chat/components/composer-dictation-status.tsx";
 import type { NewSessionDictationControl } from "./composer-dictation-control.ts";
 
 export function NewSessionDictationView(props: {
@@ -33,9 +33,13 @@ export function NewSessionDictationStatus(props: {
   control: NewSessionDictationControl;
   renderRevision?: object;
 }) {
-  const status = createMemo(() => {
-    void props.renderRevision;
-    return renderComposerDictationStatusSolid(props.control.controller);
-  });
-  return <>{status()}</>;
+  // 11.10 folds the fork's renderComposerDictationStatusSolid into ActiveDictationStatus.
+  return (
+    <ActiveDictationStatus
+      readDictation={() => {
+        void props.renderRevision;
+        return props.control.controller;
+      }}
+    />
+  );
 }

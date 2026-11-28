@@ -884,20 +884,20 @@ export default function controlUiViteConfig(
     // Keep optional artwork behind its existing wait so it cannot compete
     // with foreground data on a slow connection.
     const waitsForStyles =
-      parallelStyleTargets.has(filename) &&
-      (styledChunks.has(filename) ||
-        [...collectStaticImports(filename)].some((dep) => styledChunks.has(dep)));
+      parallelStyleTargets.has(_filename) &&
+      (styledChunks.has(_filename) ||
+        [...collectStaticImports(_filename)].some((dep) => styledChunks.has(dep)));
     // Warm the deep menu alongside its root import, without evaluating it or
     // making every route download it. Selection then needs no serial fetch.
     const candidates = new Set(deps);
-    if (filename === composerMenuChunk && composerSubviewChunk) {
+    if (_filename === composerMenuChunk && composerSubviewChunk) {
       candidates.add(composerSubviewChunk);
       for (const dependency of collectStaticImports(composerSubviewChunk)) {
         candidates.add(dependency);
       }
     }
-    const dependencies = [...candidates].filter((dep) => !loaded.has(dep) && dep !== filename);
-    return waitsForStyles && !loaded.has(filename) ? [filename, ...dependencies] : dependencies;
+    const dependencies = [...candidates].filter((dep) => !loaded.has(dep) && dep !== _filename);
+    return waitsForStyles && !loaded.has(_filename) ? [_filename, ...dependencies] : dependencies;
   };
   return {
     base,

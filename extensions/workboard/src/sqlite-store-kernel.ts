@@ -124,7 +124,7 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
     key: string,
     value: PersistedWorkboardCard,
     expectedUpdatedAt: number,
-    { ownerId, now, limit }: WorkboardOwnerSlot,
+    { ownerId, now }: WorkboardOwnerSlot,
   ): WorkboardOwnerClaimResult {
     return runSqliteImmediateTransactionSync(this.db, () => {
       const query = getNodeSqliteKysely<WorkboardCardDatabase>(this.db);

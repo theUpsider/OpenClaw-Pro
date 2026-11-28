@@ -6,18 +6,26 @@ import {
   observeTextareaOverflow,
   scheduleTextareaHeightAdjustment,
 } from "../chat/components/chat-composer-dom.ts";
-import { ComposerEmojiMenu } from "../chat/components/chat-composer-emoji.tsx";
-import { HumanMentionMenu } from "../chat/components/chat-composer-mention-menu.tsx";
-import type { ChatComposerPlusMenuView } from "../chat/components/chat-composer-plus-menu.tsx";
-import {
-  createSkillMenuState,
-  resetSkillMenuState,
-} from "../chat/components/chat-composer-skill-menu.tsx";
-import {
-  createSlashMenuState,
-  resetSlashMenuState,
-} from "../chat/components/chat-composer-slash-menu.tsx";
-import { insertComposerDictation } from "../chat/composer-dictation.ts";
+import { createComposerEmojiMenu } from "../chat/components/chat-composer-emoji-state.ts";
+import { createHumanMentionMenu } from "../chat/components/chat-composer-mention-menu-state.ts";
+import { createSkillMenu } from "../chat/components/chat-composer-skill-menu-state.ts";
+import { createSlashMenu } from "../chat/components/chat-composer-slash-menu-state.ts";
+import type { ChatComposerPlusMenuView } from "../chat/composer-capability-types.ts";
+import { placeComposerDictation } from "../chat/composer-dictation-session.ts";
+
+// 11.10 keeps insertion private to composer-dictation-session; reuse its placement.
+function insertComposerDictation(
+  value: string,
+  transcript: string,
+  selectionStart: number,
+  selectionEnd: number,
+): { value: string; caret: number } {
+  return placeComposerDictation(transcript, null, {
+    start: selectionStart,
+    end: selectionEnd,
+    value,
+  });
+}
 
 export class NewSessionComposerTextareaController {
   // An opening gets one cast; typing and async picker updates never reroll it.
@@ -33,10 +41,10 @@ export class NewSessionComposerTextareaController {
   private skillCommandClient: GatewayBrowserClient | null = null;
   private skillCommandAgentId = "";
   private skillCommandDraftOwnerKey = "";
-  readonly skillMenuState = createSkillMenuState();
-  readonly slashMenuState = createSlashMenuState();
-  readonly mentionMenu = new HumanMentionMenu();
-  readonly emojiMenu = new ComposerEmojiMenu();
+  readonly skillMenuState = createSkillMenu();
+  readonly slashMenuState = createSlashMenu();
+  readonly mentionMenu = createHumanMentionMenu();
+  readonly emojiMenu = createComposerEmojiMenu();
   composing = false;
   mentionInput?: HumanMentionInput;
   capabilityMenuOpen = false;
@@ -223,7 +231,7 @@ export class NewSessionComposerTextareaController {
     this.skillCommandAgentId = normalizedAgentId;
     this.skillCommandDraftOwnerKey = draftOwnerKey;
     this.emojiMenu.close();
-    resetSkillMenuState(this.skillMenuState);
+    this.skillMenuState.reset();
   }
 
   ownsSkillCommands(
@@ -247,8 +255,8 @@ export class NewSessionComposerTextareaController {
     this.skillCommandClient = null;
     this.skillCommandAgentId = "";
     this.skillCommandDraftOwnerKey = "";
-    resetSkillMenuState(this.skillMenuState);
-    resetSlashMenuState(this.slashMenuState);
+    this.skillMenuState.reset();
+    this.slashMenuState.reset();
     this.capabilityMenuOpen = false;
     this.capabilityMenuView = "root";
     if (this.textarea) {
